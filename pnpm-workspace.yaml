@@ -1,0 +1,9 @@
+packages:
+  - 'shared'
+  - 'backend'
+  - 'web'
+allowBuilds:
+  # Required: vitest and Next.js both need esbuild's native binary installed.
+  esbuild: true
+
+# `app/` is Flutter — not an npm workspace. See docs/ for its toolchain.

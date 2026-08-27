@@ -1,0 +1,24 @@
+name: app-ci
+
+on:
+  push:
+    paths: ['app/**']
+  pull_request:
+    paths: ['app/**']
+
+# The Flutter owner/staff app is scaffolded in Phase 1.1 (minimal shell: auth,
+# FCM, session banner, QR re-scan). The paths filter is the guard: nothing under
+# app/ can change before app/ exists, so this never runs prematurely.
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - run: flutter pub get
+        working-directory: app
+      - run: flutter analyze
+        working-directory: app
+      - run: flutter test
+        working-directory: app

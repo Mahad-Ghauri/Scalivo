@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────
+# Private — the FYP's own work. Not for a public repo.
+# ─────────────────────────────────────────────────────────────
+docs/
+.claude/
+*.plan.md
+NOTES.md
+findings/
+research/
+thesis/
+
+# ─────────────────────────────────────────────────────────────
+# Secrets — never commit. See .env.example in each package.
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+*-service-account*.json
+.api-key
+secrets/
+
+# Firebase / FCM credentials
+google-services.json
+GoogleService-Info.plist
+.firebase/
+firebase-debug.log*
+.runtimeconfig.json
+
+# ─────────────────────────────────────────────────────────────
+# Dependencies & build output
+# ─────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Next.js
+.next/
+next-env.d.ts
+.vercel/
+
+# ─────────────────────────────────────────────────────────────
+# Flutter / Dart  (app/)
+# ─────────────────────────────────────────────────────────────
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+app/build/
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+*.ipa
+*.apk
+*.aab
+
+# ─────────────────────────────────────────────────────────────
+# Tests & coverage
+# ─────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+
+# ─────────────────────────────────────────────────────────────
+# Local infra state
+# ─────────────────────────────────────────────────────────────
+# OpenWA session data belongs in a Docker named volume, never in the repo —
+# it is a full Chromium profile (~90 MB/session) containing live credentials.
+openwa-data/
+docker-compose.override.yml
+*.sqlite
+*.db
+dump.rdb
+
+# ─────────────────────────────────────────────────────────────
+# Editors & OS
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# ─────────────────────────────────────────────────────────────
+# Logs & scratch
+# ─────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+temp/
+*.tmp
+*.bak
+
+
+*ponytail/

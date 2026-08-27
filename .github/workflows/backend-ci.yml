@@ -1,0 +1,28 @@
+name: backend-ci
+
+on:
+  push:
+    paths: ['backend/**', 'shared/**', '.github/workflows/backend-ci.yml']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @scalivo/shared build
+      - run: pnpm --filter @scalivo/backend build
+      - run: pnpm lint
+
+      # Time correctness must hold under a server timezone that is not PKT —
+      # that is the whole point of the UTC-everywhere rule.
+      - name: tests (TZ=UTC)
+        run: TZ=UTC pnpm --filter @scalivo/backend test
+      - name: tests (TZ=America/New_York)
+        run: TZ=America/New_York pnpm --filter @scalivo/backend test
