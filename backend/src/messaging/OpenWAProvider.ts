@@ -1,0 +1,235 @@
+import crypto from 'node:crypto';
+import {
+  ACK_STATUS,
+  SESSION_STATUS,
+  type AckStatus,
+  type MessagingProvider,
+  type ProviderEvent,
+  type SendResult,
+  type SessionStatus,
+} from '@scalivo/shared';
+
+/**
+ * OpenWA v0.14.6.
+ *
+ * Every shape below was measured against a live session during the spike
+ * (open-wa/NOTES.md + findings/webhooks.ndjson, 45 verified deliveries), not
+ * read off upstream's docs. Where the two disagreed, the measurement won.
+ */
+
+/** The webhook envelope every delivery is wrapped in. */
+interface Envelope {
+  event: string;
+  timestamp: string;
+  sessionId: string;
+  idempotencyKey: string;
+  deliveryId: string;
+  data: Record<string, unknown>;
+}
+
+export class OpenWAProvider implements MessagingProvider {
+  readonly name = 'openwa';
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly apiKey: string,
+    private readonly webhookSecret: string,
+  ) {}
+
+  /**
+   * Returns ACCEPTED, never delivered.
+   *
+   * The API answers `{messageId, timestamp}` whether or not the message ever
+   * arrives — under upstream #830 WhatsApp silently drops first contact to a
+   * brand-new number while still reporting success. Delivery is only proven by
+   * a later message.ack reaching 'delivered'.
+   */
+  async sendText(sessionId: string, to: string, text: string): Promise<SendResult> {
+    const res = await this.request<{ messageId: string; timestamp: number }>(
+      `/api/sessions/${sessionId}/messages/send-text`,
+      { method: 'POST', body: JSON.stringify({ chatId: toChatId(to), text }) },
+    );
+    return { providerMessageId: res.messageId, acceptedAt: new Date(res.timestamp * 1000) };
+  }
+
+  async getSessionStatus(sessionId: string): Promise<SessionStatus> {
+    const res = await this.request<{ status: string }>(`/api/sessions/${sessionId}`);
+    return toSessionStatus(res.status);
+  }
+
+  /**
+   * Start (or resume) a session. After a container restart this recovers in
+   * ~7s with no QR at all — the credentials live in the named volume. A QR
+   * only comes back when the link is genuinely gone.
+   */
+  async startSession(sessionId: string): Promise<{ status: SessionStatus; qrCode?: string }> {
+    const started = await this.request<{ status: string }>(`/api/sessions/${sessionId}/start`, {
+      method: 'POST',
+    });
+    const status = toSessionStatus(started.status);
+    if (status !== SESSION_STATUS.QR_READY) return { status };
+
+    const qr = await this.request<{ qrCode?: string }>(`/api/sessions/${sessionId}/qr`);
+    return qr.qrCode ? { status, qrCode: qr.qrCode } : { status };
+  }
+
+  /**
+   * FINDING #1 fallback. Inbound payloads carry `senderPhone` only when OpenWA
+   * runs with RESOLVE_LID_TO_PHONE=true, and even then it can be absent. This
+   * endpoint works regardless, so it is the safety net that keeps an unresolved
+   * contact from becoming a dropped message.
+   */
+  async resolveContactPhone(sessionId: string, contactLid: string): Promise<string | null> {
+    try {
+      const res = await this.request<{ phone?: string }>(
+        `/api/sessions/${sessionId}/contacts/${encodeURIComponent(contactLid)}/phone`,
+      );
+      return res.phone ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verify and normalise one inbound delivery.
+   *
+   * Throws on a bad signature — the caller decides the HTTP response. Returns
+   * an empty array for events we don't act on, which is not an error.
+   */
+  parseWebhook(rawBody: Buffer, headers: Record<string, string | undefined>): ProviderEvent[] {
+    if (!verifySignature(rawBody, headers['x-openwa-signature'], this.webhookSecret)) {
+      throw new InvalidSignatureError();
+    }
+
+    const envelope = JSON.parse(rawBody.toString('utf8')) as Envelope;
+    const { event, sessionId, data } = envelope;
+    const occurredAt = new Date(envelope.timestamp);
+
+    switch (event) {
+      case 'message.received': {
+        // `from` is an @lid, never a phone number. See FINDING #1.
+        const contactLid = str(data.from) ?? str(data.chatId) ?? '';
+        const contact = (data.contact ?? {}) as { name?: string; pushName?: string };
+        return [
+          {
+            kind: 'message',
+            payload: {
+              providerMessageId: str(data.id) ?? '',
+              sessionId,
+              contactPhone: str(data.senderPhone),
+              contactLid,
+              body: str(data.body) ?? '',
+              type: str(data.type) ?? 'unknown',
+              // OpenWA sends epoch SECONDS here, unlike the envelope's ISO string.
+              receivedAt: new Date(Number(data.timestamp ?? 0) * 1000),
+              fromMe: Boolean(data.fromMe),
+              isGroup: Boolean(data.isGroup),
+              displayName: contact.name ?? contact.pushName ?? null,
+              hasMedia: Boolean(data.hasMedia),
+            },
+          },
+        ];
+      }
+
+      case 'message.ack':
+        return [
+          {
+            kind: 'ack',
+            payload: {
+              providerMessageId: str(data.messageId) ?? str(data.id) ?? '',
+              sessionId,
+              status: toAckStatus(str(data.status)),
+              occurredAt,
+            },
+          },
+        ];
+
+      case 'session.status':
+        return [
+          {
+            kind: 'session-status',
+            payload: { sessionId, status: toSessionStatus(str(data.status)), occurredAt },
+          },
+        ];
+
+      // Arrives ~4ms BEFORE the status change, making it the earliest signal
+      // that a session died. Session Health treats an unsolicited one as the
+      // same alarm as an unsolicited qr_ready.
+      case 'session.qr':
+        return [
+          { kind: 'session-qr', payload: { sessionId, qrCode: str(data.qr) ?? '', occurredAt } },
+        ];
+
+      default:
+        return [];
+    }
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await fetch(new URL(path, this.baseUrl), {
+      ...init,
+      headers: {
+        'X-API-Key': this.apiKey,
+        'Content-Type': 'application/json',
+        ...init.headers,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`OpenWA ${init.method ?? 'GET'} ${path} failed: ${res.status}`);
+    }
+    return (await res.json()) as T;
+  }
+}
+
+export class InvalidSignatureError extends Error {
+  constructor() {
+    super('X-OpenWA-Signature did not verify');
+    this.name = 'InvalidSignatureError';
+  }
+}
+
+/**
+ * HMAC-SHA256 over the RAW request bytes.
+ *
+ * Verifying against a re-serialized parse drifts on key order and unicode
+ * escaping, so the caller must hand over the untouched buffer. Lifted from the
+ * spike receiver, which verified VALID on all 45 deliveries.
+ */
+export function verifySignature(
+  rawBody: Buffer,
+  header: string | undefined,
+  secret: string,
+): boolean {
+  if (!header) return false;
+
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  const a = Buffer.from(header);
+  const b = Buffer.from(expected);
+  // timingSafeEqual throws on a length mismatch, so check that first.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Both addressing forms work on send — the gateway normalises a phone chatId to
+ * the contact's LID either way. A LID we already hold is passed through
+ * untouched; a bare phone number becomes `<e164-no-plus>@c.us`.
+ */
+function toChatId(to: string): string {
+  return to.includes('@') ? to : `${to.replace(/\D/g, '')}@c.us`;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function toSessionStatus(value: string | null): SessionStatus {
+  const known = Object.values(SESSION_STATUS) as string[];
+  return known.includes(value ?? '') ? (value as SessionStatus) : SESSION_STATUS.FAILED;
+}
+
+function toAckStatus(value: string | null): AckStatus {
+  const known = Object.values(ACK_STATUS) as string[];
+  return known.includes(value ?? '') ? (value as AckStatus) : ACK_STATUS.PENDING;
+}
