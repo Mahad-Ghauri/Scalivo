@@ -5,6 +5,7 @@ import { createMessagingProvider, createWebhookRouter } from './messaging/index.
 import { redisDedupe } from './messaging/webhook.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
+import { createBookingRouter } from './bookings/routes.js';
 import { upsertClientFromMessage } from './auth/identity.js';
 import { logger } from './lib/logger.js';
 
@@ -35,6 +36,9 @@ export function createApp(): Express {
 
   app.use('/auth', createAuthRouter());
   app.use('/businesses', createBusinessRouter(provider));
+  // Also under /businesses — both routers scope by :businessId, so requireTenant
+  // guards availability and booking exactly as it guards the session routes.
+  app.use('/businesses', createBookingRouter(redis));
 
   app.get('/health', async (_req, res) => {
     const report = await healthCheck();

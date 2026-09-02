@@ -1,0 +1,14 @@
+{
+  // tsconfig.json compiles src/ into dist/, so it cannot also include tests —
+  // they would land in the shipped build. That left tests UNTYPECHECKED: vitest
+  // transpiles without checking, so a cast papering over a real contract
+  // mismatch compiled, ran, and passed.
+  //
+  // This config checks them and emits nothing. Run it with `pnpm typecheck`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

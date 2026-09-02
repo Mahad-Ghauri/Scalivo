@@ -6,9 +6,11 @@ import { Business } from '../models/Business.js';
 import { Client } from '../models/Client.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
+import { SlotOccupancy } from '../models/SlotOccupancy.js';
+import { BlockedTime } from '../models/BlockedTime.js';
 import { User } from '../models/User.js';
 import { hashPassword } from '../auth/routes.js';
-import { toBusinessLocal, wallClockToUtc } from '../lib/time.js';
+import { occupiedSlots, toBusinessLocal, wallClockToUtc } from '../lib/time.js';
 
 /**
  * Seeds a Skinare-like clinic with enough history that the CRM and retention
@@ -87,7 +89,7 @@ async function seed() {
   // old definition in place. syncIndexes drops what no longer matches and
   // rebuilds it. Cheap here, and it keeps a dev DB honest about the schema.
   await Promise.all(
-    [Business, User, Service, Staff, Client, Booking].map((m) => m.syncIndexes()),
+    [Business, User, Service, Staff, Client, Booking, SlotOccupancy, BlockedTime].map((m) => m.syncIndexes()),
   );
   console.log('indexes synced');
 
@@ -109,6 +111,8 @@ async function seed() {
   const previous = await Booking.find({ businessId }).distinct('clientId');
   await Promise.all([
     Booking.deleteMany({ businessId }),
+    SlotOccupancy.deleteMany({ businessId }),
+    BlockedTime.deleteMany({ businessId }),
     Service.deleteMany({ businessId }),
     Staff.deleteMany({ businessId }),
     Client.deleteMany({ _id: { $in: previous } }),
@@ -232,13 +236,47 @@ async function seed() {
     }
   }
 
+  // Future bookings need occupancy rows or availability will cheerfully offer
+  // times that are already taken — the seeded calendar and the seeded grid have
+  // to agree, or every manual test of Phase 1.3 is testing a lie.
+  //
+  // Past bookings are skipped: they cannot be double-booked, and the random
+  // hours above would collide on the unique index. `ordered: false` covers the
+  // collisions that remain among future ones — a seed dropping a row is fine,
+  // a seed that dies halfway is not.
+  const upcoming = await Booking.find({
+    businessId,
+    startsAt: { $gt: new Date() },
+    status: { $ne: BOOKING_STATUS.CANCELLED },
+  });
+
+  const occupancy = upcoming.flatMap((booking) =>
+    occupiedSlots(booking.startsAt, booking.durationMinutes, business.slotIncrementMinutes).map(
+      (slotStart) => ({
+        businessId,
+        staffId: booking.staffId,
+        slotStart,
+        bookingId: String(booking._id),
+      }),
+    ),
+  );
+
+  let occupancyRows = 0;
+  try {
+    const written = await SlotOccupancy.insertMany(occupancy, { ordered: false });
+    occupancyRows = written.length;
+  } catch (err) {
+    occupancyRows = (err as { insertedDocs?: unknown[] }).insertedDocs?.length ?? 0;
+  }
+
   console.log(`
   business   Skinare Aesthetics (${businessId})
   owner      ${OWNER_EMAIL} / ${OWNER_PASSWORD}
   services   ${services.length}
   staff      ${staff.length}
   clients    ${clientCount}  (2 with no phone number)
-  bookings   ${bookingCount}
+  bookings   ${bookingCount}  (${upcoming.length} upcoming)
+  occupancy  ${occupancyRows} grid rows
   `);
 
   await mongoose.disconnect();

@@ -21,3 +21,24 @@ export const HOLD_TTL_SECONDS = {
   WHATSAPP: 5 * 60,
   WEB: 2 * 60,
 } as const;
+
+/**
+ * How soon a customer may book. Without a floor, the 09:00 slot stays offerable
+ * at 08:58 and the owner gets a WhatsApp booking for two minutes from now.
+ */
+export const DEFAULT_MIN_NOTICE_MINUTES = 60;
+
+/**
+ * How far ahead. Bounds the availability query as much as it bounds the
+ * product — without it, "next free slot" scans forever when a calendar is full.
+ */
+export const DEFAULT_BOOKING_HORIZON_DAYS = 30;
+
+/**
+ * Asking for no particular staff member.
+ *
+ * A hold and a booking are always against a REAL staff id — this is only ever an
+ * input, resolved to a person before anything is reserved. A hold on "any" would
+ * reserve nobody and guarantee nothing.
+ */
+export const ANY_STAFF = 'any';

@@ -8,6 +8,15 @@ const serviceSchema = new Schema(
     /** Drives how many grid increments a booking spans. */
     durationMinutes: { type: Number, required: true },
 
+    /**
+     * Turnaround after the appointment — room cleaned, machine reset.
+     *
+     * It extends the OCCUPANCY a booking writes, not the appointment: the
+     * treatment must fit inside working hours, its buffer may run past closing.
+     * Default 0 keeps every existing service behaving exactly as before.
+     */
+    bufferMinutes: { type: Number, default: 0 },
+
     /** Minor units (paisa) — never floats for money. */
     priceMinor: { type: Number, required: true },
 

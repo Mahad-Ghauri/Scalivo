@@ -1,5 +1,11 @@
 import { Schema, model } from 'mongoose';
-import { SESSION_INTENT, SESSION_STATUS } from '@scalivo/shared';
+import {
+  DEFAULT_BOOKING_HORIZON_DAYS,
+  DEFAULT_MIN_NOTICE_MINUTES,
+  DEFAULT_SLOT_INCREMENT_MINUTES,
+  SESSION_INTENT,
+  SESSION_STATUS,
+} from '@scalivo/shared';
 
 const businessSchema = new Schema(
   {
@@ -12,7 +18,14 @@ const businessSchema = new Schema(
 
     /** IANA zone. Every displayed time converts through this, never the server's. */
     timezone: { type: String, default: 'Asia/Karachi' },
-    slotIncrementMinutes: { type: Number, default: 15 },
+    slotIncrementMinutes: { type: Number, default: DEFAULT_SLOT_INCREMENT_MINUTES },
+
+    /**
+     * Booking window. Without a floor the 09:00 slot is still offerable at
+     * 08:58; without a ceiling "next free slot" scans forever on a full diary.
+     */
+    minNoticeMinutes: { type: Number, default: DEFAULT_MIN_NOTICE_MINUTES },
+    bookingHorizonDays: { type: Number, default: DEFAULT_BOOKING_HORIZON_DAYS },
 
     whatsapp: {
       sessionId: { type: String, index: true },

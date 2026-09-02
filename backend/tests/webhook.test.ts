@@ -186,7 +186,11 @@ describe('the webhook route', () => {
     return fetch(`http://127.0.0.1:${port}/webhooks/whatsapp`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
-      body: body as unknown as BodyInit,
+      // Sent as raw bytes, not a string: the HMAC is over the exact bytes the
+      // gateway signed, and any re-encoding on the way out would invalidate it.
+      // A Buffer IS a Uint8Array, so fetch takes it without a cast — the old
+      // `as unknown as BodyInit` named a type that does not exist here.
+      body: new Uint8Array(body),
     });
   }
 

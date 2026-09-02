@@ -51,6 +51,44 @@ export interface AvailableSlot {
   durationMinutes: number;
 }
 
+/**
+ * Time a staff member is unavailable for reasons no working-hours pattern
+ * describes: Eid, a wedding, a supplier visit, a sick afternoon.
+ *
+ * Deliberately not modelled as an occupancy row. Occupancy rows are owned by a
+ * booking and deleted with it; blocked time outlives every booking near it, and
+ * a business-wide holiday would otherwise mean writing a row per staff member
+ * per increment for a whole day.
+ */
+export interface BlockedTime {
+  id: string;
+  businessId: string;
+  /** null blocks the whole business — a public holiday, not one person's day off. */
+  staffId: string | null;
+  /** UTC half-open interval [startsAt, endsAt). */
+  startsAt: Date;
+  endsAt: Date;
+  reason: string | null;
+}
+
+/**
+ * A soft hold over every increment a service spans, in Redis with a TTL.
+ *
+ * Advisory only — it stops two customers being offered the same slot while one
+ * is still typing. It is NOT the double-booking guard: that is the occupancy
+ * grid's unique index, inside the transaction. A hold can expire mid-confirm,
+ * and the booking must still be refused rather than double-written.
+ */
+export interface Hold {
+  token: string;
+  businessId: string;
+  /** Always a real staff id, even when the customer asked for ANY_STAFF. */
+  staffId: string;
+  serviceId: string;
+  startsAt: Date;
+  expiresAt: Date;
+}
+
 export interface BookingRequest {
   businessId: string;
   staffId: string;
@@ -66,4 +104,13 @@ export interface BookingRequest {
 export type BookingResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: 'slot_taken'; alternatives: AvailableSlot[] }
-  | { ok: false; reason: 'hold_expired' | 'invalid_slot' | 'outside_hours' };
+  | {
+      ok: false;
+      reason:
+        | 'hold_expired'
+        | 'invalid_slot'
+        | 'outside_hours'
+        | 'too_soon'
+        | 'beyond_horizon'
+        | 'no_staff';
+    };

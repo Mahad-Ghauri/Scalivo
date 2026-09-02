@@ -11,6 +11,10 @@ export interface Business {
   /** IANA zone, default 'Asia/Karachi'. Every displayed time converts through this. */
   timezone: string;
   slotIncrementMinutes: number;
+  /** Nothing bookable sooner than this from now. */
+  minNoticeMinutes: number;
+  /** Nothing bookable further ahead than this. */
+  bookingHorizonDays: number;
   whatsapp: WhatsAppSession;
   /** Hidden from the marketplace until the minimum profile fields are set. */
   published: boolean;
@@ -51,6 +55,12 @@ export interface Service {
   businessId: string;
   name: string;
   durationMinutes: number;
+  /**
+   * Turnaround after the service — cleaning a room, resetting a machine. It
+   * extends the OCCUPANCY the booking writes, but not the service itself: a
+   * treatment may finish at closing time, its buffer may run past it.
+   */
+  bufferMinutes: number;
   priceMinor: number;
   depositRequired: boolean;
   depositAmountMinor: number | null;
