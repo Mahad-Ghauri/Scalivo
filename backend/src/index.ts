@@ -34,7 +34,7 @@ export function createApp(): Express {
   );
 
   app.use('/auth', createAuthRouter());
-  app.use('/businesses', createBusinessRouter());
+  app.use('/businesses', createBusinessRouter(provider));
 
   app.get('/health', async (_req, res) => {
     const report = await healthCheck();

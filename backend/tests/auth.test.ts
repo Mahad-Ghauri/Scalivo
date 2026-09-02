@@ -61,6 +61,13 @@ describe('tenant scoping', () => {
 const findById = vi.fn(async () => ({ _id: BIZ_B, name: 'CrossFit Multan' }));
 vi.mock('../src/models/Business.js', () => ({ Business: { findById: () => findById() } }));
 
+/**
+ * The router takes a provider for the WhatsApp linking routes. None of these
+ * tests reach them — a scope check must refuse before anything downstream runs,
+ * which is the whole point — so a bare stub is the honest stand-in here.
+ */
+const stubProvider = {} as unknown as MessagingProvider;
+
 describe('cross-tenant reads over HTTP', () => {
   const servers: ReturnType<express.Express['listen']>[] = [];
   afterEach(() => {
@@ -71,7 +78,7 @@ describe('cross-tenant reads over HTTP', () => {
   async function get(businessId: string, token: string) {
     const { createBusinessRouter } = await import('../src/businesses/routes.js');
     const app = express();
-    app.use('/businesses', createBusinessRouter());
+    app.use('/businesses', createBusinessRouter(stubProvider));
 
     const server = app.listen(0);
     servers.push(server);
@@ -101,7 +108,7 @@ describe('cross-tenant reads over HTTP', () => {
   it('401s with no token', async () => {
     const app = express();
     const { createBusinessRouter } = await import('../src/businesses/routes.js');
-    app.use('/businesses', createBusinessRouter());
+    app.use('/businesses', createBusinessRouter(stubProvider));
     const server = app.listen(0);
     servers.push(server);
     const { port } = server.address() as AddressInfo;

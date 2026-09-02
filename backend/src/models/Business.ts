@@ -7,6 +7,9 @@ const businessSchema = new Schema(
     name: { type: String, required: true },
     category: { type: String, required: true },
 
+    /** Free text for now. The marketplace will need this normalised; signup won't. */
+    city: { type: String, default: null },
+
     /** IANA zone. Every displayed time converts through this, never the server's. */
     timezone: { type: String, default: 'Asia/Karachi' },
     slotIncrementMinutes: { type: Number, default: 15 },

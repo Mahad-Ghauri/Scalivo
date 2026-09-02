@@ -7,6 +7,7 @@ export interface Business {
   slug: string;
   name: string;
   category: string;
+  city: string | null;
   /** IANA zone, default 'Asia/Karachi'. Every displayed time converts through this. */
   timezone: string;
   slotIncrementMinutes: number;

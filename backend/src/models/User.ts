@@ -16,6 +16,16 @@ const userSchema = new Schema(
 
     /** Which tenants this user may touch. Admins bypass this; nobody else does. */
     businessIds: { type: [String], default: [] },
+
+    /**
+     * FCM registration tokens, one per device the owner has logged in on.
+     *
+     * A list rather than a single value because Session Health is the one alert
+     * that must not be missed: an owner with a phone and a tablet should get the
+     * "WhatsApp is down" push on both. Tokens rotate silently on the device, so
+     * this is append-on-login and prune-on-send-failure, never authoritative.
+     */
+    fcmTokens: { type: [String], default: [] },
   },
   { timestamps: true },
 );
