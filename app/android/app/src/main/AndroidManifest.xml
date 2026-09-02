@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Flutter injects this into debug and profile builds only. A release
+         build without it has no network at all. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="scalivo_owner"
         android:name="${applicationName}"

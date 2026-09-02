@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. Android 9+ blocks plain HTTP by default, which kills every
+  call to the dev backend (10.0.2.2 on the emulator, a LAN IP on a real phone).
+  This file lives under src/debug/, so release builds keep the secure default
+  and cannot ship with cleartext enabled.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

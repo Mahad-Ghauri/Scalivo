@@ -26,8 +26,17 @@ class ApiException implements Exception {
 /// Where the backend lives.
 ///
 /// An Android emulator cannot see the host's `localhost` — 10.0.2.2 is the
-/// host loopback from inside it. Override for a real device on the same wifi:
-/// `flutter run --dart-define=SCALIVO_API=http://192.168.1.20:3000`
+/// host loopback from inside it. The default below is therefore emulator-only:
+/// on a physical phone 10.0.2.2 is a dead address and every call fails as a
+/// network error.
+///
+/// For a physical Android device, tunnel over the USB cable and use localhost:
+///   adb reverse tcp:3000 tcp:3000
+///   flutter run --dart-define=SCALIVO_API=http://localhost:3000
+/// The reverse is lost on unplug or reboot — re-run it.
+///
+/// Or, on the same wifi, point at the host's LAN IP instead:
+///   flutter run --dart-define=SCALIVO_API=http://192.168.1.20:3000
 const _configuredBaseUrl = String.fromEnvironment('SCALIVO_API');
 
 String defaultBaseUrl() {
