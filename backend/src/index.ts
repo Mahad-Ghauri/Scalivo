@@ -6,7 +6,7 @@ import { redisDedupe } from './messaging/webhook.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
-import { upsertClientFromMessage } from './auth/identity.js';
+import { handleInboundMessage } from './whatsapp/router.js';
 import { logger } from './lib/logger.js';
 
 export function createApp(): Express {
@@ -24,11 +24,11 @@ export function createApp(): Express {
       onEvent: async (event) => {
         logger.info({ kind: event.kind, ...event.payload }, 'inbound provider event');
 
-        // Zero manual data entry starts here: a message from an unknown number
-        // creates the client. Phase 1 hands the message on to the FSM next.
-        if (event.kind === 'message' && !event.payload.fromMe) {
-          const client = await upsertClientFromMessage(provider, event.payload);
-          logger.info({ clientId: String(client._id) }, 'client resolved');
+        // Identity resolution now happens inside the router, as interceptor
+        // stage 2 — it has to run after dedupe and before the conversation
+        // lock, and only the router knows that ordering.
+        if (event.kind === 'message') {
+          await handleInboundMessage({ redis, provider }, event.payload);
         }
       },
     }),

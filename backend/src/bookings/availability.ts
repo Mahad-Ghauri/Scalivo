@@ -312,6 +312,42 @@ export async function isWithinWorkingHours(
 }
 
 /**
+ * The next few DAYS that have any opening — what the date menu offers.
+ *
+ * Distinct from nextAvailable(), which returns individual times. Offering a day
+ * with nothing free is the dead end SPEC §1.4 calls out: the customer picks it,
+ * gets an empty list, and has to start again.
+ */
+export async function daysWithAvailability(
+  redis: Redis,
+  businessId: string,
+  serviceId: string,
+  options: { staffId?: string; limit?: number } = {},
+): Promise<{ date: string; slots: AvailableSlot[] }[]> {
+  const ctx = await loadContext(businessId, serviceId);
+  if (!ctx) return [];
+
+  const limit = options.limit ?? 3;
+  const days: { date: string; slots: AvailableSlot[] }[] = [];
+
+  for (let offset = 0; offset <= ctx.bookingHorizonDays && days.length < limit; offset++) {
+    const date = toBusinessLocal(new Date(Date.now() + offset * 86_400_000), ctx.timezone)
+      .toISODate();
+    if (!date) continue;
+
+    const slots = await getAvailability(redis, {
+      businessId,
+      serviceId,
+      date,
+      ...(options.staffId ? { staffId: options.staffId } : {}),
+    });
+    if (slots.length > 0) days.push({ date, slots });
+  }
+
+  return days;
+}
+
+/**
  * The next few openings from a given instant, scanning forward day by day.
  *
  * This is what turns "that slot just went" into a useful reply instead of a dead

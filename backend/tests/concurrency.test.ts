@@ -91,7 +91,9 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
   const at = (hhmm: string) => wallClockToUtc(`${date}T${hhmm}`, TZ);
 
   beforeAll(async () => {
-    redis = new Redis(process.env.REDIS_URL!);
+    // Its OWN Redis database — see the same note in conversation.test.ts. Both
+    // suites flushdb(), and vitest runs files in parallel.
+    redis = new Redis(process.env.REDIS_URL!, { db: 1 });
     date = nextTuesday();
 
     // The unique index IS the guard. createIndex is a no-op when an index of the

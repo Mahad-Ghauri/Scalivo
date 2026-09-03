@@ -27,6 +27,17 @@ const clientSchema = new Schema(
     lids: { type: [String], default: [], index: true },
 
     displayName: { type: String, default: null },
+
+    /**
+     * Set by a bare `STOP`. Suppresses MARKETING only — retention nudges,
+     * win-back, broadcasts.
+     *
+     * Confirmations and reminders keep flowing, because they are transactional:
+     * the customer asked for the appointment, and silently dropping its
+     * reminder would be a worse failure than the opt-out was a request. The
+     * distinction is the whole reason this is a flag and not a delete.
+     */
+    marketingOptOut: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
