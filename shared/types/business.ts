@@ -65,6 +65,12 @@ export interface Service {
   depositRequired: boolean;
   depositAmountMinor: number | null;
   displayOrder: number;
+  /**
+   * Retired services stop being offered but keep their history. There is no
+   * hard delete: bookings reference a serviceId, and removing the row turns
+   * every past appointment into an unnamed one.
+   */
+  active: boolean;
 }
 
 export interface Staff {
@@ -74,4 +80,37 @@ export interface Staff {
   serviceIds: string[];
   workingHours: WorkingHours[];
   active: boolean;
+}
+
+/**
+ * What still stands between a freshly registered business and a real booking.
+ *
+ * This exists because every one of these gaps fails SILENTLY. A business with
+ * services but no staff, or staff with no hours, or a service nobody is
+ * qualified for, returns an empty availability list — indistinguishable from
+ * "fully booked". The owner sees a working app and no bookings, and nothing
+ * anywhere says why.
+ */
+export const SETUP_STEP = {
+  SERVICES: 'services',
+  STAFF: 'staff',
+  HOURS: 'hours',
+  /** Every offered service has someone who can actually perform it. */
+  COVERAGE: 'coverage',
+  WHATSAPP: 'whatsapp',
+} as const;
+
+export type SetupStepId = (typeof SETUP_STEP)[keyof typeof SETUP_STEP];
+
+export interface SetupStep {
+  id: SetupStepId;
+  done: boolean;
+  /** What the owner has to do about it, or null when there is nothing to do. */
+  detail: string | null;
+}
+
+export interface SetupChecklist {
+  /** Can this business take a booking right now? True only if every step is done. */
+  bookable: boolean;
+  steps: SetupStep[];
 }

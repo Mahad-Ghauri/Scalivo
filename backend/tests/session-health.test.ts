@@ -42,6 +42,15 @@ class FakeProvider implements MessagingProvider {
   async startSession() {
     return { status: this.status };
   }
+  async provisionSession() {
+    return { sessionId: SESSION_ID, status: this.status };
+  }
+  async registerWebhook() {
+    /* nothing to record — Session Health never provisions */
+  }
+  async getSessionPhone() {
+    return null;
+  }
   async resolveContactPhone() {
     return null;
   }

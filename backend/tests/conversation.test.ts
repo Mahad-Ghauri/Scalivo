@@ -45,6 +45,15 @@ class FakeProvider implements MessagingProvider {
   async startSession() {
     return { status: SESSION_STATUS.READY };
   }
+  async provisionSession() {
+    return { sessionId: 'fake-session', status: SESSION_STATUS.READY };
+  }
+  async registerWebhook() {
+    /* the conversation path never provisions */
+  }
+  async getSessionPhone() {
+    return '923001234567';
+  }
   async resolveContactPhone() {
     return '923001234567';
   }

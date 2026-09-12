@@ -115,8 +115,40 @@ export interface MessagingProvider {
 
   getSessionStatus(sessionId: string): Promise<SessionStatus>;
 
+  /**
+   * Create a NEW provider-side session for a business being onboarded, and
+   * return the id the provider assigned it.
+   *
+   * Distinct from startSession, which resumes one that already exists. The
+   * separation is not cosmetic: on OpenWA a session is a ~90 MB Chromium
+   * profile in a named volume, so calling this twice for one business strands
+   * the first one — running, consuming RAM, and reachable by nobody.
+   *
+   * `name` is a human label for the provider's own console, NOT the returned
+   * id. Never key anything on it.
+   */
+  provisionSession(name: string): Promise<{ sessionId: string; status: SessionStatus }>;
+
+  /**
+   * Point the provider's webhook at us for this session.
+   *
+   * Must happen BEFORE the session starts. Between start and registration the
+   * provider is live and emitting, and everything it emits in that gap — the
+   * authentication that follows a scan included — goes nowhere.
+   */
+  registerWebhook(sessionId: string, url: string, secret: string): Promise<void>;
+
   /** Creates the session if needed and returns a QR when one is required. */
   startSession(sessionId: string): Promise<{ status: SessionStatus; qrCode?: string }>;
+
+  /**
+   * The number this session is linked to, E.164 without '+', or null.
+   *
+   * Only for showing the owner which number customers should message. NEVER a
+   * liveness signal — SPIKE FINDING #2: a dead session still reports its
+   * original phone, connectedAt and a null lastError.
+   */
+  getSessionPhone(sessionId: string): Promise<string | null>;
 
   /**
    * FINDING #1 fallback path: resolve a LID to a phone on demand. Works
