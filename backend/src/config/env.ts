@@ -23,6 +23,18 @@ const schema = z.object({
   DEFAULT_TIMEZONE: z.string().default('Asia/Karachi'),
 
   MESSAGING_PROVIDER: z.enum(['openwa', 'meta']).default('openwa'),
+
+  /**
+   * Firebase SERVICE ACCOUNT credential — either the JSON itself or a path to
+   * it. This is NOT `google-services.json`, which identifies the app; sending a
+   * push needs a server key from Firebase Console → Project Settings → Service
+   * accounts → Generate new private key.
+   *
+   * Optional on purpose: without it Session Health still detects outages,
+   * queues messages and shows the dashboard banner — only the push tier logs
+   * instead of sending. A missing credential must not stop the server booting.
+   */
+  FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

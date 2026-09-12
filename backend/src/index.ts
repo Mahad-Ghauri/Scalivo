@@ -7,6 +7,8 @@ import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { handleInboundMessage } from './whatsapp/router.js';
+import { handleSessionQr, handleSessionStatus } from './session-health/monitor.js';
+import { startReconcileJob } from './session-health/reconcile.js';
 import { logger } from './lib/logger.js';
 
 export function createApp(): Express {
@@ -29,6 +31,20 @@ export function createApp(): Express {
         // lock, and only the router knows that ordering.
         if (event.kind === 'message') {
           await handleInboundMessage({ redis, provider }, event.payload);
+          return;
+        }
+
+        // SPIKE FINDING #2: a QR arriving unsolicited is the death signal, ~4ms
+        // ahead of the status that follows. `disconnected` fired zero times
+        // across the whole spike — watching for it alone sits silent through a
+        // dead session.
+        if (event.kind === 'session-qr') {
+          await handleSessionQr({ redis, provider }, event.payload);
+          return;
+        }
+
+        if (event.kind === 'session-status') {
+          await handleSessionStatus({ redis, provider }, event.payload);
         }
       },
     }),
@@ -51,6 +67,16 @@ export function createApp(): Express {
 async function main() {
   await connectAll();
   const app = createApp();
+
+  // The webhook stream is the primary signal; this is the safety net under it.
+  // Webhooks stop arriving in exactly the situations where something is wrong,
+  // and without a poll the last thing we heard — "ready" — is believed forever.
+  //
+  // AUTO_START_SESSIONS requires a SINGLE instance, and so does this: two
+  // replicas reconciling the same session would double every alert and risk a
+  // forced logout by both resurrecting it.
+  startReconcileJob({ redis, provider: createMessagingProvider() });
+
   app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'scalivo backend listening'));
 }
 

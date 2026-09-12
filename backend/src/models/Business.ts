@@ -43,6 +43,9 @@ const businessSchema = new Schema(
       },
 
       lastStatusChange: { type: Date, default: Date.now },
+
+      /** When the owner was last told. Backs the alert cooldown across restarts. */
+      lastAlertAt: { type: Date, default: null },
       lastInboundAt: { type: Date, default: null },
       reconnectAttempts: { type: Number, default: 0 },
 

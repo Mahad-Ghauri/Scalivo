@@ -13,6 +13,8 @@ import {
 import { handleGlobalCommand } from './interceptors/global-commands.js';
 import { applyPendingPrompt } from './interceptors/pending-prompt.js';
 import { advance } from './fsm/machine.js';
+import { enqueue } from '../session-health/outbound-queue.js';
+import { PUSH_CHANNEL, pushToOwners } from '../push/fcm.js';
 import { CONVERSATION_STATE } from './fsm/states.js';
 import * as copy from './messages.js';
 
@@ -98,9 +100,14 @@ export async function handleInboundMessage(
       await reply(deps, message, businessId, clientId, command.replies);
 
       if (command.notifyOwner) {
-        // Phase 1.2 owns the FCM path; until it exists the log IS the alert, and
-        // saying so is better than a silent no-op that looks implemented.
-        logger.warn({ businessId, clientId }, 'customer asked for a human — owner alert pending 1.2');
+        // The BOOKINGS channel, not SESSION_HEALTH: a customer wanting a human
+        // is important but not an emergency, and putting it on the alarm
+        // channel is how the alarm channel stops being believed.
+        await pushToOwners(businessId, {
+          title: `${business.name} — a customer needs help`,
+          body: `${client.displayName ?? 'A customer'} asked to speak to someone.`,
+          channel: PUSH_CHANNEL.BOOKINGS,
+        }).catch((err) => logger.error({ err, businessId }, 'could not notify the owner'));
       }
       return;
     }
@@ -154,9 +161,14 @@ async function persist(
  * never have resolved (FINDING #1) — and the provider passes an address
  * containing '@' straight through as the chat id.
  *
- * A send that throws is logged, not rethrown: the webhook has already been
- * acked, and failing here would only lose the state we just wrote. When 1.2
- * lands, this is where the outbound queue goes.
+ * A send that throws is QUEUED, not dropped. The webhook is already acked, so
+ * rethrowing would only lose the state we just wrote — and losing the message
+ * would mean a customer who booked during an outage never learns their
+ * appointment exists. The queue drains when the session comes back.
+ *
+ * Once one send fails the rest are queued without being attempted: they are
+ * ordered replies to the same person, and a confirmation must not arrive after
+ * the follow-up that assumes it.
  */
 async function reply(
   deps: RouterDeps,
@@ -165,8 +177,20 @@ async function reply(
   clientId: string,
   replies: string[],
 ): Promise<void> {
+  let degraded = false;
+
   for (const text of replies) {
     if (!text) continue;
+
+    if (degraded) {
+      await enqueue(deps.redis, businessId, {
+        sessionId: message.sessionId,
+        to: message.contactLid,
+        text,
+      });
+      continue;
+    }
+
     try {
       const sent = await deps.provider.sendText(message.sessionId, message.contactLid, text);
       // ACCEPTED, not delivered (FINDING #3). Only a message.ack reaching
@@ -176,7 +200,13 @@ async function reply(
         'outbound message accepted',
       );
     } catch (err) {
-      logger.error({ err, businessId, clientId }, 'failed to send a reply');
+      logger.error({ err, businessId, clientId }, 'send failed — queueing for reconnect');
+      degraded = true;
+      await enqueue(deps.redis, businessId, {
+        sessionId: message.sessionId,
+        to: message.contactLid,
+        text,
+      });
     }
   }
 }
