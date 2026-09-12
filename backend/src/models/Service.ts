@@ -23,6 +23,15 @@ const serviceSchema = new Schema(
     depositRequired: { type: Boolean, default: false },
     depositAmountMinor: { type: Number, default: null },
     displayOrder: { type: Number, default: 0 },
+
+    /**
+     * Retiring a service hides it from the menu without breaking history.
+     *
+     * There is no hard delete on purpose: every Booking stores a serviceId, and
+     * removing the row would leave past appointments referencing nothing — the
+     * calendar and the client's visit history would both show a blank.
+     */
+    active: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

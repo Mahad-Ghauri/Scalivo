@@ -91,7 +91,7 @@ function invalid(ctx: TurnContext, conversation: Conversation, prompt: string): 
 // ---------------------------------------------------------------------------
 
 async function promptService(ctx: TurnContext, base: Partial<Conversation>): Promise<TurnResult> {
-  const services = await Service.find({ businessId: ctx.businessId }).sort({ displayOrder: 1 });
+  const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
   if (services.length === 0) {
     return { replies: [copy.helpRequested], conversation: null };
   }
@@ -334,7 +334,7 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     case CONVERSATION_STATE.SELECTING_SERVICE: {
       const serviceId = pickOption(ctx.text, conversation.options);
       if (!serviceId) {
-        const services = await Service.find({ businessId: ctx.businessId }).sort({ displayOrder: 1 });
+        const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
         return invalid(ctx, conversation, copy.serviceMenu(services));
       }
       return promptStaffOrDate(redis, ctx, { ...conversation, serviceId, invalidCount: 0 });

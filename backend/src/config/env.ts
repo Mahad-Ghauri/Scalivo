@@ -18,6 +18,16 @@ const schema = z.object({
   /** HMAC-SHA256 secret for X-OpenWA-Signature, verified over RAW request bytes. */
   OPENWA_WEBHOOK_SECRET: z.string().min(16),
 
+  /**
+   * Where the gateway can reach US. Onboarding registers this as the webhook
+   * URL for each new session, so a wrong value produces a session that links
+   * fine and then never delivers a single message.
+   *
+   * Note WEBHOOK_SSRF_PROTECT=true on the gateway: the internal host has to be
+   * on its allowlist, or registration is refused.
+   */
+  PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+
   JWT_SECRET: z.string().min(32),
   /** Business-local default. Every stored timestamp stays UTC regardless. */
   DEFAULT_TIMEZONE: z.string().default('Asia/Karachi'),

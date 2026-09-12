@@ -58,6 +58,42 @@ export class OpenWAProvider implements MessagingProvider {
   }
 
   /**
+   * `POST /api/sessions {name}` → `{id, status:"created"}`.
+   *
+   * The returned `id` is a UUID the gateway assigns; `name` is only a label.
+   * The spike's own scripts stash it in `open-wa/.session-<name>` precisely
+   * because the two are not interchangeable.
+   */
+  async provisionSession(name: string): Promise<{ sessionId: string; status: SessionStatus }> {
+    const res = await this.request<{ id: string; status?: string }>('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    return { sessionId: res.id, status: toSessionStatus(str(res.status)) };
+  }
+
+  /** `POST /api/sessions/:id/webhooks {url, events, secret}`. */
+  async registerWebhook(sessionId: string, url: string, secret: string): Promise<void> {
+    await this.request(`/api/sessions/${sessionId}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        secret,
+        // session.qr is subscribed deliberately, not for completeness: it is the
+        // EARLIEST death signal, ~4ms ahead of the status change (FINDING #2).
+        events: [
+          'message.received',
+          'message.ack',
+          'session.status',
+          'session.qr',
+          'session.authenticated',
+          'session.disconnected',
+        ],
+      }),
+    });
+  }
+
+  /**
    * Start (or resume) a session. After a container restart this recovers in
    * ~7s with no QR at all — the credentials live in the named volume. A QR
    * only comes back when the link is genuinely gone.
@@ -71,6 +107,21 @@ export class OpenWAProvider implements MessagingProvider {
 
     const qr = await this.request<{ qrCode?: string }>(`/api/sessions/${sessionId}/qr`);
     return qr.qrCode ? { status, qrCode: qr.qrCode } : { status };
+  }
+
+  /**
+   * The linked number, for the "message us here" link an owner puts on a poster.
+   *
+   * Swallows failures into null: not knowing the number is a cosmetic gap on one
+   * screen, and throwing would turn it into a broken onboarding page.
+   */
+  async getSessionPhone(sessionId: string): Promise<string | null> {
+    try {
+      const res = await this.request<{ phone?: string }>(`/api/sessions/${sessionId}`);
+      return res.phone ? res.phone.replace(/\D/g, '') : null;
+    } catch {
+      return null;
+    }
   }
 
   /**

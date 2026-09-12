@@ -23,11 +23,29 @@ export class MetaCloudProvider implements MessagingProvider {
     throw new NotImplemented('getSessionStatus');
   }
 
+  provisionSession(): Promise<{ sessionId: string; status: SessionStatus }> {
+    // There is nothing to provision: Cloud API numbers are registered against a
+    // verified business account through Meta's own console, and the "session id"
+    // becomes a phone number id from configuration. Onboarding's Connect step
+    // would be a different screen entirely — which is the honest answer, and
+    // exactly what this stub is for.
+    throw new NotImplemented('provisionSession');
+  }
+
+  registerWebhook(): Promise<void> {
+    // One webhook per app, configured in Meta's console, not one per session.
+    throw new NotImplemented('registerWebhook');
+  }
+
   startSession(): Promise<{ status: SessionStatus; qrCode?: string }> {
     // Cloud API has no QR pairing at all — numbers are registered against a
     // verified business account instead. Worth remembering before anyone
     // designs a UI that assumes scanning.
     throw new NotImplemented('startSession');
+  }
+
+  getSessionPhone(): Promise<string | null> {
+    throw new NotImplemented('getSessionPhone');
   }
 
   resolveContactPhone(): Promise<string | null> {

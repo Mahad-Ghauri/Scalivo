@@ -83,7 +83,10 @@ export async function loadContext(
 ): Promise<BookingContext | null> {
   const [business, service] = await Promise.all([
     Business.findById(businessId),
-    Service.findOne({ _id: serviceId, businessId }),
+    // `active` belongs here rather than at the callers: this is the single
+    // gate every booking path goes through, so a retired service becomes
+    // unbookable everywhere at once — WhatsApp, web and the owner's calendar.
+    Service.findOne({ _id: serviceId, businessId, active: true }),
   ]);
 
   // The businessId filter on the service is a tenancy check, not a convenience:

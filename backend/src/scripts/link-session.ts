@@ -4,11 +4,17 @@ import { env } from '../config/env.js';
 import { Business } from '../models/Business.js';
 
 /**
- * Points a business at an existing OpenWA session.
+ * ADOPTS an OpenWA session that already exists.
  *
- * Provisioning belongs to onboarding (Phase 1.5), which does not exist yet, so
- * a business created through app signup has `whatsapp.sessionId` unset and the
- * Connect screen answers 409. This script fills that gap by hand.
+ * Onboarding creates sessions now (POST /businesses/:id/whatsapp/session), so
+ * this is no longer the normal path — but it is still the only way to point a
+ * business at a session the gateway already has and we did not create: the
+ * spike's own session, or one left behind by a reinstall. Provisioning would
+ * build a second Chromium profile beside it; this just claims the first.
+ *
+ * It deliberately does NOT register a webhook. A session created outside the
+ * app has whatever webhook it was given, and silently repointing one that
+ * another process is depending on is worse than making you do it explicitly.
  *
  * Usage:
  *   pnpm --filter @scalivo/backend link-session <slug> <sessionId>

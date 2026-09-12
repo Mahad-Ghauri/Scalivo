@@ -51,6 +51,14 @@ const businessSchema = new Schema(
 
       /** One scoped OpenWA key per business, never the shared admin key. */
       apiKeyRef: { type: String, default: null },
+
+      /**
+       * The linked number, E.164 without '+', cached from the gateway.
+       *
+       * For building the wa.me link an owner puts on a poster — NOT a liveness
+       * signal. FINDING #2: a dead session still reports its original phone.
+       */
+      phone: { type: String, default: null },
     },
 
     /** Hidden from the marketplace until the minimum profile fields are set. */
