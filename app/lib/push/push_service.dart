@@ -1,4 +1,11 @@
+import 'dart:async';
+
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import '../firebase_options.dart';
 
 /// Android notification channel ids.
 ///
@@ -24,31 +31,170 @@ abstract final class PushChannels {
 /// making a worried owner hunt for the fix wastes the minutes the alert bought.
 const kPushRoute = 'route';
 
-/// Firebase Cloud Messaging, behind a seam.
+/// Called for messages that arrive while the app is terminated or backgrounded.
 ///
-/// Deliberately not wired yet: `firebase_messaging` cannot build without a real
-/// `google-services.json` / `GoogleService-Info.plist`, so adding it before the
-/// Firebase project exists would break `flutter run` for both of you today. The
-/// contract above — two channels, and a route in the data payload — is settled,
-/// and it is the part that is expensive to change later.
+/// Must be a top-level function: Android spawns a SEPARATE Dart isolate for it,
+/// which shares no state with the running app. That is also why it re-runs
+/// `Firebase.initializeApp` — the isolate has none of the app's setup.
 ///
-/// To finish it: create the Firebase project, drop the config files in, add
-/// `firebase_core` + `firebase_messaging` to pubspec, and fill in the three
-/// methods below. Nothing outside this file changes.
+/// Deliberately does almost nothing. The system tray notification is drawn by
+/// FCM itself from the `notification` block; work done here is invisible to the
+/// owner and runs under a short execution budget.
+@pragma('vm:entry-point')
+Future<void> _onBackgroundMessage(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
+
+/// Firebase Cloud Messaging.
+///
+/// Everything FCM-specific lives behind this class, so the rest of the app deals
+/// in "a token" and "a route was tapped" and never imports firebase_messaging.
 class PushService {
-  /// The FCM registration token for this device, or null while push is unwired.
-  Future<String?> token() async {
-    if (kDebugMode) {
-      debugPrint('[push] FCM not configured yet — no device token to register.');
-    }
-    return null;
+  static final _local = FlutterLocalNotificationsPlugin();
+  static bool _initialised = false;
+
+  /// Held statically so a tap on a FOREGROUND notification routes the same way
+  /// as a tap on a system one. Those take different paths — FCM delivers the
+  /// background tap, flutter_local_notifications delivers this one — and an
+  /// alarm that opens the QR screen only when the app was closed is a trap.
+  static void Function(String route)? _tapHandler;
+
+  /// Idempotent: [ensureChannels] and [token] are both called on paths that can
+  /// run more than once (app start, every login, token rotation).
+  Future<void> _init() async {
+    if (_initialised) return;
+    _initialised = true;
+
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
   }
 
-  /// Called when a notification is tapped. Wire this to the navigator so a
-  /// [kPushRoute] of `/qr` opens the re-scan screen.
-  void onNotificationTap(void Function(String route) handler) {}
+  /// The FCM registration token for this device, or null if push is unavailable.
+  ///
+  /// Null is a normal outcome, not a failure: the owner may have denied the
+  /// permission, or the device may have no Play Services. The caller registers
+  /// what it gets and the backend simply has one fewer device to reach.
+  Future<String?> token() async {
+    try {
+      await _init();
+
+      // Android 13+ and iOS both require an explicit grant. Asking here — on
+      // login, once the owner has committed to the app — beats asking on first
+      // launch, when a stranger's permission dialog is easy to dismiss.
+      final settings = await FirebaseMessaging.instance.requestPermission();
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        debugPrint('[push] notifications denied — the owner will not get outage alerts');
+        return null;
+      }
+
+      return await FirebaseMessaging.instance.getToken();
+    } catch (err) {
+      // Never let push break login. An owner who cannot sign in because
+      // notifications failed is a far worse outcome than a missed alert.
+      debugPrint('[push] could not get a token: $err');
+      return null;
+    }
+  }
+
+  /// Called when a notification is tapped, and when one launched the app.
+  void onNotificationTap(void Function(String route) handler) {
+    _tapHandler = handler;
+
+    unawaited(() async {
+      try {
+        await _init();
+
+        // A tap while the app was merely backgrounded.
+        FirebaseMessaging.onMessageOpenedApp.listen((message) {
+          final route = message.data[kPushRoute];
+          if (route is String) handler(route);
+        });
+
+        // The app was TERMINATED and the notification started it. This arrives
+        // once, is easy to forget, and is exactly the case a session-down alert
+        // hits — the owner's phone was in their pocket.
+        final initial = await FirebaseMessaging.instance.getInitialMessage();
+        final route = initial?.data[kPushRoute];
+        if (route is String) handler(route);
+
+        // Foregrounded messages draw no system notification on Android, so
+        // there is nothing to tap unless we draw it ourselves.
+        FirebaseMessaging.onMessage.listen(_showForeground);
+      } catch (err) {
+        debugPrint('[push] could not attach notification handlers: $err');
+      }
+    }());
+  }
 
   /// Creates the two channels above. Android needs them to exist before the
-  /// first notification arrives, or it silently uses a default channel.
-  Future<void> ensureChannels() async {}
+  /// first notification arrives, or it silently uses a default channel — and a
+  /// default channel is one the owner can mute along with everything else.
+  Future<void> ensureChannels() async {
+    try {
+      await _init();
+
+      await _local.initialize(
+        const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          iOS: DarwinInitializationSettings(),
+        ),
+        onDidReceiveNotificationResponse: (response) {
+          final route = response.payload;
+          if (route != null && route.isNotEmpty) _tapHandler?.call(route);
+        },
+      );
+
+      final android = _local
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return; // iOS has no channels
+
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          PushChannels.bookings,
+          PushChannels.bookingsName,
+          description: 'New bookings and customer messages.',
+          importance: Importance.defaultImportance,
+        ),
+      );
+
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          PushChannels.sessionHealth,
+          PushChannels.sessionHealthName,
+          description: 'Alerts when your WhatsApp disconnects and customers cannot book.',
+          importance: Importance.max,
+          enableVibration: true,
+        ),
+      );
+    } catch (err) {
+      debugPrint('[push] could not create channels: $err');
+    }
+  }
+
+  /// Draw a notification for a message that arrived while the app was open.
+  Future<void> _showForeground(RemoteMessage message) async {
+    final notification = message.notification;
+    if (notification == null) return;
+
+    // The backend sets this; falling back to bookings is the safe direction —
+    // it under-escalates rather than crying wolf on the alarm channel.
+    final channel = message.data['channel'] as String? ?? PushChannels.bookings;
+    final isAlarm = channel == PushChannels.sessionHealth;
+
+    await _local.show(
+      notification.hashCode,
+      notification.title,
+      notification.body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channel,
+          isAlarm ? PushChannels.sessionHealthName : PushChannels.bookingsName,
+          importance: isAlarm ? Importance.max : Importance.defaultImportance,
+          priority: isAlarm ? Priority.high : Priority.defaultPriority,
+        ),
+        iOS: const DarwinNotificationDetails(),
+      ),
+      payload: message.data[kPushRoute] as String?,
+    );
+  }
 }

@@ -21,6 +21,10 @@ thesis/
 *.jks
 *.keystore
 *-service-account*.json
+# Firebase names a downloaded server key <project>-firebase-adminsdk-<hash>.json,
+# which matches NONE of the patterns above. A key downloaded straight into the
+# repo was one `git add .` away from being committed — hence this line.
+*adminsdk*.json
 .api-key
 secrets/
 

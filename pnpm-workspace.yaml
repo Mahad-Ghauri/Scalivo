@@ -4,6 +4,8 @@ packages:
   - 'web'
 allowBuilds:
   # Required: vitest and Next.js both need esbuild's native binary installed.
+  '@firebase/util': set this to true or false
   esbuild: true
+  protobufjs: set this to true or false
 
 # `app/` is Flutter — not an npm workspace. See docs/ for its toolchain.

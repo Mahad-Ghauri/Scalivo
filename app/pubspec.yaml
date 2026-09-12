@@ -19,6 +19,12 @@ dependencies:
   http: ^1.2.2
   provider: ^6.1.2
   flutter_secure_storage: ^9.2.2
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.0.4
+  # Android will not show a notification on a channel that does not exist, and
+  # FCM cannot create one. This is what creates the two channels — and the
+  # separation is load-bearing, see push_service.dart.
+  flutter_local_notifications: ^19.4.2
 
 dev_dependencies:
   flutter_test:
