@@ -1,4 +1,4 @@
-import { Client } from '../../models/Client.js';
+import { ClientProfile } from '../../models/ClientProfile.js';
 import { Service } from '../../models/Service.js';
 import { logger } from '../../lib/logger.js';
 import * as copy from '../messages.js';
@@ -50,15 +50,20 @@ export interface CommandResult {
 export async function handleGlobalCommand(ctx: CommandContext): Promise<CommandResult | null> {
   const text = ctx.text.trim();
 
+  // STOP is scoped to the business whose number they messaged, not to the
+  // platform. A Client row is a PERSON, global across every business — writing
+  // the opt-out there would mean telling one salon to stop also silenced their
+  // gym, their clinic and every business they have never heard of. The message
+  // arrived on one session; it can only have meant one business.
   if (COMMANDS.STOP.test(text)) {
-    await Client.updateOne({ _id: ctx.clientId }, { $set: { marketingOptOut: true } });
+    await setOptOut(ctx.businessId, ctx.clientId, true);
     logger.info({ businessId: ctx.businessId, clientId: ctx.clientId }, 'customer opted out');
     // State is DISCARDED, not advanced — they asked to stop, not to continue.
     return { replies: [copy.optedOut], conversation: null };
   }
 
   if (COMMANDS.START.test(text)) {
-    await Client.updateOne({ _id: ctx.clientId }, { $set: { marketingOptOut: false } });
+    await setOptOut(ctx.businessId, ctx.clientId, false);
     return { replies: [copy.optedIn], conversation: null };
   }
 
@@ -126,4 +131,19 @@ async function pickBooking(
       invalidCount: 0,
     },
   };
+}
+
+/**
+ * Record an opt-out against ONE business.
+ *
+ * Upserts because STOP can arrive before the customer has ever booked — an
+ * unhappy recipient of a broadcast is exactly the person most likely to send
+ * it, and they may have no profile yet.
+ */
+async function setOptOut(businessId: string, clientId: string, optOut: boolean): Promise<void> {
+  await ClientProfile.updateOne(
+    { businessId, clientId },
+    { $setOnInsert: { businessId, clientId }, $set: { marketingOptOut: optOut } },
+    { upsert: true, setDefaultsOnInsert: true },
+  );
 }

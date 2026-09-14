@@ -6,6 +6,7 @@ import { BOOKING_STATUS, SESSION_STATUS } from '@scalivo/shared';
 import { Booking } from '../src/models/Booking.js';
 import { Business } from '../src/models/Business.js';
 import { Client } from '../src/models/Client.js';
+import { ClientProfile } from '../src/models/ClientProfile.js';
 import { Service } from '../src/models/Service.js';
 import { SlotOccupancy } from '../src/models/SlotOccupancy.js';
 import { Staff } from '../src/models/Staff.js';
@@ -246,13 +247,33 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       // Not advanced — discarded. Answering "reply YES or NO" to an opt-out is
       // the exact bug the interceptor ordering exists to prevent.
       expect(await conversation()).toBeNull();
-      expect((await Client.findById(clientId))?.marketingOptOut).toBe(true);
+      expect(
+        (await ClientProfile.findOne({ businessId, clientId }))?.marketingOptOut,
+      ).toBe(true);
       expect(await Booking.countDocuments({ businessId })).toBe(0);
+    });
+
+    /**
+     * The opt-out belongs to the BUSINESS they messaged, not to the person.
+     *
+     * A Client row is global across the platform — one human, every business
+     * they have ever dealt with. Telling one salon to stop must not silence
+     * their gym, their clinic, and every business they have never heard of.
+     */
+    it('scopes the opt-out to the business they messaged', async () => {
+      await say('STOP');
+
+      const otherBusiness = String(new mongoose.Types.ObjectId());
+      expect(
+        await ClientProfile.exists({ businessId: otherBusiness, clientId, marketingOptOut: true }),
+      ).toBeNull();
     });
 
     it('does not treat a sentence containing "stop" as an opt-out', async () => {
       await say("please don't stop sending me offers");
-      expect((await Client.findById(clientId))?.marketingOptOut).toBe(false);
+      expect(
+        (await ClientProfile.findOne({ businessId, clientId }))?.marketingOptOut ?? false,
+      ).toBe(false);
     });
 
     it('re-subscribes on START', async () => {
