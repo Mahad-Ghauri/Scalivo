@@ -12,18 +12,20 @@ import {
 import { Booking } from '../models/Booking.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
 import { Staff } from '../models/Staff.js';
-import { alignToGrid } from '../lib/time.js';
+import { addMinutes, alignToGrid, toBusinessLocal } from '../lib/time.js';
 import { logger } from '../lib/logger.js';
 import {
+  type BookingContext,
   getAvailability,
+  isBlocked,
   isWithinWorkingHours,
   loadContext,
   nextAvailable,
+  qualifiedStaff,
   slotsFor,
   windowCheck,
 } from './availability.js';
 import { acquireHold, releaseHold, verifyHold } from './holds.js';
-import { toBusinessLocal } from '../lib/time.js';
 import { recordBooking, recordOutcome } from '../crm/profile.js';
 
 /**
@@ -66,7 +68,7 @@ function isDuplicateKey(err: unknown): boolean {
  * default: a spread of the document would publish whatever the schema grows
  * next, including anything added for internal bookkeeping.
  */
-function toBooking(
+export function toBooking(
   doc: HydratedDocument<InferSchemaType<typeof Booking.schema>>,
 ): BookingContract {
   return {
@@ -199,6 +201,35 @@ export async function holdSlot(redis: Redis, request: HoldRequest): Promise<Hold
 }
 
 /**
+ * May this person take this appointment at this time?
+ *
+ * The normal path is the full check. The override path drops the roster but
+ * keeps the two things an owner must not be able to wave away: whether the staff
+ * member is real, active and qualified, and whether the owner has already
+ * declared that time off-limits. A block is the owner's own word — booking over
+ * it silently would make the feature pointless — and if they change their mind
+ * they delete the block.
+ */
+async function allowedToWork(
+  request: { businessId: string; serviceId: string; override?: boolean },
+  staffId: string,
+  startsAt: Date,
+  ctx: BookingContext,
+): Promise<boolean> {
+  if (!request.override) {
+    return isWithinWorkingHours(request.businessId, staffId, request.serviceId, startsAt, ctx);
+  }
+
+  const member = await qualifiedStaff(request.businessId, staffId, request.serviceId);
+  if (!member) return false;
+
+  return !(await isBlocked(request.businessId, staffId, {
+    start: startsAt,
+    end: addMinutes(startsAt, ctx.durationMinutes),
+  }));
+}
+
+/**
  * Write the booking, or lose the race cleanly.
  *
  * Every validation below is repeated from the hold path on purpose. The hold was
@@ -208,7 +239,19 @@ export async function holdSlot(redis: Redis, request: HoldRequest): Promise<Hold
  */
 export async function createBooking(
   redis: Redis,
-  request: BookingRequest & { now?: Date },
+  request: BookingRequest & {
+    now?: Date;
+    /**
+     * The owner writing into their own diary — a walk-in standing at the desk,
+     * or someone squeezed in after closing. Bypasses the notice period and the
+     * roster, and NOTHING else: not the occupancy grid, not blocked time, not
+     * the horizon, and not whether the staff member can perform the service.
+     *
+     * Only ever set by the owner-facing calendar routes. A customer-supplied
+     * flag here would make the notice period advisory.
+     */
+    override?: boolean;
+  },
 ): Promise<BookingResult> {
   const ctx = await loadContext(request.businessId, request.serviceId);
   if (!ctx) return { ok: false, reason: 'invalid_slot' };
@@ -221,8 +264,12 @@ export async function createBooking(
     return { ok: false, reason: 'invalid_slot' };
   }
 
+  // The horizon binds even the owner — a booking two years out is a typo, not a
+  // decision. The notice period does not: it exists to stop CUSTOMERS ambushing
+  // the diary, and the owner is the diary.
   const window = windowCheck(startsAt, ctx, now);
-  if (window !== 'ok') return { ok: false, reason: window };
+  if (window === 'beyond_horizon') return { ok: false, reason: 'beyond_horizon' };
+  if (window === 'too_soon' && !request.override) return { ok: false, reason: 'too_soon' };
 
   const slots = slotsFor(startsAt, ctx);
 
@@ -232,7 +279,7 @@ export async function createBooking(
     return { ok: false, reason: 'hold_expired' };
   }
 
-  if (!(await isWithinWorkingHours(request.businessId, staffId, request.serviceId, startsAt, ctx))) {
+  if (!(await allowedToWork(request, staffId, startsAt, ctx))) {
     return { ok: false, reason: 'outside_hours' };
   }
 

@@ -8,6 +8,7 @@ import { createBusinessRouter } from './businesses/routes.js';
 import { createCatalogRouter } from './catalog/routes.js';
 import { createCrmRouter } from './crm/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
+import { createCalendarRouter } from './calendar/routes.js';
 import { handleInboundMessage } from './whatsapp/router.js';
 import { handleSessionQr, handleSessionStatus } from './session-health/monitor.js';
 import { startReconcileJob } from './session-health/reconcile.js';
@@ -60,6 +61,7 @@ export function createApp(): Express {
   app.use('/businesses', createCatalogRouter());
   app.use('/businesses', createCrmRouter());
   app.use('/businesses', createBookingRouter(redis));
+  app.use('/businesses', createCalendarRouter(redis, provider));
 
   app.get('/health', async (_req, res) => {
     const report = await healthCheck();

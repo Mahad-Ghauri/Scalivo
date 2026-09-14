@@ -152,7 +152,12 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
     staffA = String(sa!._id);
     staffB = String(sb!._id);
 
-    const client = await Client.create({ phone: `92300${Date.now() % 10_000_000}`, displayName: 'Test Client' });
+    // Random tail, not just the clock. Client is global and this suite never
+    // deletes its rows, so a time-only value collides with its own leftovers
+    // every time `Date.now() % 10_000_000` wraps — and with any other suite that
+    // happens to build a fixture phone in the same millisecond.
+    const unique = `${Date.now() % 100_000}${Math.floor(Math.random() * 1_000_000)}`;
+    const client = await Client.create({ phone: `92300${unique}`, displayName: 'Test Client' });
     clientId = String(client._id);
   });
 

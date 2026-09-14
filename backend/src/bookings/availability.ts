@@ -47,7 +47,7 @@ export interface AvailabilityQuery {
   now?: Date;
 }
 
-interface Interval {
+export interface Interval {
   start: Date;
   end: Date;
 }
@@ -257,6 +257,46 @@ export async function getAvailability(
 }
 
 /**
+ * Is this a real, active staff member who can actually perform this service?
+ *
+ * Separate from the hours check because it is the one part no caller may ever
+ * skip. The owner's calendar can legitimately squeeze an appointment in after
+ * closing; nobody can legitimately book a laser session with a receptionist who
+ * is not qualified for it, and "they were deleted last week" is never a reason
+ * to write the appointment anyway.
+ */
+export async function qualifiedStaff(businessId: string, staffId: string, serviceId: string) {
+  return Staff.findOne({ _id: staffId, businessId, active: true, serviceIds: serviceId });
+}
+
+/**
+ * Does time the owner declared off-limits overlap this appointment?
+ *
+ * Blocked time writes no occupancy rows, so the transaction cannot catch it —
+ * there is nothing there to collide with. This query is the only thing standing
+ * between a holiday and a booking on it.
+ *
+ * Kept separate from the hours check so that the owner override on the calendar
+ * cannot reach it. Working hours are a default the owner may knowingly work
+ * outside of; a block is the owner's own explicit statement that they are not
+ * there, and silently booking over it would make the feature useless. If they
+ * change their mind, they delete the block.
+ */
+export async function isBlocked(
+  businessId: string,
+  staffId: string,
+  appointment: Interval,
+): Promise<boolean> {
+  const blocked = await BlockedTime.exists({
+    businessId,
+    $or: [{ staffId: null }, { staffId }],
+    startsAt: { $lt: appointment.end },
+    endsAt: { $gt: appointment.start },
+  });
+  return blocked !== null;
+}
+
+/**
  * Can this one staff member take this one appointment, ignoring occupancy?
  *
  * The booking path needs this because it cannot trust its caller. A `startsAt`
@@ -273,45 +313,57 @@ export async function isWithinWorkingHours(
   startsAt: Date,
   ctx: BookingContext,
 ): Promise<boolean> {
-  const member = await Staff.findOne({
-    _id: staffId,
-    businessId,
-    active: true,
-    serviceIds: serviceId,
-  });
+  const member = await qualifiedStaff(businessId, staffId, serviceId);
   if (!member) return false;
 
-  const local = toBusinessLocal(startsAt, ctx.timezone);
+  const appointment = { start: startsAt, end: addMinutes(startsAt, ctx.durationMinutes) };
+  if (!withinRoster(member.workingHours, appointment, ctx)) return false;
+
+  return !(await isBlocked(businessId, staffId, appointment));
+}
+
+/**
+ * The pure half: does this appointment sit inside the roster, clear of breaks?
+ *
+ * No database, so the calendar can ask the same question about a staff member
+ * it has already loaded — and so the hours arithmetic is testable without
+ * standing up Mongo.
+ */
+export function withinRoster(
+  // Typed loosely enough to take a Mongoose subdocument array directly. The
+  // break fields are optional in the schema and required by the zod validator
+  // in catalog/hours.ts — which is where a malformed break is actually refused,
+  // rather than here, where refusing would mean rejecting real bookings over a
+  // row nobody can write.
+  workingHours: readonly {
+    dayOfWeek: number;
+    opensAt: string;
+    closesAt: string;
+    breaks: readonly { startsAt?: string | null; endsAt?: string | null }[];
+  }[],
+  appointment: Interval,
+  ctx: BookingContext,
+): boolean {
+  const local = toBusinessLocal(appointment.start, ctx.timezone);
   const date = local.toISODate();
   if (!date) return false;
 
-  const hours = member.workingHours.find((h) => h.dayOfWeek === local.weekday % 7);
-  if (!hours) return false;
+  const hours = workingHours.find((h) => h.dayOfWeek === local.weekday % 7);
+  if (!hours) return false; // closed that day
 
   const opens = wallClockToUtc(`${date}T${hours.opensAt}`, ctx.timezone);
   const closes = wallClockToUtc(`${date}T${hours.closesAt}`, ctx.timezone);
-  const appointment = { start: startsAt, end: addMinutes(startsAt, ctx.durationMinutes) };
-
   if (appointment.start < opens || appointment.end > closes) return false;
 
-  const withinBreak = hours.breaks.some((b) =>
-    overlaps(appointment, {
-      start: wallClockToUtc(`${date}T${b.startsAt}`, ctx.timezone),
-      end: wallClockToUtc(`${date}T${b.endsAt}`, ctx.timezone),
-    }),
+  return !hours.breaks.some(
+    (b) =>
+      b.startsAt != null &&
+      b.endsAt != null &&
+      overlaps(appointment, {
+        start: wallClockToUtc(`${date}T${b.startsAt}`, ctx.timezone),
+        end: wallClockToUtc(`${date}T${b.endsAt}`, ctx.timezone),
+      }),
   );
-  if (withinBreak) return false;
-
-  // Blocked time writes no occupancy rows, so the transaction cannot catch it.
-  // This query is the only thing standing between a holiday and a booking on it.
-  const blocked = await BlockedTime.exists({
-    businessId,
-    $or: [{ staffId: null }, { staffId }],
-    startsAt: { $lt: appointment.end },
-    endsAt: { $gt: appointment.start },
-  });
-
-  return blocked === null;
 }
 
 /**
