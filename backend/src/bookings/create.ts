@@ -24,6 +24,7 @@ import {
 } from './availability.js';
 import { acquireHold, releaseHold, verifyHold } from './holds.js';
 import { toBusinessLocal } from '../lib/time.js';
+import { recordBooking, recordOutcome } from '../crm/profile.js';
 
 /**
  * Turning an offer into a booking.
@@ -305,6 +306,14 @@ export async function createBooking(
   const doc = await Booking.findById(bookingId);
   if (!doc) throw new Error(`booking ${bookingId} committed but could not be read back`);
 
+  // The CRM profile is a cache of what this booking already records, so it is
+  // updated AFTER the commit and outside the transaction: a failure here must
+  // never roll back a booking the customer has been told they have. Any drift
+  // it causes is repairable with recomputeProfile().
+  await recordBooking(request.businessId, request.clientId, doc.createdAt ?? now).catch((err) =>
+    logger.error({ err, businessId: request.businessId }, 'could not update the client profile'),
+  );
+
   logger.info(
     { bookingId: String(bookingId), businessId: request.businessId, source: request.source },
     'booking created',
@@ -326,7 +335,23 @@ export async function cancelBooking(bookingId: string, businessId: string): Prom
   if (!booking) return false;
 
   await SlotOccupancy.deleteMany({ bookingId, businessId });
-  await Booking.updateOne({ _id: bookingId }, { $set: { status: BOOKING_STATUS.CANCELLED } });
+
+  // Guarded so a double cancel — the customer on WhatsApp and the owner in the
+  // app, seconds apart — counts once against the client's record. Freeing the
+  // slot above is idempotent on its own; the counter is not.
+  const changed = await Booking.updateOne(
+    { _id: bookingId, businessId, status: { $ne: BOOKING_STATUS.CANCELLED } },
+    { $set: { status: BOOKING_STATUS.CANCELLED } },
+  );
+
+  if (changed.modifiedCount === 1) {
+    await recordOutcome(businessId, booking.clientId, 'cancelled', {
+      startsAt: booking.startsAt,
+      priceMinor: booking.priceMinor,
+      serviceId: booking.serviceId,
+      staffId: booking.staffId,
+    }).catch((err) => logger.error({ err, businessId }, 'could not update the client profile'));
+  }
 
   logger.info({ bookingId, businessId }, 'booking cancelled, slots freed');
   return true;

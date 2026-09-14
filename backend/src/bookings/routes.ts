@@ -1,11 +1,17 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, type BookingResult } from '@scalivo/shared';
+import { ANY_STAFF, BOOKING_STATUS, type BookingResult } from '@scalivo/shared';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
 import { cancelBooking, createBooking, holdSlot } from './create.js';
+import { confirmBooking, setBookingOutcome } from './outcome.js';
+
+/** The owner can mark an appointment done or missed; cancel has its own route. */
+const outcomeBody = z.object({
+  outcome: z.enum([BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW]),
+});
 
 /**
  * Booking over HTTP: the web and owner surfaces, and the shape the WhatsApp FSM
@@ -191,6 +197,58 @@ export function createBookingRouter(redis: Redis): Router {
       const cancelled = await cancelBooking(param(req, 'bookingId'), param(req, 'businessId'));
       if (!cancelled) {
         res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.status(204).end();
+    },
+  );
+
+  /**
+   * Mark an appointment done or missed. This is what feeds the CRM — until a
+   * booking is completed nobody has visited, so without this endpoint every
+   * profile stays at zero visits forever.
+   *
+   * `already_terminal` is deliberately not an error the app shows as a failure:
+   * it means someone else got there first, which is a stale screen rather than
+   * a problem.
+   */
+  router.post(
+    '/:businessId/bookings/:bookingId/outcome',
+    requireAuth,
+    requireTenant(),
+    json,
+    async (req, res) => {
+      const parsed = outcomeBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'invalid outcome', fields: fieldErrors(parsed.error) });
+        return;
+      }
+
+      const result = await setBookingOutcome(
+        param(req, 'bookingId'),
+        param(req, 'businessId'),
+        parsed.data.outcome,
+      );
+
+      if (!result.ok) {
+        res
+          .status(result.reason === 'not_found' ? 404 : 409)
+          .json({ error: result.reason === 'not_found' ? 'not found' : 'already marked', reason: result.reason });
+        return;
+      }
+      res.status(204).end();
+    },
+  );
+
+  /** Pending → confirmed. Not a CRM event: nothing about their history changed. */
+  router.post(
+    '/:businessId/bookings/:bookingId/confirm',
+    requireAuth,
+    requireTenant(),
+    async (req, res) => {
+      const ok = await confirmBooking(param(req, 'bookingId'), param(req, 'businessId'));
+      if (!ok) {
+        res.status(409).json({ error: 'not a pending booking' });
         return;
       }
       res.status(204).end();

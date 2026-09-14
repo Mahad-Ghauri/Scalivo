@@ -6,6 +6,7 @@ import { redisDedupe } from './messaging/webhook.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createCatalogRouter } from './catalog/routes.js';
+import { createCrmRouter } from './crm/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { handleInboundMessage } from './whatsapp/router.js';
 import { handleSessionQr, handleSessionStatus } from './session-health/monitor.js';
@@ -57,6 +58,7 @@ export function createApp(): Express {
   // requireTenant guards the catalogue, availability and booking exactly as it
   // guards the session routes.
   app.use('/businesses', createCatalogRouter());
+  app.use('/businesses', createCrmRouter());
   app.use('/businesses', createBookingRouter(redis));
 
   app.get('/health', async (_req, res) => {

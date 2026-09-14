@@ -7,6 +7,8 @@ import { Client } from '../models/Client.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
+import { ClientProfile } from '../models/ClientProfile.js';
+import { recomputeProfile } from '../crm/profile.js';
 import { BlockedTime } from '../models/BlockedTime.js';
 import { User } from '../models/User.js';
 import { hashPassword } from '../auth/routes.js';
@@ -89,7 +91,9 @@ async function seed() {
   // old definition in place. syncIndexes drops what no longer matches and
   // rebuilds it. Cheap here, and it keeps a dev DB honest about the schema.
   await Promise.all(
-    [Business, User, Service, Staff, Client, Booking, SlotOccupancy, BlockedTime].map((m) => m.syncIndexes()),
+    [Business, User, Service, Staff, Client, Booking, SlotOccupancy, BlockedTime, ClientProfile].map(
+      (m) => m.syncIndexes(),
+    ),
   );
   console.log('indexes synced');
 
@@ -116,6 +120,7 @@ async function seed() {
     Service.deleteMany({ businessId }),
     Staff.deleteMany({ businessId }),
     Client.deleteMany({ _id: { $in: previous } }),
+    ClientProfile.deleteMany({ businessId }),
   ]);
 
   await User.findOneAndUpdate(
@@ -269,6 +274,13 @@ async function seed() {
     occupancyRows = (err as { insertedDocs?: unknown[] }).insertedDocs?.length ?? 0;
   }
 
+  // Built by REPLAY rather than written directly. The seeded bookings are the
+  // source of truth, and recompute is the same function the CRM repairs drift
+  // with — so a seeded profile is provably what a real one would be, and a bug
+  // in the derivation shows up in `pnpm seed` rather than after a pilot.
+  const seededClients = await Booking.distinct('clientId', { businessId });
+  for (const id of seededClients) await recomputeProfile(businessId, id);
+
   console.log(`
   business   Skinare Aesthetics (${businessId})
   owner      ${OWNER_EMAIL} / ${OWNER_PASSWORD}
@@ -276,6 +288,7 @@ async function seed() {
   staff      ${staff.length}
   clients    ${clientCount}  (2 with no phone number)
   bookings   ${bookingCount}  (${upcoming.length} upcoming)
+  profiles   ${seededClients.length}  (rebuilt from the bookings)
   occupancy  ${occupancyRows} grid rows
   `);
 
