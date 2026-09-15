@@ -81,8 +81,6 @@ export const nothingAvailable = (serviceName: string) =>
   `Sorry, there's nothing available for ${serviceName} at the moment. ` +
   `Reply HELP and someone will get back to you.`;
 
-export const closedToday = 'We\'re closed right now. Reply HELP if it\'s urgent.';
-
 export const invalidInput = 'Sorry, I didn\'t catch that. Reply with one of the numbers above.';
 
 export const tooManyInvalid = (businessName: string) =>
@@ -113,8 +111,5 @@ export const upcomingMenu = (
   `Which appointment?\n\n${numbered(
     bookings.map((b) => `${b.serviceName} — ${formatLocal(b.startsAt, timezone)}`),
   )}\n\nReply with a number.`;
-
-export const ratingPrompt = (businessName: string) =>
-  `How was your visit to ${businessName}? Reply 1–5.`;
 
 export const ratingThanks = 'Thanks for the feedback!';

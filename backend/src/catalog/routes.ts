@@ -6,6 +6,7 @@ import { Staff } from '../models/Staff.js';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { workingHoursSchema } from './hours.js';
+import { fieldErrors, param } from '../http/params.js';
 
 /**
  * The catalogue an owner configures before anyone can book: services, staff,
@@ -53,11 +54,6 @@ const staffBody = z.object({
 
 const staffUpdate = staffBody.partial().extend({ active: z.boolean().optional() });
 
-function param(req: express.Request, name: string): string {
-  const value = req.params[name];
-  return typeof value === 'string' ? value : '';
-}
-
 /**
  * An id that is not a valid ObjectId makes Mongoose throw a CastError, which
  * Express turns into a 500. It is a 404 — the caller asked for something that
@@ -66,15 +62,6 @@ function param(req: express.Request, name: string): string {
 function objectId(req: express.Request, name: string): string | null {
   const value = param(req, name);
   return mongoose.isValidObjectId(value) ? value : null;
-}
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path.join('.') || '_';
-    if (!fields[key]) fields[key] = issue.message;
-  }
-  return fields;
 }
 
 export function createCatalogRouter(): Router {

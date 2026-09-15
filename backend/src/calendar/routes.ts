@@ -11,6 +11,7 @@ import { logger } from '../lib/logger.js';
 import { getCalendar } from './view.js';
 import { rescheduleBooking } from './reschedule.js';
 import { createWalkIn } from './walkin.js';
+import { fieldErrors, param } from '../http/params.js';
 
 /**
  * The owner's diary over HTTP.
@@ -72,20 +73,6 @@ const blockBody = z
     message: 'endsAt must be after startsAt',
     path: ['endsAt'],
   });
-
-function param(req: express.Request, name: string): string {
-  const value = req.params[name];
-  return typeof value === 'string' ? value : '';
-}
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path[0];
-    if (typeof key === 'string' && !fields[key]) fields[key] = issue.message;
-  }
-  return fields;
-}
 
 /**
  * 409 means "the world moved while you were looking at it" — re-read and try

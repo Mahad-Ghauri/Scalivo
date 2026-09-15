@@ -7,6 +7,7 @@ import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
 import { createBooking, holdSlot } from './create.js';
 import { confirmBooking, setBookingOutcome } from './outcome.js';
+import { fieldErrors, param } from '../http/params.js';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
 const outcomeBody = z.object({
@@ -43,25 +44,6 @@ const bookingBody = z.object({
   holdToken: z.string().min(1),
   source: z.enum(['whatsapp', 'web', 'owner']).default('web'),
 });
-
-/**
- * Express 5 types a route param as `string | string[]` because a wildcard can
- * repeat. Ours never do, but the narrowing has to happen somewhere — and
- * requireTenant has already refused anything that is not a plain string.
- */
-function param(req: express.Request, name: string): string {
-  const value = req.params[name];
-  return typeof value === 'string' ? value : '';
-}
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path[0];
-    if (typeof key === 'string' && !fields[key]) fields[key] = issue.message;
-  }
-  return fields;
-}
 
 /**
  * How a refusal reaches the caller.

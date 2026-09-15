@@ -26,15 +26,6 @@ import {
  * bookings themselves — which is what makes keeping it safe.
  */
 
-/** Create the profile if this is the first time we have seen this pairing. */
-export async function ensureProfile(businessId: string, clientId: string) {
-  return ClientProfile.findOneAndUpdate(
-    { businessId, clientId },
-    { $setOnInsert: { businessId, clientId } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
-}
-
 /**
  * A booking was made. Not a visit — they have not turned up yet.
  *

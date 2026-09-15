@@ -11,8 +11,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
-
   # Deliberately small. Routing is plain named routes with a navigator key —
   # go_router buys nothing at five screens, and the FCM deep link is three lines
   # either way. The QR arrives as a PNG data URL, so no QR renderer is needed.

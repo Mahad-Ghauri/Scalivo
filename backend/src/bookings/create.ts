@@ -28,6 +28,7 @@ import {
 import { acquireHold, releaseHold, verifyHold } from './holds.js';
 import { setBookingOutcome } from './outcome.js';
 import { recordBooking } from '../crm/profile.js';
+import { isDuplicateKey } from '../lib/mongo.js';
 
 /**
  * Turning an offer into a booking.
@@ -48,14 +49,6 @@ import { recordBooking } from '../crm/profile.js';
  * validation layered on top. Strip all of it away and the system is still
  * correct. Strip the transaction away and nothing else can save it.
  */
-
-/** MongoDB's duplicate-key error, however it is wrapped by the driver. */
-function isDuplicateKey(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null) return false;
-  const e = err as { code?: number; writeErrors?: { code?: number }[] };
-  if (e.code === 11000) return true;
-  return Array.isArray(e.writeErrors) && e.writeErrors.some((w) => w.code === 11000);
-}
 
 /**
  * Mongoose document -> the shared `Booking` contract.

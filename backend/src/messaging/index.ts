@@ -16,7 +16,8 @@ export function createMessagingProvider(): MessagingProvider {
     case 'openwa':
       return new OpenWAProvider(env.OPENWA_BASE_URL, env.OPENWA_API_KEY, env.OPENWA_WEBHOOK_SECRET);
     case 'meta':
-      return new MetaCloudProvider();
+      // A frozen stub object rather than a class — nothing to construct.
+      return MetaCloudProvider;
   }
 }
 

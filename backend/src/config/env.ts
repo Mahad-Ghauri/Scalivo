@@ -29,8 +29,6 @@ const schema = z.object({
   PUBLIC_URL: z.string().url().default('http://localhost:3000'),
 
   JWT_SECRET: z.string().min(32),
-  /** Business-local default. Every stored timestamp stays UTC regardless. */
-  DEFAULT_TIMEZONE: z.string().default('Asia/Karachi'),
 
   MESSAGING_PROVIDER: z.enum(['openwa', 'meta']).default('openwa'),
 

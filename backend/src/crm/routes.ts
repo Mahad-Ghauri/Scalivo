@@ -11,6 +11,7 @@ import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { loadProfile, recomputeProfile, toTaggable } from './profile.js';
 import { averageGapDays, computeTags, nextExpectedVisitAt } from './tags.js';
+import { param } from '../http/params.js';
 
 /**
  * The CRM over HTTP.
@@ -33,11 +34,6 @@ const listQuery = z.object({
 });
 
 const notesBody = z.object({ notes: z.string().max(5000) });
-
-function param(req: express.Request, name: string): string {
-  const value = req.params[name];
-  return typeof value === 'string' ? value : '';
-}
 
 export function createCrmRouter(): Router {
   const router = express.Router();

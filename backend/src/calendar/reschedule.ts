@@ -13,6 +13,7 @@ import { alignToGrid, addMinutes, formatLocal } from '../lib/time.js';
 import { logger } from '../lib/logger.js';
 import { notifyClient, type NotifyDeps } from './notify.js';
 import { Business } from '../models/Business.js';
+import { isDuplicateKey } from '../lib/mongo.js';
 
 /**
  * Moving an appointment.
@@ -71,13 +72,6 @@ class Abort extends Error {
   constructor(readonly reason: Exclude<RescheduleResult, { ok: true }>['reason']) {
     super(reason);
   }
-}
-
-function isDuplicateKey(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null) return false;
-  const e = err as { code?: number; writeErrors?: { code?: number }[] };
-  if (e.code === 11000) return true;
-  return Array.isArray(e.writeErrors) && e.writeErrors.some((w) => w.code === 11000);
 }
 
 export async function rescheduleBooking(
