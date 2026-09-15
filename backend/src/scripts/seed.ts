@@ -24,6 +24,16 @@ import { occupiedSlots, toBusinessLocal, wallClockToUtc } from '../lib/time.js';
  * survive, and seeding only tidy data hides it until a pilot finds it.
  *
  * Re-runnable: it clears this business's own data first, and nothing else.
+ *
+ * **This is synthetic demo data, and it is the ONLY tenant this script writes.**
+ * The Uxelerate tenant is deliberately not seeded: it is onboarded through the
+ * real Phase 1.5 flow, because exercising that flow — and finding out whether an
+ * owner can actually complete it — is the whole reason it exists. A seeded
+ * shortcut past onboarding would skip the thing being tested.
+ *
+ * That matters more than it used to. A real tenant now lives in the same
+ * database as this fixture, so "clears this business's own data" has to be true
+ * precisely rather than approximately. See the client cleanup below.
  */
 
 const SLUG = 'skinare';
@@ -112,14 +122,34 @@ async function seed() {
   const businessId = String(business._id);
 
   // Clear only this business's data, so a seeded dev DB with other work survives.
+  //
+  // `Client` is the dangerous one: it is GLOBAL, carrying no businessId, so a
+  // person can legitimately be a customer of this fixture AND of a real tenant
+  // in the same database. Deleting everyone with a Skinare booking would take
+  // that person's row with it and orphan their profile at the real business —
+  // silently, because nothing joins back to say it happened.
+  //
+  // So: delete only clients whose ONLY bookings are Skinare's. Anyone shared
+  // with another tenant keeps their row and simply loses their seeded history.
   const previous = await Booking.find({ businessId }).distinct('clientId');
+  const sharedWithOthers = await Booking.distinct('clientId', {
+    businessId: { $ne: businessId },
+    clientId: { $in: previous },
+  });
+  const shared = new Set(sharedWithOthers.map(String));
+  const seedOnly = previous.filter((id) => !shared.has(String(id)));
+
+  if (shared.size > 0) {
+    console.log(`keeping ${shared.size} client(s) that another business also books`);
+  }
+
   await Promise.all([
     Booking.deleteMany({ businessId }),
     SlotOccupancy.deleteMany({ businessId }),
     BlockedTime.deleteMany({ businessId }),
     Service.deleteMany({ businessId }),
     Staff.deleteMany({ businessId }),
-    Client.deleteMany({ _id: { $in: previous } }),
+    Client.deleteMany({ _id: { $in: seedOnly } }),
     ClientProfile.deleteMany({ businessId }),
   ]);
 
@@ -178,11 +208,30 @@ async function seed() {
       // one owner-entered walk-in. Both must coexist under the partial index —
       // this pair is what proves it, and it is why the index cannot be sparse.
       const unmatched = clientCount === 7 || clientCount === 18;
-      const client = await Client.create({
-        phone: unmatched ? null : `92${phoneCounter++}`,
-        lids: unmatched && clientCount === 7 ? [`17740396${phoneCounter}@lid`] : [],
-        displayName: name,
-      });
+      const phone = unmatched ? null : `92${phoneCounter++}`;
+      const lids = unmatched && clientCount === 7 ? [`17740396${phoneCounter}@lid`] : [];
+
+      /**
+       * Upsert by phone, not insert.
+       *
+       * The cleanup above deliberately KEEPS any client another business also
+       * books — and a kept client still holds their phone number. This sequence
+       * is deterministic by design ("the same seed gives the same clinic every
+       * run"), so the very next run reproduces that number and a plain insert
+       * dies on the unique index partway through, leaving a half-seeded
+       * database. Reusing the row is also simply correct: same number, same
+       * person.
+       *
+       * $setOnInsert rather than $set, so a real tenant's WhatsApp display name
+       * is never overwritten by a fixture's invented one.
+       */
+      const client = phone
+        ? await Client.findOneAndUpdate(
+            { phone },
+            { $setOnInsert: { phone, lids, displayName: name } },
+            { upsert: true, new: true, setDefaultsOnInsert: true },
+          )
+        : await Client.create({ phone: null, lids, displayName: name });
       clientCount++;
 
       const visits = Math.floor(

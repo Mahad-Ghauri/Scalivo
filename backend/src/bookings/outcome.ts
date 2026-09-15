@@ -64,12 +64,17 @@ export async function setBookingOutcome(
     await SlotOccupancy.deleteMany({ bookingId, businessId });
   }
 
+  // The profile is a CACHE of what this booking already records, so a failure
+  // here must not fail an outcome that has already been written and acted on —
+  // the slot is freed, the owner has moved on, and throwing now would report a
+  // completed action as broken. Drift is repairable with recomputeProfile();
+  // a false failure is not.
   await recordOutcome(businessId, booking.clientId, CRM_EFFECT[outcome], {
     startsAt: booking.startsAt,
     priceMinor: booking.priceMinor,
     serviceId: booking.serviceId,
     staffId: booking.staffId,
-  });
+  }).catch((err) => logger.error({ err, businessId, bookingId }, 'could not update the client profile'));
 
   logger.info({ bookingId, businessId, outcome }, 'booking outcome recorded');
   return { ok: true, changed: true };

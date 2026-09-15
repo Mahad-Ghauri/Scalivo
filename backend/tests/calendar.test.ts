@@ -15,7 +15,7 @@ import { ClientProfile } from '../src/models/ClientProfile.js';
 import { Service } from '../src/models/Service.js';
 import { SlotOccupancy } from '../src/models/SlotOccupancy.js';
 import { Staff } from '../src/models/Staff.js';
-import { createBooking, holdSlot } from '../src/bookings/create.js';
+import { cancelBooking, createBooking, holdSlot } from '../src/bookings/create.js';
 import { setBookingOutcome } from '../src/bookings/outcome.js';
 import { withinRoster } from '../src/bookings/availability.js';
 import { getCalendar } from '../src/calendar/view.js';
@@ -449,6 +449,79 @@ describe.skipIf(!infraUp)('the calendar', () => {
     it('lists every active staff member so an empty column still renders', async () => {
       const view = await getCalendar({ businessId, from: date, to: date });
       expect(view!.staff.map((s) => s.id).sort()).toEqual([staffA, staffB].sort());
+    });
+  });
+
+  describe('cancelling', () => {
+    /**
+     * The two halves of the ordering fix, tested where they ARE observable.
+     *
+     * The bug was that cancellation freed the grid before flipping the status,
+     * leaving a window in which the booking was still CONFIRMED with its hour
+     * free — a reschedule landing inside it claimed the new time and committed,
+     * and the cancellation's status write then landed on top, leaving a
+     * cancelled appointment holding an hour nobody was coming to.
+     *
+     * **That interleaving is not deterministically testable from here.** The two
+     * cancel writes are adjacent with one await between them, so in a single
+     * process a concurrent reschedule never lands between them; a racing test
+     * passes under both orderings and proves nothing. Hitting it would need a
+     * delay hook in production code, which is a worse trade than this pair of
+     * tests plus the structural fix — cancellation now has ONE implementation,
+     * so the two orderings cannot drift apart again.
+     *
+     * What these two do pin down is the property the fix depends on: the status
+     * is authoritative first, and freeing by bookingId is correct afterwards
+     * whichever operation got there first.
+     */
+    it('refuses to move a booking once it has been cancelled', async () => {
+      const booking = await book(staffA, hydrafacial, at('16:00'));
+      expect(await cancelBooking(booking.id, businessId)).toBe(true);
+
+      const result = await move(booking.id, at('10:00'));
+      assertFailed(result, 'moving a cancelled booking');
+      expect(result.reason).toBe('already_terminal');
+
+      // And the hour it used to hold is genuinely free again.
+      expect(await SlotOccupancy.countDocuments({ bookingId: booking.id })).toBe(0);
+      await expect(book(staffA, hydrafacial, at('16:00'))).resolves.toBeTruthy();
+    });
+
+    it('frees the NEW slot when a booking is cancelled after being moved', async () => {
+      const booking = await book(staffA, hydrafacial, at('16:00'));
+      assertOk(await move(booking.id, at('10:00')), 'the move');
+
+      expect(await cancelBooking(booking.id, businessId)).toBe(true);
+
+      // Freeing by bookingId rather than by remembered time is what makes this
+      // work: the rows it deletes are wherever the booking ended up.
+      expect(await SlotOccupancy.countDocuments({ bookingId: booking.id })).toBe(0);
+      await expect(book(staffA, hydrafacial, at('10:00'))).resolves.toBeTruthy();
+    });
+
+    it('reports an already-cancelled booking as already terminal, not as missing', async () => {
+      const booking = await book(staffA, hydrafacial, at('16:00'));
+
+      expect(await cancelBooking(booking.id, businessId)).toBe(true);
+      // Still true — a repeat cancel is a stale screen, not an error. But the
+      // richer call can tell the app which of the two it was.
+      expect(await cancelBooking(booking.id, businessId)).toBe(true);
+
+      const repeat = await setBookingOutcome(booking.id, businessId, BOOKING_STATUS.CANCELLED);
+      assertFailed(repeat, 'the repeat cancel');
+      expect(repeat.reason).toBe('already_terminal');
+    });
+
+    it('counts a double cancellation once against the client record', async () => {
+      const booking = await book(staffA, hydrafacial, at('16:00'));
+
+      await Promise.all([
+        cancelBooking(booking.id, businessId),
+        cancelBooking(booking.id, businessId),
+      ]);
+
+      const profile = await ClientProfile.findOne({ businessId, clientId });
+      expect(profile!.cancellations).toBe(1);
     });
   });
 

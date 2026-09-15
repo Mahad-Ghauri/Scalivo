@@ -26,7 +26,8 @@ import {
   windowCheck,
 } from './availability.js';
 import { acquireHold, releaseHold, verifyHold } from './holds.js';
-import { recordBooking, recordOutcome } from '../crm/profile.js';
+import { setBookingOutcome } from './outcome.js';
+import { recordBooking } from '../crm/profile.js';
 
 /**
  * Turning an offer into a booking.
@@ -370,36 +371,29 @@ export async function createBooking(
 }
 
 /**
- * Free the time. Deleting the occupancy rows is the operative act — the status
- * change is bookkeeping.
+ * Free the time.
  *
- * Not a transaction: the two writes are idempotent and independent, and the
- * failure mode is benign in the direction that matters. Rows gone but status
- * stale means a slot is bookable again, which is what the owner asked for.
+ * This used to be its own implementation — status change and occupancy delete,
+ * in that order reversed — and it was wrong in a way that only showed up once
+ * something else could move a booking.
+ *
+ * **Why the order matters.** Deleting the rows first opens a window in which the
+ * booking is still CONFIRMED with its hour free. A reschedule landing inside
+ * that window passes its own status guard, claims occupancy at the NEW time, and
+ * commits — and then the cancellation's status write lands on top. The result is
+ * a cancelled appointment holding an hour nobody is coming to. Flipping the
+ * status first closes it: the reschedule sees a terminal status and aborts, and
+ * if it got in first, the delete-by-bookingId still frees whatever it claimed.
+ *
+ * So cancellation is now one implementation, not two. Two functions doing the
+ * same job in different orders is how that gap existed in the first place, and
+ * keeping them merged is what stops it coming back.
+ *
+ * Returns whether the booking exists at all — an already-cancelled one is a
+ * success, not an error. Callers needing to tell "already done" from "never
+ * existed" should use setBookingOutcome directly.
  */
 export async function cancelBooking(bookingId: string, businessId: string): Promise<boolean> {
-  const booking = await Booking.findOne({ _id: bookingId, businessId });
-  if (!booking) return false;
-
-  await SlotOccupancy.deleteMany({ bookingId, businessId });
-
-  // Guarded so a double cancel — the customer on WhatsApp and the owner in the
-  // app, seconds apart — counts once against the client's record. Freeing the
-  // slot above is idempotent on its own; the counter is not.
-  const changed = await Booking.updateOne(
-    { _id: bookingId, businessId, status: { $ne: BOOKING_STATUS.CANCELLED } },
-    { $set: { status: BOOKING_STATUS.CANCELLED } },
-  );
-
-  if (changed.modifiedCount === 1) {
-    await recordOutcome(businessId, booking.clientId, 'cancelled', {
-      startsAt: booking.startsAt,
-      priceMinor: booking.priceMinor,
-      serviceId: booking.serviceId,
-      staffId: booking.staffId,
-    }).catch((err) => logger.error({ err, businessId }, 'could not update the client profile'));
-  }
-
-  logger.info({ bookingId, businessId }, 'booking cancelled, slots freed');
-  return true;
+  const result = await setBookingOutcome(bookingId, businessId, BOOKING_STATUS.CANCELLED);
+  return result.ok || result.reason === 'already_terminal';
 }

@@ -5,7 +5,7 @@ import { ANY_STAFF, BOOKING_STATUS, type BookingResult } from '@scalivo/shared';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
-import { cancelBooking, createBooking, holdSlot } from './create.js';
+import { createBooking, holdSlot } from './create.js';
 import { confirmBooking, setBookingOutcome } from './outcome.js';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
@@ -194,9 +194,22 @@ export function createBookingRouter(redis: Redis): Router {
     requireAuth,
     requireTenant(),
     async (req, res) => {
-      const cancelled = await cancelBooking(param(req, 'bookingId'), param(req, 'businessId'));
-      if (!cancelled) {
-        res.status(404).json({ error: 'not found' });
+      // setBookingOutcome rather than cancelBooking: the boolean collapses
+      // "already cancelled" and "never existed" into one answer, and the app
+      // shows those very differently — a stale screen versus an error.
+      const result = await setBookingOutcome(
+        param(req, 'bookingId'),
+        param(req, 'businessId'),
+        BOOKING_STATUS.CANCELLED,
+      );
+
+      if (!result.ok) {
+        res
+          .status(result.reason === 'not_found' ? 404 : 409)
+          .json({
+            error: result.reason === 'not_found' ? 'not found' : 'already cancelled or completed',
+            reason: result.reason,
+          });
         return;
       }
       res.status(204).end();
