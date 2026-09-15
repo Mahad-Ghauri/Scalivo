@@ -10,6 +10,7 @@ import { workingHoursSchema } from '../src/catalog/hours.js';
 import { setupChecklist } from '../src/onboarding/readiness.js';
 import { provisionSession } from '../src/onboarding/provision.js';
 import { loadContext } from '../src/bookings/availability.js';
+import { infraReady } from './infra.js';
 
 /**
  * Onboarding — getting a registered business to the point where it can take a
@@ -140,16 +141,8 @@ describe('working hours validation', () => {
   });
 });
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const infraUp = await reachable();
+const infraUp = await infraReady();
 
 describe.skipIf(!infraUp)('onboarding', () => {
   let businessId: string;

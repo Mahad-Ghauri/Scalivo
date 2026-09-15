@@ -14,6 +14,7 @@ import { BlockedTime } from '../src/models/BlockedTime.js';
 import { handleInboundMessage } from '../src/whatsapp/router.js';
 import { readConversation, writePendingPrompt } from '../src/whatsapp/state.js';
 import { CONVERSATION_STATE } from '../src/whatsapp/fsm/states.js';
+import { infraReady } from './infra.js';
 
 /**
  * The conversation, end to end: a webhook payload goes in, replies come out,
@@ -87,23 +88,8 @@ function inbound(body: string, overrides: Partial<InboundMessage> = {}): Inbound
   };
 }
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    const info = (await mongoose.connection.db?.admin().command({ hello: 1 })) as {
-      setName?: string;
-    };
-    if (!info?.setName) return false;
-    const probe = new Redis(process.env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1 });
-    await probe.connect();
-    await probe.quit();
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const infraUp = await reachable();
+const infraUp = await infraReady({ replicaSet: true, redis: true });
 
 describe.skipIf(!infraUp)('conversation FSM', () => {
   let redis: Redis;

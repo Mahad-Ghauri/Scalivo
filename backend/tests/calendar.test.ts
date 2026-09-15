@@ -23,6 +23,7 @@ import { rescheduleBooking } from '../src/calendar/reschedule.js';
 import { createWalkIn } from '../src/calendar/walkin.js';
 import { normalisePhone } from '../src/lib/phone.js';
 import { wallClockToUtc } from '../src/lib/time.js';
+import { assertFailed, assertOk, infraReady } from './infra.js';
 
 /**
  * Phase 1.7 — the owner's calendar.
@@ -74,19 +75,6 @@ function addDays(isoDate: string, days: number): string {
     .slice(0, 10);
 }
 
-function assertOk<T extends { ok: boolean }>(
-  result: T,
-  what: string,
-): asserts result is Extract<T, { ok: true }> {
-  if (!result.ok) throw new Error(`expected ${what} to succeed, got ${JSON.stringify(result)}`);
-}
-
-function assertFailed<T extends { ok: boolean }>(
-  result: T,
-  what: string,
-): asserts result is Extract<T, { ok: false }> {
-  if (result.ok) throw new Error(`expected ${what} to fail, but it succeeded`);
-}
 
 /* ------------------------------------------------------------------ *
  * Pure — no database, no Redis.
@@ -167,25 +155,8 @@ describe('working-hours arithmetic', () => {
  * Infrastructure-backed.
  * ------------------------------------------------------------------ */
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    const info = (await mongoose.connection.db?.admin().command({ hello: 1 })) as {
-      setName?: string;
-    };
-    if (!info?.setName) return false;
 
-    const probe = new Redis(process.env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1 });
-    await probe.connect();
-    await probe.ping();
-    await probe.quit();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const infraUp = await reachable();
+const infraUp = await infraReady({ replicaSet: true, redis: true });
 
 /** Records what the customer was told, and never touches a network. */
 class FakeProvider implements MessagingProvider {

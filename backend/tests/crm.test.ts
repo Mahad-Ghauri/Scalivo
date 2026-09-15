@@ -9,6 +9,7 @@ import { SlotOccupancy } from '../src/models/SlotOccupancy.js';
 import { averageGapDays, computeTags, nextExpectedVisitAt } from '../src/crm/tags.js';
 import { loadProfile, recomputeProfile } from '../src/crm/profile.js';
 import { setBookingOutcome } from '../src/bookings/outcome.js';
+import { infraReady } from './infra.js';
 
 /**
  * The self-populating CRM.
@@ -170,16 +171,8 @@ describe('client tags', () => {
   });
 });
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const infraUp = await reachable();
+const infraUp = await infraReady();
 
 describe.skipIf(!infraUp)('client profiles', () => {
   let businessId: string;

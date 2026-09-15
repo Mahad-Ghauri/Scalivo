@@ -13,6 +13,7 @@ import { cancelBooking, createBooking, holdSlot } from '../src/bookings/create.j
 import { getAvailability } from '../src/bookings/availability.js';
 import { acquireHold } from '../src/bookings/holds.js';
 import { wallClockToUtc } from '../src/lib/time.js';
+import { assertFailed, assertOk, infraReady } from './infra.js';
 
 /**
  * The tests that justify the whole slot-grid design.
@@ -36,47 +37,9 @@ function nextTuesday(): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    const info = (await mongoose.connection.db?.admin().command({ hello: 1 })) as {
-      setName?: string;
-    };
-    if (!info?.setName) return false;
 
-    const probe = new Redis(process.env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1 });
-    await probe.connect();
-    await probe.ping();
-    await probe.quit();
-    return true;
-  } catch {
-    return false;
-  }
-}
+const infraUp = await infraReady({ replicaSet: true, redis: true });
 
-const infraUp = await reachable();
-
-/**
- * Narrow a result instead of casting it.
- *
- * The casts these replace (`result as { hold: { token: string } }`) silently
- * asserted a shape the type never had — and one of them was wrong: it read
- * `booking._id`, which the shared Booking contract does not have. A cast cannot
- * fail, so the mismatch survived until the tests were typechecked at all.
- */
-function assertOk<T extends { ok: boolean }>(
-  result: T,
-  what: string,
-): asserts result is Extract<T, { ok: true }> {
-  if (!result.ok) throw new Error(`expected ${what} to succeed, got ${JSON.stringify(result)}`);
-}
-
-function assertFailed<T extends { ok: boolean }>(
-  result: T,
-  what: string,
-): asserts result is Extract<T, { ok: false }> {
-  if (result.ok) throw new Error(`expected ${what} to fail, but it succeeded`);
-}
 
 describe.skipIf(!infraUp)('booking concurrency', () => {
   let redis: Redis;

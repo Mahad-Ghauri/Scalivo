@@ -8,6 +8,7 @@ import { User } from '../src/models/User.js';
 import { handleSessionQr, handleSessionStatus } from '../src/session-health/monitor.js';
 import { reconcileOnce } from '../src/session-health/reconcile.js';
 import { drain, enqueue, queueDepth } from '../src/session-health/outbound-queue.js';
+import { infraReady } from './infra.js';
 
 /**
  * Session Health, against the signals WhatsApp really sends.
@@ -59,19 +60,8 @@ class FakeProvider implements MessagingProvider {
   }
 }
 
-async function reachable(): Promise<boolean> {
-  try {
-    await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
-    const probe = new Redis(process.env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1 });
-    await probe.connect();
-    await probe.quit();
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const infraUp = await reachable();
+const infraUp = await infraReady({ redis: true });
 
 /** Pure, no infrastructure — the decision the whole subsystem rests on. */
 describe('isSessionAlarm', () => {
