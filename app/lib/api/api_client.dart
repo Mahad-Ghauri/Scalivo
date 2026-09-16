@@ -185,6 +185,108 @@ class ApiClient {
         .toList(growable: false);
   }
 
+  /// The same endpoint, parsed whole, and with retired rows included.
+  ///
+  /// The settings screen is the one place that wants inactive rows: retiring is
+  /// the only delete this system has, so un-retiring is the only undo, and a
+  /// list that hides them offers no way back.
+  Future<List<ServiceItem>> allServices(String businessId) async {
+    final json = await _send('GET', '/businesses/$businessId/services',
+        query: {'includeInactive': 'true'});
+    return (json['services'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ServiceItem.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<List<StaffMember>> allStaff(String businessId) async {
+    final json =
+        await _send('GET', '/businesses/$businessId/staff', query: {'includeInactive': 'true'});
+    return (json['staff'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(StaffMember.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<ServiceItem> saveService(
+    String businessId, {
+    /// Null creates; an id edits. One method because the form is identical and
+    /// two would drift on the next field either of them grows.
+    String? serviceId,
+    required String name,
+    required int durationMinutes,
+    required int bufferMinutes,
+    required int priceMinor,
+  }) async {
+    final body = {
+      'name': name,
+      'durationMinutes': durationMinutes,
+      'bufferMinutes': bufferMinutes,
+      'priceMinor': priceMinor,
+    };
+
+    final json = serviceId == null
+        ? await _send('POST', '/businesses/$businessId/services', body: body)
+        : await _send('PATCH', '/businesses/$businessId/services/$serviceId', body: body);
+
+    return ServiceItem.fromJson(json);
+  }
+
+  /// Retire, or bring back. There is no hard delete: bookings reference the id,
+  /// and removing the row would blank out finished appointments.
+  Future<void> setServiceActive(String businessId, String serviceId, bool active) => active
+      ? _send('PATCH', '/businesses/$businessId/services/$serviceId', body: {'active': true})
+      : _send('DELETE', '/businesses/$businessId/services/$serviceId');
+
+  Future<StaffMember> saveStaff(
+    String businessId, {
+    String? staffId,
+    required String name,
+    required List<String> serviceIds,
+    required List<WorkingDay> workingHours,
+  }) async {
+    final body = {
+      'name': name,
+      'serviceIds': serviceIds,
+      'workingHours': [for (final day in workingHours) day.toJson()],
+    };
+
+    final json = staffId == null
+        ? await _send('POST', '/businesses/$businessId/staff', body: body)
+        : await _send('PATCH', '/businesses/$businessId/staff/$staffId', body: body);
+
+    return StaffMember.fromJson(json);
+  }
+
+  /// Deactivating does NOT cancel their upcoming bookings — those still exist
+  /// and still hold their slots. The owner has to deal with them deliberately.
+  Future<void> setStaffActive(String businessId, String staffId, bool active) => active
+      ? _send('PATCH', '/businesses/$businessId/staff/$staffId', body: {'active': true})
+      : _send('DELETE', '/businesses/$businessId/staff/$staffId');
+
+  // ── Blocked time ─────────────────────────────────────────────────────────
+
+  /// A null [staffId] closes the whole business — a holiday, not one person's
+  /// afternoon.
+  Future<BlockResult> createBlock(
+    String businessId, {
+    String? staffId,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    String? reason,
+  }) async =>
+      BlockResult.fromJson(
+        await _send('POST', '/businesses/$businessId/blocked-time', body: {
+          'staffId': staffId,
+          'startsAt': startsAt.toUtc().toIso8601String(),
+          'endsAt': endsAt.toUtc().toIso8601String(),
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        }),
+      );
+
+  Future<void> deleteBlock(String businessId, String blockId) =>
+      _send('DELETE', '/businesses/$businessId/blocked-time/$blockId');
+
   // ── The CRM ──────────────────────────────────────────────────────────────
 
   Future<({List<ClientRow> clients, int total})> clients(

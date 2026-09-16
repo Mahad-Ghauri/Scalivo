@@ -83,8 +83,13 @@ class CalendarController extends ChangeNotifier {
 
   /// Fetched lazily and kept: the walk-in sheet is the only caller, and an owner
   /// who never adds a walk-in should never pay for these.
-  Future<void> ensureCatalogue() async {
-    if (services.isNotEmpty && staffList.isNotEmpty) return;
+  ///
+  /// [force] is what Settings calls after editing the catalogue. Without it a
+  /// service added on one tab would be missing from the walk-in sheet on another
+  /// until the app restarted — a cache that is right at first load and quietly
+  /// wrong ever after is worse than no cache at all.
+  Future<void> ensureCatalogue({bool force = false}) async {
+    if (!force && services.isNotEmpty && staffList.isNotEmpty) return;
     try {
       final loaded = await Future.wait([
         _api.services(_businessId),
@@ -167,6 +172,36 @@ class CalendarController extends ChangeNotifier {
             phone: phone,
             clientId: clientId,
           ));
+
+  /// Declare time off-limits.
+  ///
+  /// Returns the count of appointments already inside the window alongside any
+  /// failure, because those are two different facts and the second is not an
+  /// error: the block succeeded, and the owner now has three people to move.
+  /// Collapsing them into a boolean would lose the only thing they need to act on.
+  Future<({ApiException? error, int affected})> blockTime({
+    String? staffId,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    String? reason,
+  }) async {
+    try {
+      final result = await _api.createBlock(
+        _businessId,
+        staffId: staffId,
+        startsAt: startsAt,
+        endsAt: endsAt,
+        reason: reason,
+      );
+      await load(quiet: true);
+      return (error: null, affected: result.affectedBookings);
+    } on ApiException catch (err) {
+      return (error: err, affected: 0);
+    }
+  }
+
+  Future<ApiException?> removeBlock(CalendarBlock block) =>
+      _mutate(() => _api.deleteBlock(_businessId, block.id));
 
   Future<ApiException?> _mutate(Future<void> Function() action) async {
     try {

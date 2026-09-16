@@ -171,10 +171,11 @@ class _Tone {
 /// Time the owner declared off-limits, drawn inline with the appointments so a
 /// blocked afternoon is visible in the same scan rather than on another screen.
 class BlockCard extends StatelessWidget {
-  const BlockCard({super.key, required this.block, this.staffName});
+  const BlockCard({super.key, required this.block, this.staffName, this.onRemove});
 
   final CalendarBlock block;
   final String? staffName;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +184,7 @@ class BlockCard extends StatelessWidget {
         color: Sc.chipFill,
         borderRadius: BorderRadius.circular(16),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: EdgeInsets.fromLTRB(16, 12, onRemove == null ? 16 : 6, 12),
       child: Row(
         children: [
           const Icon(Icons.block_rounded, size: 15, color: Sc.slate),
@@ -207,6 +208,13 @@ class BlockCard extends StatelessWidget {
             '${staffName == null ? '' : ' · $staffName'}',
             style: const TextStyle(fontSize: 11.5, color: Sc.slate),
           ),
+          if (onRemove != null)
+            IconButton(
+              tooltip: 'Unblock',
+              visualDensity: VisualDensity.compact,
+              onPressed: onRemove,
+              icon: const Icon(Icons.close_rounded, size: 16, color: Sc.slateLight),
+            ),
         ],
       ),
     );

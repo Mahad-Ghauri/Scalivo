@@ -5,8 +5,11 @@ import '../../api/api_client.dart';
 import '../../api/models.dart';
 import '../../format.dart';
 import '../../state/auth_controller.dart';
+import '../../state/calendar_controller.dart';
 import '../../theme.dart';
 import '../qr_screen.dart';
+import '../services_screen.dart';
+import '../staff_screen.dart';
 
 /// Settings, and specifically the reminder schedule.
 ///
@@ -107,6 +110,8 @@ class _SettingsTabState extends State<SettingsTab> {
           const SizedBox(height: 22),
           _whatsappCard(auth),
           const SizedBox(height: 24),
+          _catalogueCard(),
+          const SizedBox(height: 24),
           _remindersCard(settings),
           const SizedBox(height: 24),
           _bookingWindowCard(settings),
@@ -163,6 +168,88 @@ class _SettingsTabState extends State<SettingsTab> {
               const Icon(Icons.chevron_right_rounded, size: 20, color: Sc.slateLight),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// What the business sells and who does it.
+  ///
+  /// Both are prerequisites for a single booking existing, which is why they sit
+  /// directly under the WhatsApp card rather than at the bottom with the tuning
+  /// knobs: an owner whose calendar is empty is far more likely to be missing one
+  /// of these than to have set the wrong notice period.
+  Widget _catalogueCard() {
+    return _card(
+      title: 'What you offer',
+      child: Column(
+        children: [
+          _navRow(
+            icon: Icons.local_offer_outlined,
+            label: 'Services',
+            detail: 'Names, length, price and turnaround',
+            onTap: () => _openCatalogue(const ServicesScreen()),
+          ),
+          const Divider(height: 22, color: Sc.divider),
+          _navRow(
+            icon: Icons.badge_outlined,
+            label: 'Staff',
+            detail: 'Who works, on what, and when',
+            onTap: () => _openCatalogue(const StaffScreen()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Opens a catalogue screen and refreshes the diary's cached copy on the way
+  /// back.
+  ///
+  /// The calendar holds services and staff so the walk-in sheet does not refetch
+  /// them on every open. That cache is invisible from here, which is exactly why
+  /// it has to be invalidated here — a service added on this tab would otherwise
+  /// be missing from the walk-in sheet on the next, with nothing on screen to
+  /// explain it.
+  Future<void> _openCatalogue(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+    if (!mounted) return;
+    await context.read<CalendarController>().ensureCatalogue(force: true);
+  }
+
+  Widget _navRow({
+    required IconData icon,
+    required String label,
+    required String detail,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Icon(icon, size: 17, color: Sc.slate),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: Sc.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(detail, style: const TextStyle(fontSize: 12.5, color: Sc.slate)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 20, color: Sc.slateLight),
+          ],
         ),
       ),
     );

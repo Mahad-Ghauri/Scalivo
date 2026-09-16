@@ -6,6 +6,7 @@ import '../../format.dart';
 import '../../state/calendar_controller.dart';
 import '../../theme.dart';
 import '../../widgets/appointment_card.dart';
+import '../block_time_sheet.dart';
 import '../booking_sheet.dart';
 
 /// The diary, one day at a time.
@@ -34,6 +35,10 @@ class _CalendarTabState extends State<CalendarTab> {
     });
   }
 
+  Future<void> _blockTime(CalendarController controller) async {
+    await showBlockTimeSheet(context, controller: controller);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<CalendarController>();
@@ -44,6 +49,7 @@ class _CalendarTabState extends State<CalendarTab> {
         _DateStrip(
           selected: controller.selectedDay,
           onPick: controller.goTo,
+          onBlock: () => _blockTime(controller),
         ),
         if (controller.staffList.length > 1) ...[
           const SizedBox(height: 14),
@@ -65,10 +71,15 @@ class _CalendarTabState extends State<CalendarTab> {
 /// Anchored rather than fixed to the current week: an owner looking at next
 /// Tuesday wants the days either side of it, not the days either side of today.
 class _DateStrip extends StatelessWidget {
-  const _DateStrip({required this.selected, required this.onPick});
+  const _DateStrip({
+    required this.selected,
+    required this.onPick,
+    required this.onBlock,
+  });
 
   final DateTime selected;
   final ValueChanged<DateTime> onPick;
+  final VoidCallback onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -112,6 +123,27 @@ class _DateStrip extends StatelessWidget {
               onPressed: () => _jump(context),
               visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.calendar_month_rounded, size: 19, color: Sc.slate),
+            ),
+            // Blocking lives in a menu rather than on the floating button: that
+            // button is for adding a customer, and the two are opposite actions
+            // that would be one mis-tap apart.
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              color: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              onSelected: (value) {
+                if (value == 'block') onBlock();
+              },
+              icon: const Icon(Icons.more_horiz_rounded, size: 19, color: Sc.slate),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'block',
+                  child: Text(
+                    'Block time off',
+                    style: TextStyle(fontSize: 13.5, color: Sc.ink),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -303,6 +335,7 @@ class DayAgenda extends StatelessWidget {
             return BlockCard(
               block: block,
               staffName: block.staffId == null ? null : staffNames[block.staffId],
+              onRemove: () => _removeBlock(context, controller, block),
             );
           }
 
@@ -315,6 +348,58 @@ class DayAgenda extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Lifting a block.
+///
+/// Confirmed, because the opposite of blocking is offering: removing one puts
+/// that time back in front of customers immediately, and an accidental tap on a
+/// Friday marked off for a funeral is not a small mistake.
+Future<void> _removeBlock(
+  BuildContext context,
+  CalendarController controller,
+  CalendarBlock block,
+) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Unblock this time?',
+        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+      ),
+      content: const Text(
+        'Customers will be offered these slots again straight away.',
+        style: TextStyle(fontSize: 13.5, color: Sc.inkMuted, height: 1.5),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('KEEP BLOCKED', style: TextStyle(color: Sc.slate, fontSize: 12.5)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text(
+            'UNBLOCK',
+            style: TextStyle(color: Sc.teal, fontSize: 12.5, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  final failure = await controller.removeBlock(block);
+  if (failure == null || !context.mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Sc.dangerTitle,
+      content: Text(failure.message),
+    ),
+  );
 }
 
 class _NothingOn extends StatelessWidget {
