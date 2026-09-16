@@ -1,12 +1,18 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, BOOKING_STATUS, type BookingResult } from '@scalivo/shared';
+import {
+  ANY_STAFF,
+  BOOKING_STATUS,
+  type BookingResult,
+  type MessagingProvider,
+} from '@scalivo/shared';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
 import { createBooking, holdSlot } from './create.js';
-import { confirmBooking, setBookingOutcome } from './outcome.js';
+import { setBookingOutcome } from './outcome.js';
+import { confirmBooking } from '../notifications/confirm.js';
 import { fieldErrors, param } from '../http/params.js';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
@@ -72,7 +78,7 @@ const MESSAGE: Record<Exclude<BookingResult, { ok: true }>['reason'], string> = 
   no_staff: 'Nobody is available for that service',
 };
 
-export function createBookingRouter(redis: Redis): Router {
+export function createBookingRouter(redis: Redis, provider: MessagingProvider): Router {
   const router = express.Router();
   const json = express.json();
 
@@ -164,7 +170,30 @@ export function createBookingRouter(redis: Redis): Router {
         return;
       }
 
-      res.status(201).json(result.booking);
+      /**
+       * This route is owner-authenticated, so the booking is made on the
+       * customer's behalf rather than by them — which makes it the same case as
+       * a walk-in: nobody is waiting to say yes, and the only written record the
+       * customer gets of a time someone else chose is the confirmation.
+       *
+       * It runs after the response is decided but before it is sent, so the app
+       * receives the CONFIRMED status rather than a PENDING one it would have to
+       * poll away. A confirmation that cannot be sent does not fail the booking;
+       * it stays queued and the row records why.
+       */
+      const confirmed = await confirmBooking(
+        { redis, provider },
+        param(req, 'businessId'),
+        result.booking.id,
+      ).catch((err) => {
+        logger.error({ err, bookingId: result.booking.id }, 'could not confirm booking');
+        return null;
+      });
+
+      res.status(201).json({
+        ...result.booking,
+        ...(confirmed ? { status: BOOKING_STATUS.CONFIRMED } : {}),
+      });
     } catch (err) {
       logger.error({ err, businessId: param(req, 'businessId') }, 'booking failed');
       res.status(500).json({ error: 'could not create the booking' });
@@ -235,14 +264,33 @@ export function createBookingRouter(redis: Redis): Router {
     },
   );
 
-  /** Pending → confirmed. Not a CRM event: nothing about their history changed. */
+  /**
+   * Pending → confirmed, and the customer is told. Not a CRM event: nothing
+   * about their history has changed yet.
+   *
+   * `changed: false` is a 409 rather than a 204 because the app renders the two
+   * differently — a stale screen, not an error — and because confirming twice
+   * must not read as having sent two confirmations. It has not: the dedupe claim
+   * on the notification refuses the second.
+   */
   router.post(
     '/:businessId/bookings/:bookingId/confirm',
     requireAuth,
     requireTenant(),
     async (req, res) => {
-      const ok = await confirmBooking(param(req, 'bookingId'), param(req, 'businessId'));
-      if (!ok) {
+      const result = await confirmBooking(
+        { redis, provider },
+        param(req, 'businessId'),
+        param(req, 'bookingId'),
+      );
+
+      if (!result.ok) {
+        res
+          .status(result.reason === 'not_found' ? 404 : 409)
+          .json({ error: 'cannot confirm this booking', reason: result.reason });
+        return;
+      }
+      if (!result.changed) {
         res.status(409).json({ error: 'not a pending booking' });
         return;
       }

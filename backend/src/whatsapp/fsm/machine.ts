@@ -45,6 +45,14 @@ export interface TurnResult {
   replies: string[];
   /** null clears the conversation — back to IDLE. */
   conversation: Conversation | null;
+  /**
+   * A booking was just made and still needs confirming.
+   *
+   * The machine deliberately does not send the confirmation itself: it has no
+   * provider, and the confirmation is a tracked, retried, ack-followed message
+   * rather than a line of chat. See the note in commit().
+   */
+  confirms?: string;
 }
 
 /** Index into the list the customer is actually looking at. */
@@ -294,23 +302,25 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
   // someone else. Cancelling after a CONFIRMED new booking is the safe half.
   if (base.bookingId) await cancelBooking(base.bookingId, ctx.businessId);
 
-  const [service, staff] = await Promise.all([
-    Service.findById(base.serviceId),
-    Staff.findById(base.heldStaffId),
-  ]);
-
+  /**
+   * The "you're booked" message is NOT a reply.
+   *
+   * It looks like one — it answers YES, it arrives next in the same chat — but
+   * it is the confirmation, and a confirmation has to outlive this turn: it has
+   * to be recorded, it has to survive the session being down, and whether it
+   * ever actually reached the customer has to be answerable a month later. A
+   * reply is none of those things; it is worthless an hour later and costs
+   * nothing to lose.
+   *
+   * So the machine reports the booking and stops. The router sends the
+   * confirmation through the tracked path, which is also what marks the booking
+   * CONFIRMED — see notifications/confirm.ts for why that is one step.
+   */
   return {
-    replies: [
-      copy.booked({
-        businessName: ctx.businessName,
-        serviceName: service?.name ?? 'your appointment',
-        staffName: staff?.name ?? 'our team',
-        startsAt,
-        timezone: ctx.timezone,
-      }),
-    ],
-    // CONFIRMED is terminal: the conversation is over, and the next message
-    // starts a fresh one rather than resuming a completed booking.
+    replies: [],
+    confirms: result.booking.id,
+    // The conversation is over. The next message starts a fresh one rather than
+    // resuming a booking that already happened.
     conversation: null,
   };
 }

@@ -14,6 +14,7 @@ import { handleGlobalCommand } from './interceptors/global-commands.js';
 import { applyPendingPrompt } from './interceptors/pending-prompt.js';
 import { advance } from './fsm/machine.js';
 import { enqueue } from '../session-health/outbound-queue.js';
+import { confirmBooking } from '../notifications/confirm.js';
 import { PUSH_CHANNEL, pushToOwners } from '../push/fcm.js';
 import { CONVERSATION_STATE } from './fsm/states.js';
 import * as copy from './messages.js';
@@ -139,6 +140,25 @@ export async function handleInboundMessage(
 
     await persist(deps.redis, businessId, clientId, result.conversation);
     await reply(deps, message, businessId, clientId, result.replies);
+
+    /**
+     * The confirmation goes out last, and down a different road.
+     *
+     * Not through reply(): that path queues into Redis, which is right for a
+     * menu prompt nobody will miss and wrong for the one message that proves the
+     * appointment exists. confirmBooking records it, marks the booking CONFIRMED
+     * and leaves a row whose deliveredAt answers "did they ever actually hear
+     * from us?" long after this conversation is gone.
+     *
+     * Failure is not raised: the booking committed, and telling the customer
+     * their booking failed because a message did not send would be a lie about
+     * the one fact that matters. The unsent confirmation stays queued.
+     */
+    if (result.confirms) {
+      await confirmBooking(deps, businessId, result.confirms).catch((err) =>
+        logger.error({ err, businessId, bookingId: result.confirms }, 'could not confirm booking'),
+      );
+    }
   } finally {
     await release();
   }

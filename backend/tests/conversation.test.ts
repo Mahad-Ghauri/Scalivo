@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { InboundMessage, MessagingProvider, SendResult } from '@scalivo/shared';
 import { BOOKING_STATUS, SESSION_STATUS } from '@scalivo/shared';
 import { Booking } from '../src/models/Booking.js';
+import { Notification } from '../src/models/Notification.js';
 import { Business } from '../src/models/Business.js';
 import { Client } from '../src/models/Client.js';
 import { ClientProfile } from '../src/models/ClientProfile.js';
@@ -140,6 +141,8 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
+      // Bookings now confirm, and a confirmation leaves a row behind.
+      Notification.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       BlockedTime.deleteMany({ businessId }),

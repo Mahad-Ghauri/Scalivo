@@ -72,6 +72,32 @@ export const booked = (details: {
   `See you at ${details.businessName}. Reply CANCEL or RESCHEDULE any time.`;
 
 /**
+ * The reminder.
+ *
+ * Deliberately shorter than the confirmation and deliberately re-states the
+ * time: it arrives a day later into a chat the customer has scrolled past, so
+ * anything that assumes they can see the confirmation above it is a message that
+ * only makes sense to whoever wrote it.
+ *
+ * CANCEL and RESCHEDULE are offered again for the same reason a reminder exists
+ * at all — the point is not to be polite, it is to convert a no-show into a
+ * freed slot the owner can still sell.
+ */
+export const reminder = (details: {
+  businessName: string;
+  serviceName: string;
+  staffName: string;
+  startsAt: Date;
+  timezone: string;
+  /** Whether the appointment is on the customer's "tomorrow" or later today. */
+  sameDay: boolean;
+}) =>
+  `Reminder: ${details.serviceName} ${details.sameDay ? 'today' : ''}`.trimEnd() +
+  `\n${formatLocal(details.startsAt, details.timezone)}\n` +
+  `with ${details.staffName} at ${details.businessName}\n\n` +
+  `Reply CANCEL or RESCHEDULE if you can't make it.`;
+
+/**
  * Losing the race is normal traffic on a busy Saturday, so this reads as an
  * ordinary thing that happened, not an error the customer caused.
  */

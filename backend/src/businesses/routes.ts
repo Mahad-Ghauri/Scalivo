@@ -42,6 +42,24 @@ const settingsBody = z
     slotIncrementMinutes: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]),
     minNoticeMinutes: z.number().int().min(0).max(60 * 24 * 7),
     bookingHorizonDays: z.number().int().min(1).max(365),
+
+    /**
+     * Reminder schedule.
+     *
+     * Bounded at both ends for the same reason the booking window is. A lead
+     * under five minutes arrives after the customer has already left for the
+     * appointment; one over a week is a message about something they have not
+     * thought about yet, on the one channel a business cannot afford to be
+     * reported on. Duplicates are dropped rather than refused — two entries of
+     * 1440 is a slip, not a request for two identical reminders.
+     */
+    reminders: z.object({
+      enabled: z.boolean(),
+      leadMinutes: z
+        .array(z.number().int().min(5).max(60 * 24 * 7))
+        .max(4)
+        .transform((list) => [...new Set(list)].sort((a, b) => b - a)),
+    }).partial(),
   })
   .partial();
 
@@ -120,11 +138,21 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
       }
     }
 
-    const updated = await Business.findByIdAndUpdate(
-      businessId,
-      { $set: parsed.data },
-      { new: true },
-    );
+    /**
+     * `reminders` is flattened to dotted paths, everything else set as-is.
+     *
+     * `$set: { reminders: { enabled: false } }` REPLACES the subdocument, so
+     * sending only the toggle would silently drop the lead times and every
+     * business that touched the switch would fall back to the schema default.
+     * Dotted paths set one field and leave its siblings alone.
+     */
+    const { reminders, ...flat } = parsed.data;
+    const update: Record<string, unknown> = { ...flat };
+    for (const [key, value] of Object.entries(reminders ?? {})) {
+      update[`reminders.${key}`] = value;
+    }
+
+    const updated = await Business.findByIdAndUpdate(businessId, { $set: update }, { new: true });
     if (!updated) {
       res.status(404).json({ error: 'not found' });
       return;

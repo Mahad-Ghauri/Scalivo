@@ -1,12 +1,12 @@
-import type { Redis } from 'ioredis';
 import { BOOKING_STATUS, type BookingResult } from '@scalivo/shared';
-import { Booking } from '../models/Booking.js';
 import { Client } from '../models/Client.js';
 import { loadContext, slotsFor } from '../bookings/availability.js';
 import { createBooking } from '../bookings/create.js';
 import { acquireHold, releaseHold } from '../bookings/holds.js';
 import { normalisePhone } from '../lib/phone.js';
 import { logger } from '../lib/logger.js';
+import { confirmBooking } from '../notifications/confirm.js';
+import type { SendDeps } from '../notifications/send.js';
 
 /**
  * Someone is standing at the desk.
@@ -90,7 +90,11 @@ async function resolveClient(request: WalkInRequest): Promise<string | null> {
   return String(created._id);
 }
 
-export async function createWalkIn(redis: Redis, request: WalkInRequest): Promise<WalkInResult> {
+export async function createWalkIn(
+  deps: SendDeps,
+  request: WalkInRequest,
+): Promise<WalkInResult> {
+  const { redis } = deps;
   const ctx = await loadContext(request.businessId, request.serviceId);
   if (!ctx) return { ok: false, reason: 'invalid_slot' };
 
@@ -130,17 +134,21 @@ export async function createWalkIn(redis: Redis, request: WalkInRequest): Promis
   }
 
   /**
-   * Straight to CONFIRMED, skipping PENDING.
+   * Straight to CONFIRMED, skipping PENDING — and a confirmation message with
+   * it, through the same tracked path a WhatsApp booking uses.
    *
    * PENDING means "we are waiting for the customer to say yes". The customer is
    * standing in front of the owner; there is nobody left to hear from. Leaving
    * it pending would put the walk-in on every chase-the-unconfirmed list the
    * retention engine grows in Phase 2.
+   *
+   * The message is not redundant just because the customer is in the room. It is
+   * the only written record they get of a time somebody else typed for them, and
+   * it is what CANCEL and RESCHEDULE later reply to. A walk-in with no phone
+   * number simply has no address, and confirmBooking records that as skipped
+   * rather than failing the booking.
    */
-  await Booking.updateOne(
-    { _id: result.booking.id, businessId: request.businessId, status: BOOKING_STATUS.PENDING },
-    { $set: { status: BOOKING_STATUS.CONFIRMED } },
-  );
+  await confirmBooking(deps, request.businessId, result.booking.id);
 
   logger.info(
     { bookingId: result.booking.id, businessId: request.businessId, clientId },

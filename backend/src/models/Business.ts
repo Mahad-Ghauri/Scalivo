@@ -2,6 +2,7 @@ import { Schema, model } from 'mongoose';
 import {
   DEFAULT_BOOKING_HORIZON_DAYS,
   DEFAULT_MIN_NOTICE_MINUTES,
+  DEFAULT_REMINDER_LEAD_MINUTES,
   DEFAULT_SLOT_INCREMENT_MINUTES,
   SESSION_INTENT,
   SESSION_STATUS,
@@ -59,6 +60,30 @@ const businessSchema = new Schema(
        * signal. FINDING #2: a dead session still reports its original phone.
        */
       phone: { type: String, default: null },
+    },
+
+    reminders: {
+      /**
+       * Off is a real choice, not a broken install. A business whose customers
+       * all walk in has nothing to remind anyone about, and a reminder they did
+       * not ask for reads as spam on the one channel they cannot afford to be
+       * reported on.
+       */
+      enabled: { type: Boolean, default: true },
+
+      /**
+       * Minutes before the appointment, one entry per reminder.
+       *
+       * An array rather than a single number because the two businesses this is
+       * being built for want different things and both are ordinary: a salon
+       * reminds the day before, a gym class two hours ahead. Each entry gets its
+       * own dedupe claim, so adding one later starts reminding without
+       * re-reminding anybody about what has already gone out.
+       */
+      leadMinutes: {
+        type: [Number],
+        default: () => [...DEFAULT_REMINDER_LEAD_MINUTES],
+      },
     },
 
     /** Hidden from the marketplace until the minimum profile fields are set. */

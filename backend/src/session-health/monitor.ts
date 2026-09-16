@@ -11,6 +11,7 @@ import { Business } from '../models/Business.js';
 import { logger } from '../lib/logger.js';
 import { clearSessionAlarm, raiseSessionAlarm } from './alert.js';
 import { drain, queueDepth } from './outbound-queue.js';
+import { retryPending } from '../notifications/send.js';
 
 /**
  * Watching a WhatsApp session for the moment it dies.
@@ -115,7 +116,15 @@ async function onSessionReady(
   // Everything queued during the outage goes now. This is the half of Session
   // Health the owner never sees and cares about most: the confirmations that
   // would otherwise have been lost.
+  //
+  // Two queues, drained in this order deliberately. The Redis outbox holds
+  // conversational replies — cheap, ordered, worthless once stale. The
+  // notification rows hold confirmations and reminders, which are owed for days
+  // and survive a restart that Redis would not. A customer who booked during the
+  // outage should get the end of their conversation before the confirmation that
+  // follows it, which is the order they would have arrived in.
   await drain(deps.redis, deps.provider, businessId);
+  await retryPending(deps, businessId);
 }
 
 async function onSessionLost(

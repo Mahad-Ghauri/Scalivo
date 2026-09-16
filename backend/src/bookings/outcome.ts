@@ -81,13 +81,10 @@ export async function setBookingOutcome(
 }
 
 /**
- * Confirm a pending booking. Not terminal, and not a CRM event — nothing about
- * the customer's history has changed yet.
+ * Confirming lives in notifications/confirm.ts, not here.
+ *
+ * It used to be a sibling of setBookingOutcome — a bare PENDING → CONFIRMED
+ * update that told nobody — and that was half a job. A confirmation the customer
+ * never receives is not a confirmation, so the status change and the message are
+ * one operation now. See the note at the top of that file.
  */
-export async function confirmBooking(bookingId: string, businessId: string): Promise<boolean> {
-  const result = await Booking.updateOne(
-    { _id: bookingId, businessId, status: BOOKING_STATUS.PENDING },
-    { $set: { status: BOOKING_STATUS.CONFIRMED } },
-  );
-  return result.modifiedCount === 1;
-}

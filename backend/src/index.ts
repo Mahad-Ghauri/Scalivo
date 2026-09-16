@@ -12,6 +12,8 @@ import { createCalendarRouter } from './calendar/routes.js';
 import { handleInboundMessage } from './whatsapp/router.js';
 import { handleSessionQr, handleSessionStatus } from './session-health/monitor.js';
 import { startReconcileJob } from './session-health/reconcile.js';
+import { handleMessageAck } from './notifications/ack.js';
+import { startReminderJob } from './notifications/reminders.js';
 import { logger } from './lib/logger.js';
 
 export function createApp(): Express {
@@ -46,6 +48,14 @@ export function createApp(): Express {
           return;
         }
 
+        // FINDING #3: the only evidence a message actually arrived. Every other
+        // signal in the send path — including the provider's own 200 — is
+        // consistent with WhatsApp having silently dropped it.
+        if (event.kind === 'ack') {
+          await handleMessageAck(event.payload);
+          return;
+        }
+
         if (event.kind === 'session-status') {
           await handleSessionStatus({ redis, provider }, event.payload);
         }
@@ -60,7 +70,7 @@ export function createApp(): Express {
   // guards the session routes.
   app.use('/businesses', createCatalogRouter());
   app.use('/businesses', createCrmRouter());
-  app.use('/businesses', createBookingRouter(redis));
+  app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
 
   app.get('/health', async (_req, res) => {
@@ -83,6 +93,12 @@ async function main() {
   // replicas reconciling the same session would double every alert and risk a
   // forced logout by both resurrecting it.
   startReconcileJob({ redis, provider: createMessagingProvider() });
+
+  // Every minute, not every hour: a reminder is due at a particular moment, and
+  // the tick interval is the resolution at which "due" is honoured. It is also
+  // what drains notifications owed from an outage whose recovery webhook never
+  // arrived — SINGLE INSTANCE, like the reconcile job above.
+  startReminderJob({ redis, provider: createMessagingProvider() });
 
   app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'scalivo backend listening'));
 }

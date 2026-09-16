@@ -9,6 +9,7 @@ import {
 } from '@scalivo/shared';
 import { BlockedTime } from '../src/models/BlockedTime.js';
 import { Booking } from '../src/models/Booking.js';
+import { Notification } from '../src/models/Notification.js';
 import { Business } from '../src/models/Business.js';
 import { Client } from '../src/models/Client.js';
 import { ClientProfile } from '../src/models/ClientProfile.js';
@@ -256,6 +257,8 @@ describe.skipIf(!infraUp)('the calendar', () => {
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
+      // Bookings now confirm, and a confirmation leaves a row behind.
+      Notification.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       BlockedTime.deleteMany({ businessId }),
@@ -346,7 +349,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
       // UTC bucketing would agree. 02:00 local the next morning is 21:00 UTC on
       // `date` — that is the one that moves.
       const early = at('02:00', addDays(date, 1));
-      const walkIn = await createWalkIn(redis, {
+      const walkIn = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -375,7 +378,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
     it('includes an appointment that began before the range and runs into it', async () => {
       const tomorrow = addDays(date, 1);
       // 23:45 local, 45 minutes long: finishes at 00:30 the next morning.
-      const spillover = await createWalkIn(redis, {
+      const spillover = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: hydrafacial,
         staffId: staffA,
@@ -692,7 +695,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
 
   describe('walk-ins', () => {
     it('books on the same path, writing occupancy rows the grid can see', async () => {
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: hydrafacial,
         staffId: staffA,
@@ -731,7 +734,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
       const known = await Client.create({ phone: international, displayName: 'Ayesha Malik' });
       madeClients.push(String(known._id));
 
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -747,7 +750,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
     });
 
     it('creates a phone-less client for someone who will not give a number', async () => {
-      const first = await createWalkIn(redis, {
+      const first = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -756,7 +759,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
       });
       assertOk(first, 'the first phone-less walk-in');
 
-      const second = await createWalkIn(redis, {
+      const second = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -770,7 +773,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
     });
 
     it('refuses a walk-in with neither a name nor a number', async () => {
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -789,7 +792,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
       const business = await Business.findById(businessId);
       const now = at('16:00');
 
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -805,7 +808,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
     it('refuses to double-book even for the owner', async () => {
       await book(staffA, hydrafacial, at('16:00'));
 
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: laser,
         staffId: staffA,
@@ -817,7 +820,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
     });
 
     it('feeds the CRM like any other booking', async () => {
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId,
         serviceId: hydrafacial,
         staffId: staffA,

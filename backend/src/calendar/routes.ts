@@ -199,7 +199,7 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
     const { serviceId, staffId, startsAt, name, phone, clientId } = parsed.data;
 
     try {
-      const result = await createWalkIn(redis, {
+      const result = await createWalkIn({ redis, provider }, {
         businessId: param(req, 'businessId'),
         serviceId,
         staffId,
