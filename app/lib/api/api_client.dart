@@ -103,12 +103,170 @@ class ApiClient {
     );
   }
 
+  // ── The diary ────────────────────────────────────────────────────────────
+
+  /// A day is `from == to`. The backend groups by BUSINESS-local date, which is
+  /// why the range is sent as plain 'YYYY-MM-DD' rather than as instants.
+  Future<CalendarView> calendar(
+    String businessId, {
+    required String from,
+    required String to,
+    String? staffId,
+    bool includeCancelled = false,
+  }) async {
+    final query = {
+      'from': from,
+      'to': to,
+      'staffId': ?staffId,
+      if (includeCancelled) 'includeCancelled': 'true',
+    };
+    return CalendarView.fromJson(
+      await _send('GET', '/businesses/$businessId/calendar', query: query),
+    );
+  }
+
+  Future<void> walkIn(
+    String businessId, {
+    required String serviceId,
+    required String staffId,
+    required DateTime startsAt,
+    String? name,
+    String? phone,
+    String? clientId,
+  }) =>
+      _send('POST', '/businesses/$businessId/walk-ins', body: {
+        'serviceId': serviceId,
+        'staffId': staffId,
+        'startsAt': startsAt.toUtc().toIso8601String(),
+        if (name != null && name.isNotEmpty) 'name': name,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        'clientId': ?clientId,
+      });
+
+  Future<RescheduleOutcome> reschedule(
+    String businessId,
+    String bookingId, {
+    required DateTime startsAt,
+    String? staffId,
+    bool override = false,
+  }) async =>
+      RescheduleOutcome.fromJson(
+        await _send('POST', '/businesses/$businessId/bookings/$bookingId/reschedule', body: {
+          'startsAt': startsAt.toUtc().toIso8601String(),
+          'staffId': ?staffId,
+          'override': override,
+        }),
+      );
+
+  /// `outcome` is 'completed' or 'no_show'. Cancelling has its own route
+  /// because it is the only one that frees the slot.
+  Future<void> setOutcome(String businessId, String bookingId, String outcome) =>
+      _send('POST', '/businesses/$businessId/bookings/$bookingId/outcome',
+          body: {'outcome': outcome});
+
+  Future<void> cancelBooking(String businessId, String bookingId) =>
+      _send('POST', '/businesses/$businessId/bookings/$bookingId/cancel');
+
+  // ── Catalogue ────────────────────────────────────────────────────────────
+
+  Future<List<ServiceItem>> services(String businessId) async {
+    final json = await _send('GET', '/businesses/$businessId/services');
+    return (json['services'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ServiceItem.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<List<StaffSummary>> staff(String businessId) async {
+    final json = await _send('GET', '/businesses/$businessId/staff');
+    return (json['staff'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(StaffSummary.fromJson)
+        .toList(growable: false);
+  }
+
+  // ── The CRM ──────────────────────────────────────────────────────────────
+
+  Future<({List<ClientRow> clients, int total})> clients(
+    String businessId, {
+    String? q,
+    String? tag,
+    int skip = 0,
+    int limit = 50,
+  }) async {
+    final json = await _send('GET', '/businesses/$businessId/clients', query: {
+      if (q != null && q.isNotEmpty) 'q': q,
+      'tag': ?tag,
+      'skip': '$skip',
+      'limit': '$limit',
+    });
+
+    return (
+      clients: (json['clients'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(ClientRow.fromJson)
+          .toList(growable: false),
+      total: json['total'] as int? ?? 0,
+    );
+  }
+
+  Future<ClientProfileDetail> clientProfile(String businessId, String clientId) async =>
+      ClientProfileDetail.fromJson(
+        await _send('GET', '/businesses/$businessId/clients/$clientId'),
+      );
+
+  Future<void> saveNotes(String businessId, String clientId, String notes) =>
+      _send('PUT', '/businesses/$businessId/clients/$clientId/notes', body: {'notes': notes});
+
+  /// Rebuild the counters from the bookings.
+  ///
+  /// The profile is a cache, and this is its repair. Exposed in the app rather
+  /// than kept as an admin curiosity because the owner is the only person who
+  /// will ever notice a number looking wrong.
+  Future<void> recomputeProfile(String businessId, String clientId) =>
+      _send('POST', '/businesses/$businessId/clients/$clientId/recompute');
+
+  // ── Settings ─────────────────────────────────────────────────────────────
+
+  Future<BusinessSettings> settings(String businessId) async =>
+      BusinessSettings.fromJson(await _send('GET', '/businesses/$businessId'));
+
+  /// Only the keys passed are sent. The backend flattens `reminders` to dotted
+  /// paths, so sending the toggle alone does not wipe the lead times.
+  Future<BusinessSettings> updateSettings(
+    String businessId, {
+    bool? remindersEnabled,
+    List<int>? reminderLeadMinutes,
+    int? minNoticeMinutes,
+    int? bookingHorizonDays,
+  }) async {
+    final reminders = <String, dynamic>{
+      'enabled': ?remindersEnabled,
+      'leadMinutes': ?reminderLeadMinutes,
+    };
+
+    return BusinessSettings.fromJson(
+      await _send('PATCH', '/businesses/$businessId', body: {
+        'minNoticeMinutes': ?minNoticeMinutes,
+        'bookingHorizonDays': ?bookingHorizonDays,
+        if (reminders.isNotEmpty) 'reminders': reminders,
+      }),
+    );
+  }
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String>? query,
   }) async {
-    final request = http.Request(method, Uri.parse('$baseUrl$path'))
+    // Built through Uri rather than string concatenation: a customer search for
+    // "R&B" or a name with a space would otherwise truncate the query silently.
+    final uri = Uri.parse('$baseUrl$path').replace(
+      queryParameters: (query == null || query.isEmpty) ? null : query,
+    );
+
+    final request = http.Request(method, uri)
       ..headers['Accept'] = 'application/json';
 
     if (token != null) request.headers['Authorization'] = 'Bearer $token';

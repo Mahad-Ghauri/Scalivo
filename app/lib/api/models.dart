@@ -112,3 +112,498 @@ SessionHealth sessionHealthOf(String? status, String? intent) {
   // intent == 'live' from here: we believe this session should be up.
   return status == 'ready' ? SessionHealth.live : SessionHealth.down;
 }
+
+// ---------------------------------------------------------------------------
+// The calendar, the CRM and settings — Phase 1.6 to 1.8, at the UI layer.
+//
+// Every `startsAt` the backend sends is UTC, and every one of them is parsed
+// with `.toLocal()`. That is correct only because an owner's phone is in the
+// business's timezone, which is true of a single-city pilot and will stop being
+// true the moment someone opens the app abroad. The honest fix is to convert
+// through `CalendarView.timezone`, which is why the field is carried here even
+// though nothing reads it yet.
+// ---------------------------------------------------------------------------
+
+DateTime _utc(Object? value) => DateTime.parse(value! as String).toLocal();
+DateTime? _utcOrNull(Object? value) =>
+    value == null ? null : DateTime.parse(value as String).toLocal();
+
+/// A booking as the calendar draws it: names resolved, no id lookups needed.
+class CalendarEntry {
+  const CalendarEntry({
+    required this.id,
+    required this.staffId,
+    required this.staffName,
+    required this.clientId,
+    required this.clientName,
+    required this.clientPhone,
+    required this.serviceId,
+    required this.serviceName,
+    required this.startsAt,
+    required this.endsAt,
+    required this.durationMinutes,
+    required this.status,
+    required this.priceMinor,
+    required this.source,
+  });
+
+  final String id;
+  final String staffId;
+  final String staffName;
+  final String clientId;
+
+  /// Null for a walk-in nobody named. Render "Walk-in", never a blank row.
+  final String? clientName;
+  final String? clientPhone;
+  final String serviceId;
+  final String serviceName;
+  final DateTime startsAt;
+
+  /// The SERVICE end, not the buffered end — the grid holds the turnaround, but
+  /// drawing it would tell the owner the chair is busy while it is being tidied.
+  final DateTime endsAt;
+  final int durationMinutes;
+  final String status;
+  final int priceMinor;
+  final String source;
+
+  bool get isTerminal =>
+      status == 'completed' || status == 'no_show' || status == 'cancelled';
+
+  factory CalendarEntry.fromJson(Map<String, dynamic> json) => CalendarEntry(
+        id: json['id'] as String,
+        staffId: json['staffId'] as String,
+        staffName: json['staffName'] as String? ?? 'Staff',
+        clientId: json['clientId'] as String,
+        clientName: json['clientName'] as String?,
+        clientPhone: json['clientPhone'] as String?,
+        serviceId: json['serviceId'] as String,
+        serviceName: json['serviceName'] as String? ?? 'Service',
+        startsAt: _utc(json['startsAt']),
+        endsAt: _utc(json['endsAt']),
+        durationMinutes: json['durationMinutes'] as int? ?? 0,
+        status: json['status'] as String? ?? 'pending',
+        priceMinor: json['priceMinor'] as int? ?? 0,
+        source: json['source'] as String? ?? 'whatsapp',
+      );
+}
+
+/// Time the owner declared off-limits. A null staffId closes the business.
+class CalendarBlock {
+  const CalendarBlock({
+    required this.id,
+    required this.staffId,
+    required this.startsAt,
+    required this.endsAt,
+    required this.reason,
+  });
+
+  final String id;
+  final String? staffId;
+  final DateTime startsAt;
+  final DateTime endsAt;
+  final String? reason;
+
+  factory CalendarBlock.fromJson(Map<String, dynamic> json) => CalendarBlock(
+        id: json['id'] as String,
+        staffId: json['staffId'] as String?,
+        startsAt: _utc(json['startsAt']),
+        endsAt: _utc(json['endsAt']),
+        reason: json['reason'] as String?,
+      );
+}
+
+class CalendarDay {
+  const CalendarDay({required this.date, required this.entries, required this.blocks});
+
+  /// Business-local 'YYYY-MM-DD'. The grouping the backend already did, kept
+  /// rather than re-derived: splitting on the phone's midnight would move the
+  /// first hours of every Karachi day onto the previous page.
+  final String date;
+  final List<CalendarEntry> entries;
+  final List<CalendarBlock> blocks;
+
+  factory CalendarDay.fromJson(Map<String, dynamic> json) => CalendarDay(
+        date: json['date'] as String,
+        entries: (json['entries'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(CalendarEntry.fromJson)
+            .toList(growable: false),
+        blocks: (json['blocks'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(CalendarBlock.fromJson)
+            .toList(growable: false),
+      );
+}
+
+class CalendarView {
+  const CalendarView({required this.timezone, required this.staff, required this.days});
+
+  final String timezone;
+
+  /// Everyone the range covers, so an empty column still renders as a column.
+  final List<StaffSummary> staff;
+  final List<CalendarDay> days;
+
+  factory CalendarView.fromJson(Map<String, dynamic> json) => CalendarView(
+        timezone: json['timezone'] as String? ?? 'Asia/Karachi',
+        staff: (json['staff'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(StaffSummary.fromJson)
+            .toList(growable: false),
+        days: (json['days'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(CalendarDay.fromJson)
+            .toList(growable: false),
+      );
+
+  CalendarDay? dayFor(String date) {
+    for (final day in days) {
+      if (day.date == date) return day;
+    }
+    return null;
+  }
+}
+
+class StaffSummary {
+  const StaffSummary({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  factory StaffSummary.fromJson(Map<String, dynamic> json) => StaffSummary(
+        id: (json['id'] ?? json['_id']) as String,
+        name: json['name'] as String? ?? 'Staff',
+      );
+}
+
+/// A service, whole.
+///
+/// Not a summary: `GET /services` returns the entire row, so carrying only four
+/// of its fields would mean the catalogue screen refetching what it was already
+/// given. StaffSummary below is genuinely partial, and named so.
+class ServiceItem {
+  const ServiceItem({
+    required this.id,
+    required this.name,
+    required this.durationMinutes,
+    required this.bufferMinutes,
+    required this.priceMinor,
+    required this.depositRequired,
+    required this.depositAmountMinor,
+    required this.displayOrder,
+    required this.active,
+  });
+
+  final String id;
+  final String name;
+  final int durationMinutes;
+
+  /// Turnaround. The grid claims it so nothing can be booked into it, but the
+  /// appointment is drawn at its service length — see CalendarEntry.endsAt.
+  final int bufferMinutes;
+  final int priceMinor;
+  final bool depositRequired;
+  final int? depositAmountMinor;
+  final int displayOrder;
+
+  /// Retired services stay: bookings reference them, and a hard delete would
+  /// turn finished appointments into blanks in a client's visit history.
+  final bool active;
+
+  factory ServiceItem.fromJson(Map<String, dynamic> json) => ServiceItem(
+        id: (json['id'] ?? json['_id']) as String,
+        name: json['name'] as String? ?? 'Service',
+        durationMinutes: json['durationMinutes'] as int? ?? 30,
+        bufferMinutes: json['bufferMinutes'] as int? ?? 0,
+        priceMinor: json['priceMinor'] as int? ?? 0,
+        depositRequired: json['depositRequired'] as bool? ?? false,
+        depositAmountMinor: json['depositAmountMinor'] as int?,
+        displayOrder: json['displayOrder'] as int? ?? 0,
+        active: json['active'] as bool? ?? true,
+      );
+}
+
+/// One row of the customer list.
+class ClientRow {
+  const ClientRow({
+    required this.clientId,
+    required this.displayName,
+    required this.phone,
+    required this.tags,
+    required this.totalVisits,
+    required this.lifetimeSpendMinor,
+    required this.lastVisitAt,
+  });
+
+  final String clientId;
+  final String? displayName;
+  final String? phone;
+  final List<String> tags;
+  final int totalVisits;
+  final int lifetimeSpendMinor;
+  final DateTime? lastVisitAt;
+
+  factory ClientRow.fromJson(Map<String, dynamic> json) => ClientRow(
+        clientId: json['clientId'] as String,
+        displayName: json['displayName'] as String?,
+        phone: json['phone'] as String?,
+        tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
+        totalVisits: json['totalVisits'] as int? ?? 0,
+        lifetimeSpendMinor: json['lifetimeSpendMinor'] as int? ?? 0,
+        lastVisitAt: _utcOrNull(json['lastVisitAt']),
+      );
+}
+
+/// One visit on a profile's history.
+class VisitRow {
+  const VisitRow({
+    required this.id,
+    required this.startsAt,
+    required this.status,
+    required this.priceMinor,
+    required this.serviceName,
+    required this.staffName,
+    required this.source,
+  });
+
+  final String id;
+  final DateTime startsAt;
+  final String status;
+  final int priceMinor;
+  final String serviceName;
+  final String staffName;
+  final String source;
+
+  factory VisitRow.fromJson(Map<String, dynamic> json) => VisitRow(
+        id: json['id'] as String,
+        startsAt: _utc(json['startsAt']),
+        status: json['status'] as String? ?? 'pending',
+        priceMinor: json['priceMinor'] as int? ?? 0,
+        serviceName: json['serviceName'] as String? ?? 'Service',
+        staffName: json['staffName'] as String? ?? 'Staff',
+        source: json['source'] as String? ?? 'whatsapp',
+      );
+}
+
+class ClientProfileDetail {
+  const ClientProfileDetail({
+    required this.clientId,
+    required this.displayName,
+    required this.phone,
+    required this.tags,
+    required this.totalVisits,
+    required this.noShows,
+    required this.cancellations,
+    required this.lifetimeSpendMinor,
+    required this.averageGapDays,
+    required this.lastVisitAt,
+    required this.nextExpectedVisitAt,
+    required this.notes,
+    required this.marketingOptOut,
+    required this.history,
+  });
+
+  final String clientId;
+  final String? displayName;
+  final String? phone;
+  final List<String> tags;
+  final int totalVisits;
+  final int noShows;
+  final int cancellations;
+  final int lifetimeSpendMinor;
+  final num? averageGapDays;
+  final DateTime? lastVisitAt;
+  final DateTime? nextExpectedVisitAt;
+  final String notes;
+  final bool marketingOptOut;
+  final List<VisitRow> history;
+
+  factory ClientProfileDetail.fromJson(Map<String, dynamic> json) {
+    final p = json['profile'] as Map<String, dynamic>? ?? const {};
+    return ClientProfileDetail(
+      clientId: p['clientId'] as String? ?? '',
+      displayName: p['displayName'] as String?,
+      phone: p['phone'] as String?,
+      tags: (p['tags'] as List<dynamic>? ?? const []).cast<String>(),
+      totalVisits: p['totalVisits'] as int? ?? 0,
+      noShows: p['noShows'] as int? ?? 0,
+      cancellations: p['cancellations'] as int? ?? 0,
+      lifetimeSpendMinor: p['lifetimeSpendMinor'] as int? ?? 0,
+      averageGapDays: p['averageGapDays'] as num?,
+      lastVisitAt: _utcOrNull(p['lastVisitAt']),
+      nextExpectedVisitAt: _utcOrNull(p['nextExpectedVisitAt']),
+      notes: p['notes'] as String? ?? '',
+      marketingOptOut: p['marketingOptOut'] as bool? ?? false,
+      history: (json['history'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(VisitRow.fromJson)
+          .toList(growable: false),
+    );
+  }
+}
+
+/// The settings screen's slice of the business document.
+class BusinessSettings {
+  const BusinessSettings({
+    required this.name,
+    required this.city,
+    required this.timezone,
+    required this.minNoticeMinutes,
+    required this.bookingHorizonDays,
+    required this.remindersEnabled,
+    required this.reminderLeadMinutes,
+  });
+
+  final String name;
+  final String? city;
+  final String timezone;
+  final int minNoticeMinutes;
+  final int bookingHorizonDays;
+  final bool remindersEnabled;
+
+  /// Longest first, the way the backend normalises them.
+  final List<int> reminderLeadMinutes;
+
+  factory BusinessSettings.fromJson(Map<String, dynamic> json) {
+    final r = json['reminders'] as Map<String, dynamic>? ?? const {};
+    return BusinessSettings(
+      name: json['name'] as String? ?? '',
+      city: json['city'] as String?,
+      timezone: json['timezone'] as String? ?? 'Asia/Karachi',
+      minNoticeMinutes: json['minNoticeMinutes'] as int? ?? 60,
+      bookingHorizonDays: json['bookingHorizonDays'] as int? ?? 30,
+      remindersEnabled: r['enabled'] as bool? ?? true,
+      reminderLeadMinutes:
+          (r['leadMinutes'] as List<dynamic>? ?? const [1440]).map((v) => v as int).toList(),
+    );
+  }
+}
+
+/// What a reschedule or an outcome change came back as.
+///
+/// `notified` is carried separately from success on purpose: the appointment
+/// moved either way, and an owner whose customer could not be messaged needs to
+/// know to pick up the phone rather than assume it was handled.
+class RescheduleOutcome {
+  const RescheduleOutcome({required this.notified});
+
+  final bool notified;
+
+  factory RescheduleOutcome.fromJson(Map<String, dynamic> json) =>
+      RescheduleOutcome(notified: json['notified'] as bool? ?? false);
+}
+
+// ---------------------------------------------------------------------------
+// The catalogue an owner configures, and the time they declare off-limits.
+// ---------------------------------------------------------------------------
+
+/// One break inside a working day. Both ends are 'HH:MM' business-local.
+class TimeBreak {
+  const TimeBreak({required this.startsAt, required this.endsAt});
+
+  final String startsAt;
+  final String endsAt;
+
+  factory TimeBreak.fromJson(Map<String, dynamic> json) => TimeBreak(
+        startsAt: json['startsAt'] as String? ?? '13:00',
+        endsAt: json['endsAt'] as String? ?? '14:00',
+      );
+
+  Map<String, dynamic> toJson() => {'startsAt': startsAt, 'endsAt': endsAt};
+}
+
+/// One day a staff member works.
+///
+/// A day that is simply absent from the list is a day off — there is no
+/// `closed` flag, and inventing one in the app would mean sending the backend
+/// something its schema does not have.
+class WorkingDay {
+  const WorkingDay({
+    required this.dayOfWeek,
+    required this.opensAt,
+    required this.closesAt,
+    required this.breaks,
+  });
+
+  /// 0 = Sunday, matching luxon's `weekday % 7` in the backend's availability.
+  final int dayOfWeek;
+  final String opensAt;
+  final String closesAt;
+  final List<TimeBreak> breaks;
+
+  WorkingDay copyWith({String? opensAt, String? closesAt, List<TimeBreak>? breaks}) => WorkingDay(
+        dayOfWeek: dayOfWeek,
+        opensAt: opensAt ?? this.opensAt,
+        closesAt: closesAt ?? this.closesAt,
+        breaks: breaks ?? this.breaks,
+      );
+
+  factory WorkingDay.fromJson(Map<String, dynamic> json) => WorkingDay(
+        dayOfWeek: json['dayOfWeek'] as int? ?? 0,
+        opensAt: json['opensAt'] as String? ?? '09:00',
+        closesAt: json['closesAt'] as String? ?? '18:00',
+        breaks: (json['breaks'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(TimeBreak.fromJson)
+            .toList(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'dayOfWeek': dayOfWeek,
+        'opensAt': opensAt,
+        'closesAt': closesAt,
+        'breaks': [for (final b in breaks) b.toJson()],
+      };
+}
+
+/// A staff member, whole — unlike [StaffSummary], which is the id-and-name pair
+/// the calendar returns for its columns and genuinely has nothing else on it.
+class StaffMember {
+  const StaffMember({
+    required this.id,
+    required this.name,
+    required this.serviceIds,
+    required this.workingHours,
+    required this.active,
+  });
+
+  final String id;
+  final String name;
+
+  /// What this person can perform. Empty means nothing can be booked with them,
+  /// which is a real state and a common first-run mistake.
+  final List<String> serviceIds;
+  final List<WorkingDay> workingHours;
+  final bool active;
+
+  factory StaffMember.fromJson(Map<String, dynamic> json) => StaffMember(
+        id: (json['id'] ?? json['_id']) as String,
+        name: json['name'] as String? ?? 'Staff',
+        serviceIds: (json['serviceIds'] as List<dynamic>? ?? const []).cast<String>(),
+        workingHours: (json['workingHours'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(WorkingDay.fromJson)
+            .toList(),
+        active: json['active'] as bool? ?? true,
+      );
+}
+
+/// What came back from declaring time off-limits.
+///
+/// [affectedBookings] is not an error. The backend deliberately does NOT refuse
+/// a block that covers existing appointments — a block only removes future
+/// offers, it cannot double-book anything, and an owner blocking Friday for a
+/// funeral has not thereby cancelled the three people already in the diary.
+/// They are returned so the owner can move or cancel them deliberately.
+class BlockResult {
+  const BlockResult({required this.id, required this.affectedBookings});
+
+  final String id;
+  final int affectedBookings;
+
+  factory BlockResult.fromJson(Map<String, dynamic> json) => BlockResult(
+        id: (json['block'] as Map<String, dynamic>?)?['id'] as String? ?? '',
+        affectedBookings: (json['affectedBookings'] as List<dynamic>? ?? const []).length,
+      );
+}

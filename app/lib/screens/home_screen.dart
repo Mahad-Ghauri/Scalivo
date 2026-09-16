@@ -3,20 +3,67 @@ import 'package:provider/provider.dart';
 
 import '../api/models.dart';
 import '../state/auth_controller.dart';
+import '../state/calendar_controller.dart';
+import '../state/clients_controller.dart';
 import '../theme.dart';
-import '../widgets/sc_banner.dart';
 import '../widgets/session_pill.dart';
 import '../widgets/sheet_scaffold.dart';
 import 'qr_screen.dart';
+import 'tabs/calendar_tab.dart';
+import 'tabs/clients_tab.dart';
+import 'tabs/settings_tab.dart';
+import 'tabs/today_tab.dart';
+import 'walk_in_sheet.dart';
 
-class HomeScreen extends StatefulWidget {
+/// The four tabs, over one set of controllers.
+///
+/// Today and Calendar share a single CalendarController on purpose: they are the
+/// same diary asked about different days, and two controllers would mean a
+/// walk-in booked on one not appearing on the other until a refresh nobody
+/// thinks to do.
+///
+/// The controllers live here rather than at the root of the app because they
+/// need a businessId, and there isn't one until somebody has signed in. Creating
+/// them above the auth gate would mean constructing them with a null tenant and
+/// remembering to rebuild on login — which is the kind of thing that works until
+/// the first time someone signs out and back in as somebody else.
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final business = auth.business;
+
+    // No business on the account is a real state — a half-finished registration
+    // — and it must not crash the app on a null id.
+    if (business == null) return const _NoBusiness();
+
+    return MultiProvider(
+      // Keyed by business id so signing in as another owner builds new
+      // controllers rather than showing the previous tenant's diary.
+      key: ValueKey(business.id),
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => CalendarController(api: auth.api, businessId: business.id),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ClientsController(api: auth.api, businessId: business.id),
+        ),
+      ],
+      child: const _HomeShell(),
+    );
+  }
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeShell extends StatefulWidget {
+  const _HomeShell();
+
+  @override
+  State<_HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
   int _tab = 0;
 
   @override
@@ -36,18 +83,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Coming back to the app is exactly when a stale banner is most misleading:
-    // the session may have died while the phone was in a pocket.
-    if (state == AppLifecycleState.resumed) {
-      context.read<AuthController>().refreshSession();
-    }
+    // Coming back to the app is exactly when a stale screen is most misleading:
+    // the session may have died while the phone was in a pocket, and bookings
+    // may have arrived over WhatsApp while it was.
+    if (state != AppLifecycleState.resumed) return;
+    context.read<AuthController>().refreshSession();
+    context.read<CalendarController>().load(quiet: true);
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
     final business = auth.business;
-    final health = auth.health;
 
     return SheetScaffold(
       heroHeight: 200,
@@ -90,22 +137,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 20),
               SessionPill(
-                health: health,
-                onTap: health == SessionHealth.live ? null : () => _openQr(context),
+                health: auth.health,
+                onTap: auth.health == SessionHealth.live ? null : () => _openQr(context),
               ),
             ],
           ),
         ),
       ),
       sheetPadding: const EdgeInsets.fromLTRB(24, 34, 24, 0),
-      sheet: _tab == 0 ? _today(context, auth) : _placeholder(_tab),
+      // IndexedStack, not a switch: rebuilding the tab from scratch on every tap
+      // would refetch the diary and lose the client search the owner just typed.
+      sheet: IndexedStack(
+        index: _tab,
+        children: const [
+          TodayTab(),
+          CalendarTab(),
+          ClientsTab(),
+          SettingsTab(),
+        ],
+      ),
       floating: [
-        if (_tab == 0)
+        // Only where a walk-in means something: the diary. On the clients and
+        // settings tabs a floating "+" would be an invitation to type a customer
+        // in by hand, which is the one thing this CRM does not want.
+        if (_tab == 0 || _tab == 1)
           Positioned(
             right: 22,
             bottom: 96,
             child: FloatingActionButton(
-              onPressed: () => _notYet(context, 'Walk-in bookings'),
+              onPressed: () => _walkIn(context),
               backgroundColor: Sc.teal,
               foregroundColor: Colors.white,
               elevation: 6,
@@ -118,141 +178,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _today(BuildContext context, AuthController auth) {
-    final down = auth.health == SessionHealth.down;
+  Future<void> _walkIn(BuildContext context) async {
+    final calendar = context.read<CalendarController>();
+    final booked = await showWalkInSheet(context, controller: calendar);
+    if (!booked || !context.mounted) return;
 
-    return RefreshIndicator(
-      color: Sc.teal,
-      onRefresh: () => auth.refreshSession(),
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 100),
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          if (down) ...[
-            ScBanner(
-              title: "Customers can't book right now",
-              message: 'Your WhatsApp is unlinked. Reconnect it to start taking '
-                  'bookings again.',
-              action: Material(
-                color: Sc.danger,
-                borderRadius: BorderRadius.circular(10),
-                child: InkWell(
-                  onTap: () => _openQr(context),
-                  borderRadius: BorderRadius.circular(10),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                    child: Text(
-                      'RECONNECT',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.85,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-          if (auth.health == SessionHealth.notConnected) ...[
-            ScBanner(
-              title: 'Connect your WhatsApp',
-              message: 'Link a number and customers can start booking by message.',
-              tone: ScBannerTone.warning,
-              action: Material(
-                color: Sc.teal,
-                borderRadius: BorderRadius.circular(10),
-                child: InkWell(
-                  onTap: () => _openQr(context),
-                  borderRadius: BorderRadius.circular(10),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                    child: Text(
-                      'CONNECT',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.85,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              const Expanded(
-                child: Text(
-                  'Today',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w700,
-                    color: Sc.ink,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              Text(
-                _todayLabel(),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: Sc.slate,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            'No bookings yet',
-            style: TextStyle(fontSize: 13, color: Sc.slate),
-          ),
-          const SizedBox(height: 56),
-          const _EmptyToday(),
-        ],
-      ),
-    );
-  }
-
-  Widget _placeholder(int tab) {
-    final (title, line) = switch (tab) {
-      1 => ('Calendar', 'Your day, week and per-staff schedule will live here.'),
-      2 => ('Clients', 'Profiles build themselves from bookings — no typing.'),
-      _ => ('Settings', 'Services, staff, opening hours and your WhatsApp link.'),
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 78),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Sc.ink,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                line,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13.5, color: Sc.slate, height: 1.5),
-              ),
-            ),
-          ],
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Sc.teal900,
+        content: Text('Booked. The slot is held and the customer has been messaged.'),
       ),
     );
   }
@@ -361,31 +296,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const QrScreen()));
   }
 
-  void _notYet(BuildContext context, String what) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Sc.teal900,
-        content: Text('$what arrive with the calendar.'),
-      ),
-    );
-  }
-
   String _greeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
-  }
-
-  String _todayLabel() {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final now = DateTime.now();
-    return '${days[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
   }
 
   String _initials(String name) {
@@ -396,38 +311,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-/// What an owner sees before their first WhatsApp booking arrives — which, on
-/// day one, is everyone. It explains where bookings come from rather than
-/// showing an empty box.
-class _EmptyToday extends StatelessWidget {
-  const _EmptyToday();
+/// Signed in, but the account has no business on it.
+///
+/// Reachable if registration was interrupted between creating the user and
+/// creating the business. Rare, and it must not be a white screen.
+class _NoBusiness extends StatelessWidget {
+  const _NoBusiness();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 74,
-          height: 74,
-          decoration: const BoxDecoration(color: Sc.tealSoft, shape: BoxShape.circle),
-          child: const Icon(Icons.chat_bubble_outline_rounded, size: 30, color: Sc.teal),
-        ),
-        const SizedBox(height: 18),
-        const Text(
-          'Nothing booked today',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Sc.ink),
-        ),
-        const SizedBox(height: 7),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 26),
-          child: Text(
-            'When someone messages your WhatsApp number, their booking shows up '
-            'here — and their profile builds itself.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13.5, color: Sc.slate, height: 1.55),
+    return Scaffold(
+      backgroundColor: Sc.teal900,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'No business on this account',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Sign up again, or sign in with the account you registered the '
+                'business on.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, color: Sc.onTealMuted, height: 1.5),
+              ),
+              const SizedBox(height: 22),
+              TextButton(
+                onPressed: () => context.read<AuthController>().logout(),
+                child: const Text(
+                  'SIGN OUT',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                    color: Sc.onTealBright,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
