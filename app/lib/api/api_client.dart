@@ -1,6 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
+// foundation rather than dart:io: `Platform` does not exist on the web, and
+// importing dart:io at all makes the whole app refuse to compile for a browser.
+// `defaultTargetPlatform` answers the same question everywhere.
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
@@ -37,11 +40,19 @@ class ApiException implements Exception {
 ///
 /// Or, on the same wifi, point at the host's LAN IP instead:
 ///   flutter run --dart-define=SCALIVO_API=http://192.168.1.20:3000
+///
+/// In a browser it is plain localhost — there is no emulator in the way — but
+/// the backend has to send CORS headers back, which it does in development only.
 const _configuredBaseUrl = String.fromEnvironment('SCALIVO_API');
 
 String defaultBaseUrl() {
   if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
-  return Platform.isAndroid ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  // kIsWeb first: defaultTargetPlatform reports android for Chrome ON Android,
+  // and 10.0.2.2 from a browser is simply an address that does not answer.
+  if (kIsWeb) return 'http://localhost:3000';
+  return defaultTargetPlatform == TargetPlatform.android
+      ? 'http://10.0.2.2:3000'
+      : 'http://localhost:3000';
 }
 
 class ApiClient {
@@ -91,6 +102,15 @@ class ApiClient {
 
   Future<LinkResult> linkWhatsApp(String businessId) async =>
       LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/link'));
+
+  /// Creates the messaging session this business does not have yet.
+  ///
+  /// Distinct from [linkWhatsApp], which resumes one that already exists and
+  /// answers 409 when there is none. Provisioning allocates a real browser
+  /// session on the gateway and registers our webhook, so it stays an explicit
+  /// action rather than something a screen does on open.
+  Future<LinkResult> provisionWhatsApp(String businessId) async =>
+      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/session'));
 
   Future<BusinessSummary> whatsappState(String businessId, BusinessSummary current) async {
     final json = await _send('GET', '/businesses/$businessId/whatsapp');
@@ -332,6 +352,11 @@ class ApiClient {
 
   Future<BusinessSettings> settings(String businessId) async =>
       BusinessSettings.fromJson(await _send('GET', '/businesses/$businessId'));
+
+  /// What still stands between this business and a real booking. See
+  /// [SetupChecklist] for why it is not optional decoration.
+  Future<SetupChecklist> setupChecklist(String businessId) async =>
+      SetupChecklist.fromJson(await _send('GET', '/businesses/$businessId/setup'));
 
   /// Only the keys passed are sent. The backend flattens `reminders` to dotted
   /// paths, so sending the toggle alone does not wipe the lead times.

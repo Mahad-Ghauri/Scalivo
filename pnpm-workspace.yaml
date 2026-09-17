@@ -4,8 +4,23 @@ packages:
   - 'web'
 allowBuilds:
   # Required: vitest and Next.js both need esbuild's native binary installed.
-  '@firebase/util': set this to true or false
   esbuild: true
-  protobufjs: set this to true or false
+
+  # The two below arrive under firebase-admin and are declined on purpose.
+  # Leaving them unanswered is NOT neutral — pnpm treats a missing decision as a
+  # hard failure and refuses to run any script in the workspace, which is how
+  # this file stopped `pnpm dev` from booting at all.
+  #
+  # Its postinstall reads its own package.json, compares the version RANGE style
+  # its parent declares, and at most writes a warning to stderr. Nothing is
+  # produced on disk, so skipping it changes nothing.
+  protobufjs: false
+  #
+  # The tarball already ships dist/postinstall.js and .mjs, so declining leaves
+  # no file missing. The script only rewrites them when FIREBASE_WEBAPP_CONFIG
+  # is set — a Firebase web/App Hosting mechanism, not firebase-admin, which is
+  # all we use — and in that case it reaches out to firebase.googleapis.com
+  # during install. We do not want a network call in the install path.
+  '@firebase/util': false
 
 # `app/` is Flutter — not an npm workspace. See docs/ for its toolchain.

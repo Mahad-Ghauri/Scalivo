@@ -607,3 +607,63 @@ class BlockResult {
         affectedBookings: (json['affectedBookings'] as List<dynamic>? ?? const []).length,
       );
 }
+
+// ---------------------------------------------------------------------------
+// Setup readiness.
+// ---------------------------------------------------------------------------
+
+/// One thing standing between this business and its first booking.
+///
+/// `id` is kept as a raw string rather than parsed into an enum. The backend
+/// owns this vocabulary and may add a step before the app is rebuilt; an
+/// unrecognised id should show up as one more row the owner can read, not throw
+/// on a screen whose whole job is to explain what is wrong.
+class SetupStep {
+  const SetupStep({required this.id, required this.done, required this.detail});
+
+  final String id;
+  final bool done;
+
+  /// What the owner has to do about it, or null when there is nothing to do.
+  final String? detail;
+
+  factory SetupStep.fromJson(Map<String, dynamic> json) => SetupStep(
+        id: json['id'] as String? ?? '',
+        done: json['done'] as bool? ?? false,
+        detail: json['detail'] as String?,
+      );
+}
+
+/// Why this business cannot take a booking yet.
+///
+/// Worth stating plainly, because it is the reason this exists at all: every
+/// gap listed here fails SILENTLY. A service nobody is assigned to still
+/// appears in the WhatsApp menu, still accepts a tap, and then dead-ends on "no
+/// times available" — which is byte-for-byte what a fully booked day returns.
+/// The server can tell those apart. Until this list was rendered anywhere, the
+/// owner could not, and the app looked like it worked.
+class SetupChecklist {
+  const SetupChecklist({required this.bookable, required this.steps});
+
+  /// True only when every step is done.
+  final bool bookable;
+
+  final List<SetupStep> steps;
+
+  /// The unfinished steps worth putting in front of the owner.
+  ///
+  /// WhatsApp is deliberately dropped: the session pill and the Today banner
+  /// already carry it, and they read `auth.health`, which is live where this is
+  /// a snapshot taken at fetch time. Two widgets disagreeing about whether the
+  /// number is connected is a worse bug than the one this class fixes.
+  List<SetupStep> get blocking =>
+      steps.where((s) => !s.done && s.id != 'whatsapp').toList(growable: false);
+
+  factory SetupChecklist.fromJson(Map<String, dynamic> json) => SetupChecklist(
+        bookable: json['bookable'] as bool? ?? false,
+        steps: (json['steps'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(SetupStep.fromJson)
+            .toList(growable: false),
+      );
+}

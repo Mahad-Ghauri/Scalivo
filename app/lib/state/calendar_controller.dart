@@ -41,6 +41,17 @@ class CalendarController extends ChangeNotifier {
   List<ServiceItem> services = const [];
   List<StaffSummary> staffList = const [];
 
+  /// Why this business cannot take a booking yet, or null before the first
+  /// fetch.
+  ///
+  /// It lives here rather than in its own controller because the server
+  /// computes it from the services and staff cached directly above. Fetching it
+  /// on a separate path would let the two drift, and a checklist still
+  /// demanding a service the owner added a minute ago is worse than no
+  /// checklist: it teaches them to ignore the one screen that explains why
+  /// nobody can book.
+  SetupChecklist? setup;
+
   CalendarDay? get day => view?.dayFor(isoDate(selectedDay));
 
   List<CalendarEntry> get entries {
@@ -89,7 +100,9 @@ class CalendarController extends ChangeNotifier {
   /// until the app restarted — a cache that is right at first load and quietly
   /// wrong ever after is worse than no cache at all.
   Future<void> ensureCatalogue({bool force = false}) async {
-    if (!force && services.isNotEmpty && staffList.isNotEmpty) return;
+    // `setup == null` is part of the condition so the checklist is fetched at
+    // least once even on a business whose catalogue is already cached.
+    if (!force && setup != null && services.isNotEmpty && staffList.isNotEmpty) return;
     try {
       final loaded = await Future.wait([
         _api.services(_businessId),
@@ -101,6 +114,25 @@ class CalendarController extends ChangeNotifier {
     } on ApiException catch (err) {
       error = err;
       notifyListeners();
+    }
+    await _loadSetup();
+  }
+
+  /// Kept out of the [Future.wait] above, and silent on failure, both on
+  /// purpose.
+  ///
+  /// The checklist explains an empty diary; it is not the diary. Joining it to
+  /// the catalogue fetch would mean a readiness endpoint having a bad minute
+  /// empties the walk-in sheet's service list — this feature causing the class
+  /// of outage it exists to describe. On failure the previous answer stands: a
+  /// slightly stale checklist beats a screen that quietly stops explaining
+  /// itself.
+  Future<void> _loadSetup() async {
+    try {
+      setup = await _api.setupChecklist(_businessId);
+      notifyListeners();
+    } on ApiException {
+      // Intentionally swallowed — see above.
     }
   }
 

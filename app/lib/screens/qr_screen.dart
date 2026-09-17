@@ -60,30 +60,67 @@ class _QrScreenState extends State<QrScreen> {
     });
 
     try {
-      final result = await auth.api.linkWhatsApp(business.id);
-      if (!mounted) return;
-
-      // No QR and a ready status is success, not an empty response: a session
-      // whose credentials survived comes back with nothing to scan (spike
-      // proof #9 — restart recovery took ~7s and emitted zero QR events).
-      if (result.qrCode == null) {
-        setState(() => _stage = result.status == 'ready' ? _Stage.live : _Stage.awaitingScan);
-        _startPolling();
-        return;
-      }
-
-      setState(() {
-        _qr = _decodeDataUrl(result.qrCode!);
-        _stage = _Stage.awaitingScan;
-      });
-      _startPolling();
+      _show(await auth.api.linkWhatsApp(business.id));
     } on ApiException catch (err) {
       if (!mounted) return;
       setState(() {
+        // A 409 here means precisely one thing — no session exists yet — and
+        // that is a state the owner can act on themselves, not a dead end.
         _stage = err.kind == ApiErrorKind.conflict ? _Stage.noSession : _Stage.failed;
         _failure = err.message;
       });
     }
+  }
+
+  /// Creates the session, then shows its QR.
+  ///
+  /// Behind an explicit tap rather than run on open like [_requestQr]: this
+  /// allocates a real browser session on the gateway — measured at ~777 MiB, so
+  /// roughly two per instance — and a screen that provisions merely by being
+  /// looked at would spend that on every accidental visit.
+  Future<void> _provision() async {
+    final auth = context.read<AuthController>();
+    final business = auth.business;
+    if (business == null) return;
+
+    setState(() {
+      _stage = _Stage.requesting;
+      _failure = null;
+    });
+
+    try {
+      _show(await auth.api.provisionWhatsApp(business.id));
+    } on ApiException catch (err) {
+      if (!mounted) return;
+      // `already_linked` — someone provisioned from another device between this
+      // screen opening and the tap. Nothing is wrong and the QR is one call
+      // away, so fetch it rather than reporting a conflict the owner cannot act on.
+      if (err.kind == ApiErrorKind.conflict) {
+        await _requestQr();
+        return;
+      }
+      setState(() {
+        _stage = _Stage.failed;
+        _failure = err.message;
+      });
+    }
+  }
+
+  /// Shared by both paths, because they return the same shape and drifting
+  /// apart would mean one of them mishandling the no-QR case below.
+  void _show(LinkResult result) {
+    if (!mounted) return;
+
+    // No QR and a ready status is success, not an empty response: a session
+    // whose credentials survived comes back with nothing to scan (spike
+    // proof #9 — restart recovery took ~7s and emitted zero QR events).
+    setState(() {
+      _qr = result.qrCode == null ? null : _decodeDataUrl(result.qrCode!);
+      _stage = result.qrCode == null && result.status == 'ready'
+          ? _Stage.live
+          : _Stage.awaitingScan;
+    });
+    _startPolling();
   }
 
   /// Polls rather than waiting for a push, because the scan happens on a
@@ -155,12 +192,7 @@ class _QrScreenState extends State<QrScreen> {
             child: CircularProgressIndicator(color: Sc.teal),
           ),
         _Stage.live => _connected(context),
-        _Stage.noSession => _problem(
-            title: 'No WhatsApp number set up yet',
-            message: 'This business has no messaging session provisioned. '
-                'Scalivo support sets that up before you can link a number.',
-            retry: false,
-          ),
+        _Stage.noSession => _setUp(),
         _Stage.failed => _problem(
             title: "Couldn't reach WhatsApp",
             message: _failure ?? 'Try again in a moment.',
@@ -284,6 +316,59 @@ class _QrScreenState extends State<QrScreen> {
           ),
           const SizedBox(height: 28),
           ScButton(label: 'Done', onPressed: () => Navigator.of(context).pop()),
+        ],
+      ),
+    );
+  }
+
+  /// The first-run state: a business that has never had a number.
+  ///
+  /// It used to say support would do this, which was true of the API and false
+  /// of the product — an owner cannot set up their own business if the one step
+  /// that turns it on happens somewhere they cannot reach.
+  Widget _setUp() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 6),
+          Center(
+            child: Container(
+              width: 82,
+              height: 82,
+              decoration: const BoxDecoration(color: Sc.tealSoft, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: const Icon(Icons.qr_code_2_rounded, size: 38, color: Sc.teal900),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Connect your number',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: Sc.ink,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 7),
+          const Text(
+            'This is the number your customers will message to book. '
+            'We will show you a code to scan with it.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Sc.slate, height: 1.5),
+          ),
+          const SizedBox(height: 22),
+          const ScBanner(
+            title: 'Use a dedicated business number',
+            message: 'Whichever number you scan becomes the business number, and '
+                'moving it later means telling every customer again. Do not use '
+                'your personal WhatsApp.',
+            tone: ScBannerTone.warning,
+          ),
+          const SizedBox(height: 26),
+          ScButton(label: 'Set up my number', onPressed: _provision),
         ],
       ),
     );
