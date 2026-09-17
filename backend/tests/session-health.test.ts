@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { MessagingProvider, SendResult, SessionStatus } from '@scalivo/shared';
 import { SESSION_INTENT, SESSION_STATUS, isSessionAlarm } from '@scalivo/shared';
 import { Business } from '../src/models/Business.js';
+import { SessionEvent } from '../src/models/SessionEvent.js';
 import { User } from '../src/models/User.js';
 import { handleSessionQr, handleSessionStatus } from '../src/session-health/monitor.js';
 import { reconcileOnce } from '../src/session-health/reconcile.js';
@@ -118,6 +119,9 @@ describe.skipIf(!infraUp)('session health', () => {
     businessId = String(doc._id);
 
     await User.deleteMany({ email: 'health-owner@test.pk' });
+    // Append-only in production; cleared here so each case reads its own rows
+    // rather than the accumulated history of every test above it.
+    await SessionEvent.deleteMany({ businessId });
     await redis.flushdb();
     provider.sent = [];
     provider.failSends = false;
@@ -329,6 +333,120 @@ describe.skipIf(!infraUp)('session health', () => {
       await reconcileOnce(deps());
 
       expect((await business())?.whatsapp?.lastAlertAt).toBeNull();
+    });
+  });
+
+  /**
+   * The append-only history behind the uptime metric.
+   *
+   * `business.whatsapp.status` is overwritten on every change, so it can answer
+   * "is it up now?" and never "how much of last month was it up?" — which is the
+   * evaluation chapter's headline number. These tests pin the two properties
+   * that make the series computable: one row per real transition, and no rows
+   * for the things that merely look like one.
+   */
+  describe('uptime history', () => {
+    const history = () => SessionEvent.find({ businessId }).sort({ occurredAt: 1 });
+
+    it('records a transition when the session dies', async () => {
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.QR_READY,
+        occurredAt: new Date(),
+      });
+
+      const rows = await history();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe(SESSION_STATUS.QR_READY);
+      // The interval boundary: what it was before is what makes the row an edge
+      // rather than an isolated observation.
+      expect(rows[0].previousStatus).toBe(SESSION_STATUS.READY);
+      expect(rows[0].source).toBe('webhook');
+    });
+
+    it('writes ONE row for the qr-then-status pair a real unlink produces', async () => {
+      // SPIKE FINDING #2 measured these ~4ms apart for a single unlink. Two rows
+      // would read as two outages, and the four milliseconds between them as a
+      // recovery that never happened.
+      const at = new Date();
+      await handleSessionQr(deps(), {
+        sessionId: SESSION_ID,
+        qrCode: 'data:image/png;base64,xxx',
+        occurredAt: at,
+      });
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.QR_READY,
+        occurredAt: new Date(at.getTime() + 4),
+      });
+
+      const rows = await history();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].occurredAt.getTime()).toBe(at.getTime());
+    });
+
+    it('writes nothing when a status repeats', async () => {
+      // The reconcile poll arrives every five minutes with the same answer. At
+      // 288 identical rows a day per business this would be noise that every
+      // uptime query then had to de-duplicate before it could compute anything.
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.READY,
+        occurredAt: new Date(),
+      });
+
+      expect(await history()).toHaveLength(0);
+    });
+
+    it('records the recovery, so the outage has an end', async () => {
+      const start = new Date();
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.QR_READY,
+        occurredAt: start,
+      });
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.READY,
+        occurredAt: new Date(start.getTime() + 60_000),
+      });
+
+      const rows = await history();
+      // An outage with no closing row is indistinguishable from one still in
+      // progress, which would make every historical outage read as ongoing.
+      expect(rows.map((r) => r.status)).toEqual([SESSION_STATUS.QR_READY, SESSION_STATUS.READY]);
+      expect(rows[1].occurredAt.getTime() - rows[0].occurredAt.getTime()).toBe(60_000);
+    });
+
+    it('keeps the intent, so a deliberate re-link is not counted as downtime', async () => {
+      await Business.updateOne(
+        { _id: businessId },
+        { $set: { 'whatsapp.intent': SESSION_INTENT.LINKING } },
+      );
+
+      await handleSessionStatus(deps(), {
+        sessionId: SESSION_ID,
+        status: SESSION_STATUS.QR_READY,
+        occurredAt: new Date(),
+      });
+
+      // Same status, same wire bytes as a real outage. Only the intent separates
+      // an owner holding a phone from a business that cannot take bookings.
+      const rows = await history();
+      expect(rows[0].intent).toBe(SESSION_INTENT.LINKING);
+    });
+
+    it('marks what reconcile found, so unreliable delivery is visible as such', async () => {
+      provider.status = SESSION_STATUS.QR_READY;
+
+      await reconcileOnce(deps());
+
+      const rows = await history();
+      expect(rows).toHaveLength(1);
+      // A run where most transitions carry this is a finding about our webhook
+      // delivery, not about the business's uptime — and the timestamp is only
+      // accurate to the 5-minute poll, which the source label warns the reader.
+      expect(rows[0].source).toBe('reconcile');
     });
   });
 });

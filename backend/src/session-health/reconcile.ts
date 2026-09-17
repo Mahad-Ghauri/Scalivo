@@ -4,6 +4,7 @@ import { Business } from '../models/Business.js';
 import { logger } from '../lib/logger.js';
 import { raiseSessionAlarm } from './alert.js';
 import { drain, queueDepth } from './outbound-queue.js';
+import { recordTransition } from './history.js';
 
 /**
  * The safety net under the webhook stream.
@@ -59,6 +60,21 @@ export async function reconcileOnce(deps: ReconcileDeps): Promise<void> {
         { businessId, recorded, observed },
         'reconcile found a status the webhook stream never delivered',
       );
+
+      // `new Date()` rather than a measured moment, and the imprecision is
+      // real: all we know is that it changed sometime in the last five minutes.
+      // Recorded as `reconcile` so a run full of these is legible as a
+      // webhook-delivery problem rather than read as precise uptime data.
+      await recordTransition({
+        businessId,
+        sessionId,
+        status: observed,
+        previousStatus: recorded,
+        intent: SESSION_INTENT.LIVE,
+        source: 'reconcile',
+        occurredAt: new Date(),
+      });
+
       await Business.updateOne(
         { _id: business._id },
         { $set: { 'whatsapp.status': observed, 'whatsapp.lastStatusChange': new Date() } },

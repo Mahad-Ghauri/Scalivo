@@ -17,6 +17,19 @@ import {
  * read off upstream's docs. Where the two disagreed, the measurement won.
  */
 
+/**
+ * Every gateway call answers from memory and should be fast — a slow one here
+ * means the gateway is in trouble, and waiting longer just moves the failure.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Except starting a session, which boots a Chromium profile and is the only
+ * call whose honest cost is tens of seconds. See startSession for the
+ * measurement that set this.
+ */
+const START_TIMEOUT_MS = 60_000;
+
 /** The webhook envelope every delivery is wrapped in. */
 interface Envelope {
   event: string;
@@ -99,9 +112,17 @@ export class OpenWAProvider implements MessagingProvider {
    * only comes back when the link is genuinely gone.
    */
   async startSession(sessionId: string): Promise<{ status: SessionStatus; qrCode?: string }> {
-    const started = await this.request<{ status: string }>(`/api/sessions/${sessionId}/start`, {
-      method: 'POST',
-    });
+    const started = await this.request<{ status: string }>(
+      `/api/sessions/${sessionId}/start`,
+      { method: 'POST' },
+      // The one call that boots a browser rather than answering from memory.
+      // Measured cold on a first link: session created at 18:03:32.0, QR at
+      // 18:03:43.9 — 11.9s, which the default 10s abort cut off by two seconds.
+      // The session came up fine and the owner got "could not reach the
+      // messaging gateway", so the timeout has to clear a cold Chromium start
+      // with room to spare rather than sit near the measurement.
+      START_TIMEOUT_MS,
+    );
     const status = toSessionStatus(started.status);
     if (status !== SESSION_STATUS.QR_READY) return { status };
 
@@ -216,7 +237,11 @@ export class OpenWAProvider implements MessagingProvider {
     }
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
     const res = await fetch(new URL(path, this.baseUrl), {
       ...init,
       headers: {
@@ -224,7 +249,7 @@ export class OpenWAProvider implements MessagingProvider {
         'Content-Type': 'application/json',
         ...init.headers,
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) {

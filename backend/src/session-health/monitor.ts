@@ -11,6 +11,7 @@ import { Business } from '../models/Business.js';
 import { logger } from '../lib/logger.js';
 import { clearSessionAlarm, raiseSessionAlarm } from './alert.js';
 import { drain, queueDepth } from './outbound-queue.js';
+import { recordTransition } from './history.js';
 import { retryPending } from '../notifications/send.js';
 
 /**
@@ -58,6 +59,20 @@ export async function handleSessionQr(deps: MonitorDeps, event: SessionQrEvent):
   }
 
   logger.warn({ sessionId: event.sessionId }, 'UNSOLICITED QR — the session has been unlinked');
+
+  // The earliest moment the outage is knowable, and therefore the honest start
+  // of the downtime interval. The status event ~4ms behind this one finds the
+  // status already changed and records nothing, so the outage gets one row.
+  await recordTransition({
+    businessId: String(business._id),
+    sessionId: event.sessionId,
+    status: SESSION_STATUS.QR_READY,
+    previousStatus: business.whatsapp?.status,
+    intent: business.whatsapp?.intent ?? SESSION_INTENT.STOPPED,
+    source: 'webhook',
+    occurredAt: event.occurredAt,
+  });
+
   await onSessionLost(deps, String(business._id), business.name, SESSION_STATUS.QR_READY);
 }
 
@@ -74,6 +89,18 @@ export async function handleSessionStatus(
   const businessId = String(business._id);
   const intent = business.whatsapp?.intent ?? SESSION_INTENT.STOPPED;
   const previous = business.whatsapp?.status;
+
+  // Before the update, which is the only point where `previous` is still the
+  // old value rather than the one being written.
+  await recordTransition({
+    businessId,
+    sessionId: event.sessionId,
+    status: event.status,
+    previousStatus: previous,
+    intent,
+    source: 'webhook',
+    occurredAt: event.occurredAt,
+  });
 
   await Business.updateOne(
     { _id: business._id },

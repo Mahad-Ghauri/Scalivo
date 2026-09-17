@@ -63,6 +63,36 @@ export function createApp(): Express {
     }),
   );
 
+  // Lets the Flutter app run in a browser during development.
+  //
+  // A browser refuses a cross-origin call unless the server says otherwise, and
+  // `flutter run -d chrome` serves the app from a localhost port that is not
+  // ours. Native builds never send an Origin and never see any of this.
+  //
+  // Development only, and narrow even there: a reflected origin is only echoed
+  // back when it is loopback, so this can never widen into a real deployment.
+  if (env.NODE_ENV === 'development') {
+    const LOOPBACK = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+    app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (origin && LOOPBACK.test(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        // Without Vary, a cache could serve one origin's response to another.
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+        // Every authenticated call carries an Authorization header, which makes
+        // it non-simple — so the browser preflights nearly all of them.
+        if (req.method === 'OPTIONS') {
+          res.sendStatus(204);
+          return;
+        }
+      }
+      next();
+    });
+  }
+
   app.use('/auth', createAuthRouter());
   app.use('/businesses', createBusinessRouter(provider));
   // Also under /businesses — every one of these scopes by :businessId, so

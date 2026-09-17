@@ -7,6 +7,8 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "seed": "tsx --env-file=.env src/scripts/seed.ts",
     "link-session": "tsx --env-file=.env src/scripts/link-session.ts",
+    "dev:local": "tsx watch --env-file=.env --env-file=.env.local src/index.ts",
+    "seed:local": "tsx --env-file=.env --env-file=.env.local src/scripts/seed.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
