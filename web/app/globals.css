@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/**
+ * Tailwind v4 is CSS-first: these tokens ARE the config. There is no
+ * tailwind.config.js.
+ *
+ * Neutral white surfaces with near-black ink, a single purple for links and
+ * counts, amber stars, and a soft lavender-to-pink wash behind the hero.
+ */
+@theme {
+  --color-ink: #0d0d0d;
+  /* 4.74:1 on white — the lightest grey that still passes for body text. */
+  --color-muted: #737373;
+  --color-line: #e5e5e5;
+  --color-surface: #f2f2f2;
+  --color-brand: #6950f3;
+  --color-star: #ffb900;
+  /* Darkened from the reference green so "Open now" passes 4.5:1 as text. */
+  --color-open: #00875a;
+
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: #fff;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+/** The lavender/pink wash behind the home hero. */
+.hero-wash {
+  background:
+    radial-gradient(60% 70% at 30% 0%, #d6d3ff 0%, rgb(214 211 255 / 0) 70%),
+    radial-gradient(55% 60% at 75% 70%, #ffd4fb 0%, rgb(255 212 251 / 0) 70%),
+    #fff;
+}
+
+/** The glowing ring around the hero search pill. */
+.search-glow {
+  box-shadow:
+    0 0 0 6px rgb(214 211 255 / 0.55),
+    0 8px 30px rgb(105 80 243 / 0.08);
+}
+
+/** Green wash behind the "for business" image, as on the reference. */
+.lime-wash {
+  background: radial-gradient(70% 70% at 30% 60%, #e8ff9e 0%, rgb(232 255 158 / 0) 70%);
+}
+
+.gradient-number {
+  background: linear-gradient(90deg, #e94ec0, #f472b6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/** Horizontal carousels scroll natively; the scrollbar is hidden, the arrows drive it. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
