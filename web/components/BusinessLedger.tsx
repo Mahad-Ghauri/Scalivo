@@ -29,8 +29,8 @@ export function BusinessLedger({ businesses, empty }: { businesses: BusinessCard
         </Reveal>
 
         {rail.length > 0 ? (
-          <div className="mt-10 md:col-span-5 md:mt-0 md:border-l md:border-rule md:pl-10">
-            <p className="label border-b border-rule pb-3 text-muted">Also taking bookings</p>
+          <div className="mt-10 md:col-span-5 md:mt-0 md:border-l md:border-line md:pl-10">
+            <p className="label border-b border-line pb-3 text-muted">Also taking bookings</p>
             {rail.map((business, index) => (
               <Reveal key={business.id} delay={index * 40}>
                 <BusinessRow business={business} showServices />
@@ -42,7 +42,7 @@ export function BusinessLedger({ businesses, empty }: { businesses: BusinessCard
 
       {ledger.length > 0 ? (
         <div className="mt-14 md:mt-20">
-          <p className="label border-b border-rule pb-3 text-muted">The rest of the directory</p>
+          <p className="label border-b border-line pb-3 text-muted">The rest of the directory</p>
           <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-10">
             {ledger.map((business, index) => (
               <Reveal key={business.id} delay={index * 40}>

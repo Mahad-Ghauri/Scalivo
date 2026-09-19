@@ -4,7 +4,7 @@
  */
 export function GrainOverlay() {
   return (
-    <svg className="grain" aria-hidden="true" focusable="false">
+    <svg className="fixed inset-0 w-screen h-screen pointer-events-none z-50 opacity-[0.15] mix-blend-multiply" aria-hidden="true" focusable="false">
       <filter id="paper-grain">
         <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves={3} stitchTiles="stitch" />
         <feColorMatrix type="saturate" values="0" />

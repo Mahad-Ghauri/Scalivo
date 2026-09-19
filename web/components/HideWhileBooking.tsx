@@ -22,9 +22,8 @@ export function HideWhileBooking({ className, children }: { className: string; c
     <div
       className={`${className} transition-transform duration-200 motion-reduce:transition-none ${hidden ? 'translate-y-full' : ''}`}
       aria-hidden={hidden}
-      // React 18 drops a boolean `inert`; the empty-string attribute is what
-      // actually takes the hidden links out of the tab order.
-      {...(hidden ? ({ inert: '' } as object) : {})}
+      // React 19 supports the inert boolean attribute natively
+      inert={hidden ? true : undefined}
     >
       {children}
     </div>

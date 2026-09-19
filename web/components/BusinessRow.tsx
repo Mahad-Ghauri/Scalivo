@@ -20,7 +20,7 @@ export function BusinessRow({
   const place = [business.neighbourhood, business.city].filter(Boolean).join(', ');
 
   return (
-    <article className="border-b border-rule">
+    <article className="border-b border-line">
       <Link href={`/${business.slug}`} className="row-link grid grid-cols-[84px_1fr] gap-4 py-5 sm:grid-cols-[96px_1fr] sm:gap-5">
         <CoverPlate
           url={business.coverUrl}

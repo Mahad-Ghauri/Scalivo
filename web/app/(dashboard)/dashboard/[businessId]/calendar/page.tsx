@@ -105,7 +105,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)]">
+    <div className="flex flex-col h-full">
       <CalendarControls
         businessId={businessId}
         view={isWeekView ? 'week' : 'day'}

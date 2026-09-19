@@ -83,7 +83,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
 
       {/* Directory */}
       <section aria-labelledby="directory-heading" className="mx-auto max-w-[1200px] px-5 md:px-10">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-rule pt-7">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-line pt-7">
           <h2 id="directory-heading" className="display-md font-display text-[1.75rem] font-semibold md:text-[2.125rem]">
             The directory
           </h2>
@@ -145,9 +145,9 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
                 conversation. You stop keeping the diary.
               </p>
 
-              <ol className="mt-8 border-t border-rule">
+              <ol className="mt-8 border-t border-line">
                 {OWNER_STEPS.map((step) => (
-                  <li key={step.number} className="grid grid-cols-[2.5rem_1fr] gap-4 border-b border-rule py-5">
+                  <li key={step.number} className="grid grid-cols-[2.5rem_1fr] gap-4 border-b border-line py-5">
                     <span className="num pt-0.5 text-[0.875rem] text-clay-deep">{step.number}</span>
                     <div>
                       <h3 className="display-sm font-display text-[1.125rem] font-semibold leading-snug">

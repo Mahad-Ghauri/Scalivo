@@ -15,7 +15,7 @@ export function FeatureBusiness({ business }: { business: BusinessCard }) {
   const place = [business.neighbourhood, business.city].filter(Boolean).join(', ');
 
   return (
-    <article className="border-b border-rule pb-8 md:border-b-0 md:pb-0">
+    <article className="border-b border-line pb-8 md:border-b-0 md:pb-0">
       <Link href={`/${business.slug}`} className="row-link block">
         <p className="label flex items-center gap-2 text-clay-deep">
           <span className="inline-block h-px w-6 bg-clay" aria-hidden="true" />
@@ -42,7 +42,7 @@ export function FeatureBusiness({ business }: { business: BusinessCard }) {
         <p className="mt-3 max-w-[52ch] text-[1.0625rem] leading-relaxed text-ink/90">{business.tagline}</p>
 
         {business.popularServices.length > 0 ? (
-          <ul className="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-t border-rule pt-4">
+          <ul className="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-t border-line pt-4">
             {business.popularServices.map((service) => (
               <li key={service} className="label text-muted">
                 {service}
@@ -51,7 +51,7 @@ export function FeatureBusiness({ business }: { business: BusinessCard }) {
           </ul>
         ) : null}
 
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-t border-rule pt-4">
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-4">
           <Rating rating={business.rating} reviewCount={business.reviewCount} />
           <div className="flex items-end gap-6">
             <FromPrice priceMinor={business.fromPriceMinor} />

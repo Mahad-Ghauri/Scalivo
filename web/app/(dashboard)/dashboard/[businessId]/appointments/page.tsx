@@ -6,7 +6,7 @@ export default function DashboardAppointmentsPage() {
         <p className="mt-1 text-sm text-muted">Manage your appointments here.</p>
       </div>
 
-      <div className="rounded-lg border border-rule bg-white p-12 text-center">
+      <div className="rounded-lg border border-line bg-white p-12 text-center">
         <h2 className="text-lg font-medium text-ink">Appointments coming soon</h2>
         <p className="mt-2 text-sm text-muted">
           This feature will be implemented in a future phase.

@@ -57,7 +57,7 @@ export function FilterBar({
   ];
 
   return (
-    <section aria-labelledby="filters-heading" className="border-y border-rule">
+    <section aria-labelledby="filters-heading" className="border-y border-line">
       <h2 id="filters-heading" className="sr-only">
         Filter the directory
       </h2>
@@ -66,7 +66,7 @@ export function FilterBar({
         <div
           key={row.key}
           className={`flex flex-wrap items-center gap-x-2 gap-y-2 py-3 md:gap-x-3 ${
-            index > 0 ? 'border-t border-rule' : ''
+            index > 0 ? 'border-t border-line' : ''
           }`}
         >
           <span className="label w-full shrink-0 text-muted md:w-[88px]">{row.heading}</span>

@@ -33,7 +33,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         <SearchField defaultValue={query} category={category} city={city} tone="compact" />
       </div>
 
-      <div className="mt-12 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-rule pt-7">
+      <div className="mt-12 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-line pt-7">
         <h1 className="label-lg text-ink">
           <span className="num text-clay-deep">{results.length}</span> {results.length === 1 ? 'result' : 'results'}
           {query ? (

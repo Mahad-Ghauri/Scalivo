@@ -17,8 +17,8 @@ const MESSAGES: { from: 'customer' | 'business'; text: string; time: string; con
 
 export function BookingThread() {
   return (
-    <figure className="border border-rule bg-raised">
-      <figcaption className="flex items-baseline justify-between gap-3 border-b border-rule px-4 py-3">
+    <figure className="border border-line bg-raised">
+      <figcaption className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
         <span className="label text-muted">A booking, start to finish</span>
         <span className="num text-[0.6875rem] text-muted">SAT 23:41</span>
       </figcaption>
@@ -33,7 +33,7 @@ export function BookingThread() {
                 className={`max-w-[85%] border px-3 py-2 text-[0.9375rem] leading-snug ${
                   mine
                     ? 'rounded-plate rounded-br-none border-signal/30 bg-signal/10 text-ink'
-                    : 'rounded-plate rounded-bl-none border-rule bg-paper text-ink'
+                    : 'rounded-plate rounded-bl-none border-line bg-white text-ink'
                 }`}
               >
                 {message.confirmed ? (
@@ -51,7 +51,7 @@ export function BookingThread() {
         })}
       </ol>
 
-      <p className="label border-t border-rule px-4 py-3 text-muted">
+      <p className="label border-t border-line px-4 py-3 text-muted">
         Confirmed in the thread. No app, no call, no waiting for morning.
       </p>
     </figure>

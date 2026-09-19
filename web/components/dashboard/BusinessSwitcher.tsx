@@ -21,24 +21,20 @@ export function BusinessSwitcher({ businesses, currentBusinessId }: Props) {
   // If there's only one business, just display it without a dropdown.
   if (businesses.length === 1) {
     return (
-      <div className="px-4 py-3 border-b border-rule bg-paper">
-        <p className="text-sm font-medium text-ink truncate">{current.name}</p>
-        <p className="text-xs text-muted mt-0.5 capitalize">{current.category}</p>
+      <div className="flex h-10 items-center px-4 rounded-full border border-line bg-surface">
+        <span className="text-[15px] font-semibold text-ink truncate">{current.name}</span>
       </div>
     );
   }
 
   return (
-    <div className="relative border-b border-rule bg-paper">
+    <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors text-left"
+        className="flex items-center gap-2 rounded-full border border-line bg-white px-4 h-10 hover:bg-surface transition-colors"
       >
-        <div className="overflow-hidden">
-          <p className="text-sm font-medium text-ink truncate">{current?.name}</p>
-          <p className="text-xs text-muted mt-0.5 capitalize">{current?.category}</p>
-        </div>
-        <svg className="w-4 h-4 text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <span className="text-[15px] font-semibold text-ink truncate max-w-[120px]">{current?.name}</span>
+        <svg className="w-4 h-4 text-ink flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -46,18 +42,18 @@ export function BusinessSwitcher({ businesses, currentBusinessId }: Props) {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute top-full left-0 right-0 z-50 bg-paper border-b border-rule shadow-lg max-h-60 overflow-y-auto">
+          <div className="absolute top-full left-0 mt-2 z-50 w-64 bg-white rounded-2xl border border-line shadow-xl overflow-hidden max-h-60 overflow-y-auto">
             {businesses.map((business) => (
               <Link
                 key={business.id}
                 href={`/dashboard/${business.id}`}
                 onClick={() => setIsOpen(false)}
-                className={`block px-4 py-3 hover:bg-stone-50 transition-colors ${
-                  business.id === currentBusinessId ? 'bg-stone-50/50' : ''
+                className={`block px-4 py-3 hover:bg-surface transition-colors ${
+                  business.id === currentBusinessId ? 'bg-surface' : ''
                 }`}
               >
-                <p className="text-sm font-medium text-ink truncate">{business.name}</p>
-                <p className="text-xs text-muted mt-0.5 capitalize">{business.category}</p>
+                <p className="text-[15px] font-semibold text-ink truncate">{business.name}</p>
+                <p className="text-[13px] text-muted mt-0.5 capitalize">{business.category}</p>
               </Link>
             ))}
           </div>

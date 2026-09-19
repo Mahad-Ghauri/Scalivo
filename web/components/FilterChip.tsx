@@ -19,7 +19,7 @@ export function FilterChip({
       className={`label inline-flex items-center gap-1.5 rounded-chip border px-2.5 py-1.5 ${
         active
           ? 'border-kashi bg-kashi text-paper'
-          : 'border-rule bg-raised text-ink hover:border-kashi hover:text-kashi'
+          : 'border-line bg-raised text-ink hover:border-kashi hover:text-kashi'
       }`}
     >
       {label}

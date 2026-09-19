@@ -10,19 +10,20 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, undefined);
 
   return (
-    <>
+    <div className="min-h-screen bg-white hero-wash">
       <GrainOverlay />
-      <SiteHeader />
+      <SiteHeader transparent />
+      
       <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-5 py-12">
-        <div className="w-full max-w-md bg-white p-8 border border-rule shadow-sm">
+        <div className="w-full max-w-[440px] bg-white p-8 md:p-10 border border-line rounded-3xl shadow-sm relative z-10">
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-display font-semibold text-ink">Sign in to Scalivo</h1>
-            <p className="text-muted mt-2 text-sm">Welcome back to your business dashboard</p>
+            <h1 className="text-[32px] leading-none font-bold tracking-[-0.03em] text-ink">Sign in to scalivo</h1>
+            <p className="text-muted mt-3 text-[15px]">Welcome back to your business dashboard</p>
           </div>
 
-          <form action={formAction} className="space-y-6">
+          <form action={formAction} className="space-y-5">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-ink">
+              <label htmlFor="email" className="block text-[14px] font-semibold text-ink">
                 Email address
               </label>
               <input
@@ -30,12 +31,12 @@ export default function LoginPage() {
                 name="email"
                 type="email"
                 required
-                className="mt-2 block w-full border border-rule px-3 py-2 outline-none focus:border-ink transition-colors"
+                className="mt-2 block w-full rounded-xl border border-line px-4 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink transition-all bg-surface/50 focus:bg-white"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-ink">
+              <label htmlFor="password" className="block text-[14px] font-semibold text-ink">
                 Password
               </label>
               <input
@@ -43,12 +44,12 @@ export default function LoginPage() {
                 name="password"
                 type="password"
                 required
-                className="mt-2 block w-full border border-rule px-3 py-2 outline-none focus:border-ink transition-colors"
+                className="mt-2 block w-full rounded-xl border border-line px-4 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink transition-all bg-surface/50 focus:bg-white"
               />
             </div>
 
             {state?.error && (
-              <div className="text-sm text-signal-deep bg-signal/10 px-3 py-2 border border-signal-deep/20">
+              <div className="text-[14px] font-medium text-red-700 bg-red-50 rounded-xl px-4 py-3 border border-red-100">
                 {state.error}
               </div>
             )}
@@ -56,20 +57,20 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isPending}
-              className="w-full bg-ink text-paper py-2.5 font-medium hover:bg-ink/90 disabled:opacity-50 transition-colors"
+              className="mt-2 w-full inline-flex h-12 items-center justify-center rounded-full bg-ink px-6 text-[16px] font-semibold text-white transition-colors hover:bg-black/80 disabled:opacity-50"
             >
               {isPending ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-muted">
+          <p className="mt-8 text-center text-[15px] font-medium text-muted">
             Don&apos;t have an account?{' '}
-            <Link href="mailto:hello@scalivo.app" className="text-ink underline underline-offset-4">
+            <Link href="mailto:hello@scalivo.app" className="text-ink hover:underline underline-offset-4 decoration-line">
               Contact us
             </Link>
           </p>
         </div>
       </main>
-    </>
+    </div>
   );
 }

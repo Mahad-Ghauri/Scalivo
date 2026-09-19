@@ -21,7 +21,7 @@ export function CoverPlate({
   if (!url) {
     return (
       <div
-        className={`plate flex items-center justify-center border border-rule bg-kashi-deep ${className}`}
+        className={`plate flex items-center justify-center border border-line bg-kashi-deep ${className}`}
         aria-hidden="true"
       >
         <Khatam className="text-paper/60" />
@@ -38,7 +38,7 @@ export function CoverPlate({
       height={height}
       loading="lazy"
       decoding="async"
-      className={`plate border border-rule object-cover ${className}`}
+      className={`plate border border-line object-cover ${className}`}
     />
   );
 }
