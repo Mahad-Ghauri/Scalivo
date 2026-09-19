@@ -15,6 +15,10 @@ import { signToken } from '../src/auth/jwt.js';
 import { infraReady } from './infra.js';
 import { wallClockToUtc } from '../src/lib/time.js';
 
+/** Response bodies are asserted field by field; typing each shape adds nothing. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const json = (res: Response): Promise<any> => res.json();
+
 const infraUp = await infraReady({ replicaSet: true, redis: true });
 
 const TZ = 'Asia/Karachi';
@@ -154,11 +158,11 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     const startsAt = at('10:00');
     const holdRes = await hold(startsAt);
     expect(holdRes.status).toBe(201);
-    const holdData = await holdRes.json();
+    const holdData = await json(holdRes);
 
     const bookRes = await book(startsAt, holdData.token);
     expect(bookRes.status).toBe(201);
-    const bookingData = await bookRes.json();
+    const bookingData = await json(bookRes);
 
     expect(bookingData.id).toBeTypeOf('string');
     // It's 'web' source, so the status is PENDING (only owner source auto-confirms)
@@ -192,7 +196,7 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     });
 
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.error).toBe('invalid booking');
     expect(data.fields).toHaveProperty('startsAt');
   });
@@ -214,8 +218,8 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     expect(holdWinners).toHaveLength(1);
     expect(holdLosers).toHaveLength(1);
 
-    const winnerData = await holdWinners[0]!.json();
-    const loserData = await holdLosers[0]!.json();
+    const winnerData = await json(holdWinners[0]!);
+    const loserData = await json(holdLosers[0]!);
     expect(loserData.reason).toBe('slot_taken');
     
     // 3. The winner submits their booking

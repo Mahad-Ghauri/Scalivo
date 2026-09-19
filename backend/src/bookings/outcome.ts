@@ -42,24 +42,31 @@ export async function setBookingOutcome(
   businessId: string,
   outcome: Outcome,
 ): Promise<OutcomeResult> {
+  // The status flip and the freed slot commit together: a cancelled booking
+  // whose occupancy survived would keep the hour unsellable forever.
   const session = await mongoose.startSession();
-  let booking;
+  // Assigned inside the callback, which TypeScript cannot follow — hence the box.
+  const written: { booking: InstanceType<typeof Booking> | null } = { booking: null };
 
   try {
     await session.withTransaction(async () => {
-      booking = await Booking.findOneAndUpdate(
+      written.booking = await Booking.findOneAndUpdate(
         { _id: bookingId, businessId, status: { $nin: TERMINAL } },
         { $set: { status: outcome } },
         { new: true, session },
       );
 
-      if (booking && outcome === BOOKING_STATUS.CANCELLED) {
+      // A no-show keeps its slot: the time was consumed whether or not anyone
+      // turned up. Only a cancellation frees time.
+      if (written.booking && outcome === BOOKING_STATUS.CANCELLED) {
         await SlotOccupancy.deleteMany({ bookingId, businessId }, { session });
       }
     });
   } finally {
     await session.endSession();
   }
+
+  const booking = written.booking;
 
   if (!booking) {
     // Either it does not exist, or someone got there first. Distinguishing the

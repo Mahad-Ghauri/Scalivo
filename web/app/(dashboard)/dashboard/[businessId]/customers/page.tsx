@@ -51,7 +51,7 @@ export default async function DashboardCustomersPage({
         ...(searchQuery ? { q: searchQuery } : {}),
       },
     });
-  } catch (e) {
+  } catch {
     error = true;
   }
 

@@ -1,4 +1,4 @@
-import { type CalendarEntry, type CalendarDay, type CalendarBlock } from '@scalivo/shared';
+import { type CalendarDay } from '@scalivo/shared';
 
 /**
  * All date math relies on parsing YYYY-MM-DD as UTC noon (T12:00:00Z).

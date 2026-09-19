@@ -1,7 +1,9 @@
 'use server';
 
 import { fetchApi, ApiError } from '../api-client';
-import type { AvailableSlot, Booking } from '@scalivo/shared';
+import type { AvailableSlot, Booking, RescheduleResult } from '@scalivo/shared';
+
+type RescheduleFailure = Exclude<RescheduleResult, { ok: true }>['reason'];
 
 export type CreateBookingState = {
   success: boolean;
@@ -89,7 +91,7 @@ export async function createBookingAction(
 
 export type RescheduleBookingState = {
   success: boolean;
-  error?: 'not_found' | 'already_terminal' | 'invalid_slot' | 'beyond_horizon' | 'too_soon' | 'hold_expired' | 'outside_hours' | 'slot_taken' | 'validation' | 'generic';
+  error?: RescheduleFailure | 'validation' | 'generic';
   validationErrors?: Record<string, string[]>;
   booking?: Booking;
 };
@@ -104,28 +106,17 @@ export async function rescheduleBookingAction(
   }
 ): Promise<RescheduleBookingState> {
   try {
-    // 1. Acquire Hold (must be owner source to skip notice period, just like create)
-    const holdRes = await fetchApi<{ token: string; staffId: string }>(`/businesses/${businessId}/holds`, {
-      method: 'POST',
-      body: JSON.stringify({
-        serviceId: data.serviceId,
-        staffId: data.staffId,
-        startsAt: data.startsAt,
-        source: 'owner',
-      }),
-    });
+    // The calendar's reschedule route: same occupancy transaction as a booking,
+    // and it messages the customer. Owner override skips the notice period only.
+    const { booking } = await fetchApi<{ booking: Booking; notified: boolean }>(
+      `/businesses/${businessId}/bookings/${bookingId}/reschedule`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ staffId: data.staffId, startsAt: data.startsAt, override: true }),
+      },
+    );
 
-    // 2. Reschedule Booking
-    const bookRes = await fetchApi<Booking>(`/businesses/${businessId}/bookings/${bookingId}/reschedule`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        staffId: holdRes.staffId,
-        startsAt: data.startsAt,
-        holdToken: holdRes.token,
-      }),
-    });
-
-    return { success: true, booking: bookRes };
+    return { success: true, booking };
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 409 || err.status === 404 || err.status === 400) {
@@ -157,7 +148,7 @@ export async function cancelBookingAction(
 ): Promise<CancelBookingState> {
   try {
     await fetchApi(`/businesses/${businessId}/bookings/${bookingId}/cancel`, {
-      method: 'PATCH',
+      method: 'POST',
     });
     return { success: true };
   } catch (err) {

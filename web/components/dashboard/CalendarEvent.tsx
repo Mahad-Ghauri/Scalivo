@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import type { CalendarEntry, CalendarBlock } from '@scalivo/shared';
 import { BOOKING_STATUS } from '@scalivo/shared';
 
@@ -9,7 +8,7 @@ interface CalendarEntryCardProps {
   isSelected?: boolean;
 }
 
-export function CalendarEntryCard({ businessId, entry, style, isSelected }: CalendarEntryCardProps) {
+export function CalendarEntryCard({ entry, style, isSelected }: CalendarEntryCardProps) {
   // Styling based on status
   let bg = 'bg-brand/10 hover:bg-brand/20';
   let border = 'border-brand/20';

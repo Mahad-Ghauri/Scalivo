@@ -10,7 +10,7 @@ import {
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
-import { createBooking, holdSlot, rescheduleBooking } from './create.js';
+import { createBooking, holdSlot } from './create.js';
 import { setBookingOutcome } from './outcome.js';
 import { confirmBooking } from '../notifications/confirm.js';
 import { fieldErrors, param } from '../http/params.js';
@@ -52,11 +52,6 @@ const bookingBody = z.object({
   source: z.enum(['whatsapp', 'web', 'owner']).default('web'),
 });
 
-const rescheduleBody = z.object({
-  startsAt: z.string().datetime({ offset: true }),
-  staffId: z.string().min(1),
-  holdToken: z.string().min(1),
-});
 
 /**
  * How a refusal reaches the caller.
@@ -207,7 +202,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     }
   });
 
-  router.patch(
+  router.post(
     '/:businessId/bookings/:bookingId/cancel',
     requireAuth,
     requireTenant(),
@@ -232,46 +227,6 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       }
       res.status(204).end();
     },
-  );
-
-  router.patch(
-    '/:businessId/bookings/:bookingId/reschedule',
-    requireAuth,
-    requireTenant(),
-    json,
-    async (req, res) => {
-      const parsed = rescheduleBody.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ error: 'invalid reschedule request', fields: fieldErrors(parsed.error) });
-        return;
-      }
-
-      try {
-        const result = await rescheduleBooking(redis, {
-          businessId: param(req, 'businessId'),
-          bookingId: param(req, 'bookingId'),
-          startsAt: new Date(parsed.data.startsAt),
-          staffId: parsed.data.staffId,
-          holdToken: parsed.data.holdToken,
-          override: true, // It's an owner-authenticated route, skip minNoticeMinutes
-        });
-
-        if (!result.ok) {
-          const isNotFoundOrTerminal = result.reason === 'not_found' || result.reason === 'already_terminal';
-          res.status(isNotFoundOrTerminal ? (result.reason === 'not_found' ? 404 : 409) : STATUS[result.reason]).json({
-            error: isNotFoundOrTerminal ? (result.reason === 'not_found' ? 'not found' : 'already cancelled or completed') : MESSAGE[result.reason],
-            reason: result.reason,
-            ...(result.reason === 'slot_taken' ? { alternatives: result.alternatives } : {}),
-          });
-          return;
-        }
-
-        res.status(200).json(result.booking);
-      } catch (err) {
-        logger.error({ err, businessId: param(req, 'businessId'), bookingId: param(req, 'bookingId') }, 'reschedule failed');
-        res.status(500).json({ error: 'could not reschedule the booking' });
-      }
-    }
   );
 
   /**
