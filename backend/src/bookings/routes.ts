@@ -10,10 +10,11 @@ import {
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { getAvailability, nextAvailable } from './availability.js';
-import { createBooking, holdSlot } from './create.js';
+import { createBooking, holdSlot, rescheduleBooking } from './create.js';
 import { setBookingOutcome } from './outcome.js';
 import { confirmBooking } from '../notifications/confirm.js';
 import { fieldErrors, param } from '../http/params.js';
+import { Booking } from '../models/Booking.js';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
 const outcomeBody = z.object({
@@ -49,6 +50,12 @@ const bookingBody = z.object({
   startsAt: z.string().datetime({ offset: true }),
   holdToken: z.string().min(1),
   source: z.enum(['whatsapp', 'web', 'owner']).default('web'),
+});
+
+const rescheduleBody = z.object({
+  startsAt: z.string().datetime({ offset: true }),
+  staffId: z.string().min(1),
+  holdToken: z.string().min(1),
 });
 
 /**
@@ -200,7 +207,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     }
   });
 
-  router.post(
+  router.patch(
     '/:businessId/bookings/:bookingId/cancel',
     requireAuth,
     requireTenant(),
@@ -227,6 +234,46 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     },
   );
 
+  router.patch(
+    '/:businessId/bookings/:bookingId/reschedule',
+    requireAuth,
+    requireTenant(),
+    json,
+    async (req, res) => {
+      const parsed = rescheduleBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'invalid reschedule request', fields: fieldErrors(parsed.error) });
+        return;
+      }
+
+      try {
+        const result = await rescheduleBooking(redis, {
+          businessId: param(req, 'businessId'),
+          bookingId: param(req, 'bookingId'),
+          startsAt: new Date(parsed.data.startsAt),
+          staffId: parsed.data.staffId,
+          holdToken: parsed.data.holdToken,
+          override: true, // It's an owner-authenticated route, skip minNoticeMinutes
+        });
+
+        if (!result.ok) {
+          const isNotFoundOrTerminal = result.reason === 'not_found' || result.reason === 'already_terminal';
+          res.status(isNotFoundOrTerminal ? (result.reason === 'not_found' ? 404 : 409) : STATUS[result.reason]).json({
+            error: isNotFoundOrTerminal ? (result.reason === 'not_found' ? 'not found' : 'already cancelled or completed') : MESSAGE[result.reason],
+            reason: result.reason,
+            ...(result.reason === 'slot_taken' ? { alternatives: result.alternatives } : {}),
+          });
+          return;
+        }
+
+        res.status(200).json(result.booking);
+      } catch (err) {
+        logger.error({ err, businessId: param(req, 'businessId'), bookingId: param(req, 'bookingId') }, 'reschedule failed');
+        res.status(500).json({ error: 'could not reschedule the booking' });
+      }
+    }
+  );
+
   /**
    * Mark an appointment done or missed. This is what feeds the CRM — until a
    * booking is completed nobody has visited, so without this endpoint every
@@ -248,9 +295,34 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         return;
       }
 
+      const bookingId = param(req, 'bookingId');
+      const businessId = param(req, 'businessId');
+
+      const booking = await Booking.findOne({ _id: bookingId, businessId });
+      if (!booking) {
+        res.status(404).json({ error: 'not found', reason: 'not_found' });
+        return;
+      }
+
+      const TERMINAL: typeof booking.status[] = [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW, BOOKING_STATUS.CANCELLED];
+      if (TERMINAL.includes(booking.status)) {
+        res.status(409).json({ error: 'already marked', reason: 'already_terminal' });
+        return;
+      }
+
+      if (booking.status !== BOOKING_STATUS.CONFIRMED) {
+        res.status(400).json({ error: 'Booking must be confirmed before marking complete or no-show', reason: 'invalid_status' });
+        return;
+      }
+
+      if (booking.startsAt.getTime() > Date.now()) {
+        res.status(400).json({ error: 'Booking has not started yet', reason: 'not_yet_occurred' });
+        return;
+      }
+
       const result = await setBookingOutcome(
-        param(req, 'bookingId'),
-        param(req, 'businessId'),
+        bookingId,
+        businessId,
         parsed.data.outcome,
       );
 

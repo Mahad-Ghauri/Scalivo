@@ -104,6 +104,7 @@ export function createCrmRouter(): Router {
       const taggable = toTaggable(p);
 
       return {
+        id: p.clientId,
         clientId: p.clientId,
         displayName: client?.displayName ?? null,
         phone: client?.phone ?? null,

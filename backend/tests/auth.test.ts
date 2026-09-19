@@ -97,11 +97,11 @@ describe('cross-tenant reads over HTTP', () => {
     expect(findById).toHaveBeenCalledOnce();
   });
 
-  it('403s business B for business A\'s owner, without querying', async () => {
+  it("404s business B for business A's owner, without querying", async () => {
     const token = signToken({ userId: 'u1', role: 'owner', businessIds: [BIZ_A] });
     const res = await get(BIZ_B, token);
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(findById).not.toHaveBeenCalled();
   });
 

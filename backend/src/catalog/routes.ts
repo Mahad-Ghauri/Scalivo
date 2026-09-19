@@ -81,7 +81,12 @@ export function createCatalogRouter(): Router {
       ...(req.query.includeInactive === 'true' ? {} : { active: true }),
     }).sort({ displayOrder: 1, name: 1 });
 
-    res.json({ services });
+    res.json({
+      services: services.map((s) => ({
+        ...s.toObject(),
+        id: String(s._id),
+      })),
+    });
   });
 
   router.post('/:businessId/services', ...guard, json, async (req, res) => {
@@ -170,7 +175,12 @@ export function createCatalogRouter(): Router {
       ...(req.query.includeInactive === 'true' ? {} : { active: true }),
     }).sort({ name: 1 });
 
-    res.json({ staff });
+    res.json({
+      staff: staff.map((s) => ({
+        ...s.toObject(),
+        id: String(s._id),
+      })),
+    });
   });
 
   router.post('/:businessId/staff', ...guard, json, async (req, res) => {

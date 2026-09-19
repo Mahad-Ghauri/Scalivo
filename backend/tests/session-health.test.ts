@@ -357,11 +357,13 @@ describe.skipIf(!infraUp)('session health', () => {
 
       const rows = await history();
       expect(rows).toHaveLength(1);
-      expect(rows[0].status).toBe(SESSION_STATUS.QR_READY);
+      const row = rows[0];
+      if (!row) throw new Error('expected row');
+      expect(row.status).toBe(SESSION_STATUS.QR_READY);
       // The interval boundary: what it was before is what makes the row an edge
       // rather than an isolated observation.
-      expect(rows[0].previousStatus).toBe(SESSION_STATUS.READY);
-      expect(rows[0].source).toBe('webhook');
+      expect(row.previousStatus).toBe(SESSION_STATUS.READY);
+      expect(row.source).toBe('webhook');
     });
 
     it('writes ONE row for the qr-then-status pair a real unlink produces', async () => {
@@ -382,7 +384,9 @@ describe.skipIf(!infraUp)('session health', () => {
 
       const rows = await history();
       expect(rows).toHaveLength(1);
-      expect(rows[0].occurredAt.getTime()).toBe(at.getTime());
+      const row = rows[0];
+      if (!row) throw new Error('expected row');
+      expect(row.occurredAt.getTime()).toBe(at.getTime());
     });
 
     it('writes nothing when a status repeats', async () => {
@@ -415,7 +419,9 @@ describe.skipIf(!infraUp)('session health', () => {
       // An outage with no closing row is indistinguishable from one still in
       // progress, which would make every historical outage read as ongoing.
       expect(rows.map((r) => r.status)).toEqual([SESSION_STATUS.QR_READY, SESSION_STATUS.READY]);
-      expect(rows[1].occurredAt.getTime() - rows[0].occurredAt.getTime()).toBe(60_000);
+      const [r0, r1] = rows;
+      if (!r0 || !r1) throw new Error('expected 2 rows');
+      expect(r1.occurredAt.getTime() - r0.occurredAt.getTime()).toBe(60_000);
     });
 
     it('keeps the intent, so a deliberate re-link is not counted as downtime', async () => {
@@ -433,7 +439,9 @@ describe.skipIf(!infraUp)('session health', () => {
       // Same status, same wire bytes as a real outage. Only the intent separates
       // an owner holding a phone from a business that cannot take bookings.
       const rows = await history();
-      expect(rows[0].intent).toBe(SESSION_INTENT.LINKING);
+      const row = rows[0];
+      if (!row) throw new Error('expected row');
+      expect(row.intent).toBe(SESSION_INTENT.LINKING);
     });
 
     it('marks what reconcile found, so unreliable delivery is visible as such', async () => {
@@ -443,10 +451,12 @@ describe.skipIf(!infraUp)('session health', () => {
 
       const rows = await history();
       expect(rows).toHaveLength(1);
+      const row = rows[0];
+      if (!row) throw new Error('expected row');
       // A run where most transitions carry this is a finding about our webhook
       // delivery, not about the business's uptime — and the timestamp is only
       // accurate to the 5-minute poll, which the source label warns the reader.
-      expect(rows[0].source).toBe('reconcile');
+      expect(row.source).toBe('reconcile');
     });
   });
 });

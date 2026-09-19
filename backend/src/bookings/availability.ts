@@ -441,3 +441,82 @@ export async function nextAvailable(
 
   return found;
 }
+
+export type AvailabilityReason = 
+  | 'available' 
+  | 'invalid_slot'
+  | 'too_soon' 
+  | 'beyond_horizon' 
+  | 'outside_hours' 
+  | 'blocked' 
+  | 'slot_taken';
+
+export interface AvailabilityResult {
+  available: boolean;
+  reason: AvailabilityReason;
+}
+
+/**
+ * ADVISORY availability check for a specific interval and a specific staff member.
+ * 
+ * IMPORTANT: This function is ADVISORY, not authoritative! A concurrent request 
+ * can claim the exact same interval a millisecond after this function returns `available`.
+ * The absolute authority remains the unique compound index on the SlotOccupancy collection, 
+ * which guarantees no double bookings during the final transactional commit.
+ * 
+ * NOTE: ANY_STAFF resolution is strictly out of scope for this function. Callers are 
+ * responsible for iterating over candidates and evaluating them individually.
+ */
+export async function checkIntervalAvailability(
+  businessId: string,
+  staffId: string,
+  serviceId: string,
+  startsAt: Date,
+  now = new Date(),
+): Promise<AvailabilityResult> {
+  const ctx = await loadContext(businessId, serviceId);
+  if (!ctx) return { available: false, reason: 'invalid_slot' };
+
+  // 1. Grid alignment check
+  if (alignToGrid(startsAt, ctx.incrementMinutes).getTime() !== startsAt.getTime()) {
+    return { available: false, reason: 'invalid_slot' };
+  }
+
+  // 2. Horizon & Notice Period Check
+  const window = windowCheck(startsAt, ctx, now);
+  if (window !== 'ok') {
+    return { available: false, reason: window };
+  }
+
+  // 3. Staff & Working Hours Check
+  const member = await qualifiedStaff(businessId, staffId, serviceId);
+  if (!member) {
+    return { available: false, reason: 'outside_hours' };
+  }
+
+  const appointment = { start: startsAt, end: addMinutes(startsAt, ctx.durationMinutes) };
+  if (!withinRoster(member.workingHours, appointment, ctx)) {
+    return { available: false, reason: 'outside_hours' };
+  }
+
+  // 4. Blocked Time Check
+  if (await isBlocked(businessId, staffId, appointment)) {
+    return { available: false, reason: 'blocked' };
+  }
+
+  // 5. Occupancy Check
+  // Reuses the exact slotsFor grid-decomposition logic used by holdSlot/createBooking
+  // to ensure spanMinutes covers all required increments.
+  const slots = slotsFor(startsAt, ctx);
+  const taken = await SlotOccupancy.exists({
+    businessId,
+    staffId,
+    slotStart: { $in: slots },
+  });
+
+  if (taken) {
+    return { available: false, reason: 'slot_taken' };
+  }
+
+  return { available: true, reason: 'available' };
+}

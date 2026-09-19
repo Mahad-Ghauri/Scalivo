@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="750" viewBox="0 0 1000 750" role="img" aria-hidden="true"><defs><pattern id="t1553926021" width="200" height="173.2" patternUnits="userSpaceOnUse">
+      <path d="M50.23,29L0,58L-50.23,29L-50.23,-29L0,-58L50.23,-29ZM250.23,29L200,58L149.77,29L149.77,-29L200,-58L250.23,-29ZM50.23,202.2L0,231.2L-50.23,202.2L-50.23,144.2L0,115.2L50.23,144.2ZM250.23,202.2L200,231.2L149.77,202.2L149.77,144.2L200,115.2L250.23,144.2ZM150.23,115.6L100,144.6L49.77,115.6L49.77,57.6L100,28.6L150.23,57.6Z"
+            fill="none" stroke="#366296" stroke-width="6"/>
+      <path d="M122.6,99.65L100,112.7L77.4,99.65L77.4,73.55L100,60.5L122.6,73.55Z" fill="#25746e"/>
+      <path d="M0,-16L16,0L0,16L-16,0ZM200,-16L216,0L200,16L184,0ZM0,157.2L16,173.2L0,189.2L-16,173.2ZM200,157.2L216,173.2L200,189.2L184,173.2Z" fill="#366296" fill-opacity="0.7"/>
+    </pattern></defs><rect width="1000" height="750" fill="#EFE7D7"/><rect width="1000" height="750" fill="url(#t1553926021)" opacity="0.7"/><rect x="38" y="38" width="924" height="674" fill="none" stroke="#366296" stroke-opacity="0.65" stroke-width="4"/><rect x="50" y="50" width="900" height="650" fill="none" stroke="#366296" stroke-opacity="0.3" stroke-width="2"/><rect width="1000" height="9" fill="#25746e"/></svg>

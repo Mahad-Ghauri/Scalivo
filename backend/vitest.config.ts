@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // need a valid set. These are fakes — no test here touches a real datastore.
 export default defineConfig({
   test: {
+    fileParallelism: false,
     env: {
       MONGO_URI: 'mongodb://localhost:27017/scalivo-test?replicaSet=rs0',
       POSTGRES_URL: 'postgres://scalivo:scalivo@localhost:5432/scalivo',

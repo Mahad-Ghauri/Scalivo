@@ -48,7 +48,7 @@ export function assertTenantAccess(auth: AuthToken, businessId: string): void {
   if (!auth.businessIds.includes(businessId)) throw new TenantAccessError();
 }
 
-/** Route-level guard: 403s before the handler runs, so no query is ever issued. */
+/** Route-level guard: 404s before the handler runs, so no query is ever issued. */
 export function requireTenant(param = 'businessId') {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
@@ -56,7 +56,9 @@ export function requireTenant(param = 'businessId') {
       assertTenantAccess(getAuth(res), typeof value === 'string' ? value : '');
       next();
     } catch {
-      res.status(403).json({ error: 'forbidden' });
+      // Return 404 rather than 403 to prevent resource enumeration.
+      // (Previously returned 403, which the Next.js frontend masked as 404).
+      res.status(404).json({ error: 'not found' });
     }
   };
 }

@@ -22,5 +22,6 @@ allowBuilds:
   # all we use — and in that case it reaches out to firebase.googleapis.com
   # during install. We do not want a network call in the install path.
   '@firebase/util': false
+  unrs-resolver: set this to true or false
 
 # `app/` is Flutter — not an npm workspace. See docs/ for its toolchain.

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { BOOKING_STATUS, type BookingStatus } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
@@ -41,13 +42,24 @@ export async function setBookingOutcome(
   businessId: string,
   outcome: Outcome,
 ): Promise<OutcomeResult> {
-  // The filter carries the guard. A booking already in a terminal state does
-  // not match, so nothing is written and nothing is counted.
-  const booking = await Booking.findOneAndUpdate(
-    { _id: bookingId, businessId, status: { $nin: TERMINAL } },
-    { $set: { status: outcome } },
-    { new: true },
-  );
+  const session = await mongoose.startSession();
+  let booking;
+
+  try {
+    await session.withTransaction(async () => {
+      booking = await Booking.findOneAndUpdate(
+        { _id: bookingId, businessId, status: { $nin: TERMINAL } },
+        { $set: { status: outcome } },
+        { new: true, session },
+      );
+
+      if (booking && outcome === BOOKING_STATUS.CANCELLED) {
+        await SlotOccupancy.deleteMany({ bookingId, businessId }, { session });
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
 
   if (!booking) {
     // Either it does not exist, or someone got there first. Distinguishing the
@@ -55,13 +67,6 @@ export async function setBookingOutcome(
     // an error, "already marked" is just a stale screen.
     const exists = await Booking.exists({ _id: bookingId, businessId });
     return { ok: false, reason: exists ? 'already_terminal' : 'not_found' };
-  }
-
-  // A no-show keeps its slot: the time was consumed whether or not anyone
-  // turned up, and silently reopening it would let the grid sell an hour the
-  // staff member has already spent waiting. Only a cancellation frees time.
-  if (outcome === BOOKING_STATUS.CANCELLED) {
-    await SlotOccupancy.deleteMany({ bookingId, businessId });
   }
 
   // The profile is a CACHE of what this booking already records, so a failure
