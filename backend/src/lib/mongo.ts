@@ -12,9 +12,7 @@
  */
 export function isDuplicateKey(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
-  const e = err as { code?: number; writeErrors?: { code?: number }[]; message?: string };
+  const e = err as { code?: number; writeErrors?: { code?: number }[] };
   if (e.code === 11000) return true;
-  if (Array.isArray(e.writeErrors) && e.writeErrors.some((w) => w.code === 11000)) return true;
-  if (typeof e.message === 'string' && e.message.includes('11000')) return true;
-  return false;
+  return Array.isArray(e.writeErrors) && e.writeErrors.some((w) => w.code === 11000);
 }
