@@ -48,6 +48,7 @@ const serviceUpdate = serviceBody.partial().extend({ active: z.boolean().optiona
 
 const staffBody = z.object({
   name: z.string().trim().min(1).max(80),
+  role: z.string().trim().max(80).nullable().optional(),
   serviceIds: z.array(z.string().min(1)).default([]),
   workingHours: workingHoursSchema.default([]),
 });

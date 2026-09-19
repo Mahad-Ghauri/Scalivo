@@ -1,17 +1,27 @@
-export default function DashboardServicesPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-display font-semibold text-ink capitalize">services</h1>
-        <p className="mt-1 text-sm text-muted">Manage your services here.</p>
-      </div>
+import { fetchApi } from '@/lib/api-client';
+import type { Service } from '@scalivo/shared';
+import { ServiceManager } from '@/components/dashboard/ServiceManager';
 
-      <div className="rounded-lg border border-line bg-white p-12 text-center">
-        <h2 className="text-lg font-medium text-ink">Services coming soon</h2>
-        <p className="mt-2 text-sm text-muted">
-          This feature will be implemented in a future phase.
-        </p>
-      </div>
+export default async function DashboardServicesPage({
+  params,
+}: {
+  params: Promise<{ businessId: string }>;
+}) {
+  const { businessId } = await params;
+  
+  let services: Service[] = [];
+  try {
+    const res = await fetchApi<{ services: Service[] }>(
+      `/businesses/${businessId}/services?includeInactive=true`
+    );
+    services = res.services;
+  } catch (err) {
+    console.error('Failed to fetch services', err);
+  }
+
+  return (
+    <div className="p-8">
+      <ServiceManager businessId={businessId} services={services} />
     </div>
   );
 }

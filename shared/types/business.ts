@@ -77,6 +77,7 @@ export interface Staff {
   id: string;
   businessId: string;
   name: string;
+  role: string | null;
   serviceIds: string[];
   workingHours: WorkingHours[];
   active: boolean;
