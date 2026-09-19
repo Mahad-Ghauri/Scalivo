@@ -30,6 +30,17 @@ const schema = z.object({
 
   JWT_SECRET: z.string().min(32),
 
+  /**
+   * Comma-separated origins allowed to call /public from a browser — the
+   * marketplace site, e.g. `https://scalivo.app`. Only the booking steps need
+   * it: the site's pages read /public from its own server, where CORS does not
+   * apply. Loopback origins are already allowed in development.
+   */
+  WEB_ORIGINS: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean)),
+
   MESSAGING_PROVIDER: z.enum(['openwa', 'meta']).default('openwa'),
 
   /**

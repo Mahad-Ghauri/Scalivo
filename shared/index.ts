@@ -7,3 +7,4 @@ export * from './types/calendar.js';
 export * from './types/client.js';
 export * from './types/messaging.js';
 export * from './types/notifications.js';
+export * from './types/marketplace.js';

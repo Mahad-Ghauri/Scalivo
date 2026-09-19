@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 
+import { BookingFlow } from '@/components/BookingFlow';
 import { Carousel, Slide } from '@/components/Carousel';
 import { CheckIcon, ChatIcon, PinIcon, Star, Stars } from '@/components/Icons';
 import { LocalBusinessJsonLd } from '@/components/LocalBusinessJsonLd';
 import { ClockLine, OpeningHours, OpenStatus } from '@/components/OpeningHours';
+import { HideWhileBooking } from '@/components/HideWhileBooking';
 import { Initials } from '@/components/ReviewCard';
 import { SearchBar } from '@/components/SearchBar';
 import { SiteHeader } from '@/components/SiteHeader';
@@ -19,6 +21,7 @@ import {
   listBusinesses,
   listCategories,
   listCities,
+  LIVE_BOOKING,
 } from '@/lib/marketplace';
 
 type Params = Promise<{ business: string }>;
@@ -33,7 +36,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
   const place = [business.neighbourhood, business.city].filter(Boolean).join(', ');
   const title = `${business.name} — ${categoryLabel(business.category)}${place ? ` in ${place}` : ''}`;
-  const description = `${business.tagline} Prices, hours and staff for ${business.name}. Book over WhatsApp.`;
+  const description = `${business.tagline} Prices, hours and staff for ${business.name}. ${LIVE_BOOKING ? 'Book online or' : 'Book'} over WhatsApp.`;
   const url = `/${business.slug}`;
 
   return {
@@ -171,7 +174,7 @@ export default async function BusinessPage({ params }: { params: Params }) {
                       </p>
                     </div>
                     <a
-                      href="#book"
+                      href={LIVE_BOOKING ? `#book=${service.id}` : '#book'}
                       className="shrink-0 rounded-full border border-line px-4 py-1.5 text-[14px] font-semibold hover:bg-surface"
                     >
                       Book<span className="sr-only"> {service.name}</span>
@@ -297,21 +300,31 @@ export default async function BusinessPage({ params }: { params: Params }) {
               </div>
             </div>
 
-            {/* The Book Now target. Web booking is a later phase. */}
+            {/* The Book Now target. */}
             <section id="book" aria-labelledby="book-heading" className="scroll-mt-6 border-t border-line py-10">
-              <div className="rounded-2xl bg-surface p-6 md:p-8">
-                <h2 id="book-heading" className="text-[24px] font-bold tracking-[-0.02em]">
-                  Book with {business.name}
-                </h2>
-                <p className="mt-2 max-w-[60ch] text-[15px] text-muted">
-                  Online booking is coming soon. It will show the same live times {business.name} offers on
-                  WhatsApp and land on the same calendar, so a slot can never be booked twice. For now, send them a
-                  message to book.
-                </p>
-                <p className="mt-4 inline-flex items-center gap-2 text-[15px] font-semibold">
-                  <ChatIcon /> Booked and confirmed over WhatsApp
-                </p>
-              </div>
+              <h2 id="book-heading" className="mb-6 text-[24px] font-bold tracking-[-0.02em]">
+                Book with {business.name}
+              </h2>
+              {LIVE_BOOKING ? (
+                <BookingFlow
+                  slug={business.slug}
+                  businessName={business.name}
+                  timezone={business.timezone}
+                  bookingHorizonDays={business.bookingHorizonDays}
+                  services={services}
+                  staff={business.staff}
+                />
+              ) : (
+                <div className="rounded-2xl bg-surface p-6 md:p-8">
+                  <p className="max-w-[60ch] text-[15px] text-muted">
+                    Online booking needs the live Scalivo service, which this preview is not connected to. Send{' '}
+                    {business.name} a message to book.
+                  </p>
+                  <p className="mt-4 inline-flex items-center gap-2 text-[15px] font-semibold">
+                    <ChatIcon /> Booked and confirmed over WhatsApp
+                  </p>
+                </div>
+              )}
             </section>
           </div>
 
@@ -372,7 +385,7 @@ export default async function BusinessPage({ params }: { params: Params }) {
       </main>
 
       {/* Phone: price and Book now pinned to the bottom of the screen. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-line bg-white px-5 py-3 md:hidden">
+      <HideWhileBooking className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-line bg-white px-5 py-3 md:hidden">
         <p className="text-[14px]">
           {fromPriceMinor === null ? (
             <span className="text-muted">{services.length} services</span>
@@ -388,7 +401,7 @@ export default async function BusinessPage({ params }: { params: Params }) {
         <a href="#book" className={bookNow}>
           Book now
         </a>
-      </div>
+      </HideWhileBooking>
     </>
   );
 }

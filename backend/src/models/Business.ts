@@ -88,6 +88,26 @@ const businessSchema = new Schema(
 
     /** Hidden from the marketplace until the minimum profile fields are set. */
     published: { type: Boolean, default: false },
+
+    /**
+     * What the public profile page shows. Presentation only — nothing here is
+     * read by booking, availability or messaging, and all of it is optional so
+     * an unpublished business need not fill any of it in.
+     */
+    profile: {
+      tagline: { type: String, default: '' },
+      about: { type: String, default: '' },
+      neighbourhood: { type: String, default: null },
+      addressLine: { type: String, default: null },
+      logoUrl: { type: String, default: null },
+      coverUrl: { type: String, default: null },
+      /** 2.1's bounded customisation: one accent colour, as '#rrggbb'. */
+      themeColor: { type: String, default: null },
+      gallery: {
+        type: [{ url: { type: String, required: true }, alt: { type: String, required: true }, _id: false }],
+        default: [],
+      },
+    },
   },
   { timestamps: true },
 );

@@ -23,6 +23,11 @@ const staffSchema = new Schema(
   {
     businessId: { type: String, required: true, index: true },
     name: { type: String, required: true },
+
+    /** Public profile only: "Aesthetic physician", "Head coach". */
+    role: { type: String, default: null },
+    avatarUrl: { type: String, default: null },
+
     serviceIds: { type: [String], default: [] },
     workingHours: { type: [workingHoursSchema], default: [] },
 

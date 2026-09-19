@@ -11,6 +11,7 @@ import { ClientProfile } from '../models/ClientProfile.js';
 import { recomputeProfile } from '../crm/profile.js';
 import { BlockedTime } from '../models/BlockedTime.js';
 import { User } from '../models/User.js';
+import { Review } from '../models/Review.js';
 import { hashPassword } from '../auth/routes.js';
 import { occupiedSlots, toBusinessLocal, wallClockToUtc } from '../lib/time.js';
 
@@ -37,6 +38,10 @@ import { occupiedSlots, toBusinessLocal, wallClockToUtc } from '../lib/time.js';
  */
 
 const SLUG = 'skinare';
+
+/** Unsplash (free commercial licence), cropped at the CDN so phones never get a 5,000px original. */
+const photo = (id: string, size = 'w=900&h=700') =>
+  `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&q=70&${size}`;
 const OWNER_EMAIL = 'owner@skinare.pk';
 const OWNER_PASSWORD = 'skinare-dev-password';
 const TZ = 'Asia/Karachi';
@@ -101,7 +106,7 @@ async function seed() {
   // old definition in place. syncIndexes drops what no longer matches and
   // rebuilds it. Cheap here, and it keeps a dev DB honest about the schema.
   await Promise.all(
-    [Business, User, Service, Staff, Client, Booking, SlotOccupancy, BlockedTime, ClientProfile].map(
+    [Business, User, Service, Staff, Client, Booking, SlotOccupancy, BlockedTime, ClientProfile, Review].map(
       (m) => m.syncIndexes(),
     ),
   );
@@ -115,7 +120,24 @@ async function seed() {
       category: 'clinic',
       timezone: TZ,
       slotIncrementMinutes: 15,
+      city: 'Multan',
       published: true,
+      // What the marketplace profile shows. Mirrors web/lib/mock-businesses.ts,
+      // so the site looks the same whichever source it reads.
+      profile: {
+        tagline: 'Medical-grade skin, without the hard sell.',
+        about:
+          'A two-clinician aesthetic practice on Gulgasht Colony, running since 2019. Every appointment opens with a skin read and an honest answer about what will and will not work. Hydrafacials, laser and peels are performed by the physician who consulted you, never handed down.',
+        neighbourhood: 'Gulgasht Colony',
+        addressLine: '14-B Gulgasht Colony, Multan',
+        coverUrl: photo('1552693673-1bf958298935', 'w=1200&h=800'),
+        themeColor: '#0F766E',
+        gallery: [
+          { url: photo('1570172619644-dfd03ed5d881'), alt: 'A client lying back with a facial mask being applied' },
+          { url: photo('1616394584738-fc6e612e71b9'), alt: 'A client on a treatment bed with cream applied to her face' },
+          { url: photo('1633681926019-03bd9325ec20'), alt: 'A calm waiting area with a sofa and a vase of flowers' },
+        ],
+      },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
@@ -151,6 +173,7 @@ async function seed() {
     Staff.deleteMany({ businessId }),
     Client.deleteMany({ _id: { $in: seedOnly } }),
     ClientProfile.deleteMany({ businessId }),
+    Review.deleteMany({ businessId }),
   ]);
 
   await User.findOneAndUpdate(
@@ -166,12 +189,34 @@ async function seed() {
   );
 
   const services = await Service.insertMany([
-    { businessId, name: 'Consultation', durationMinutes: 30, priceMinor: 200_000, displayOrder: 1 },
-    { businessId, name: 'Hydrafacial', durationMinutes: 45, priceMinor: 800_000, displayOrder: 2 },
-    { businessId, name: 'Laser session', durationMinutes: 20, priceMinor: 500_000, displayOrder: 3 },
+    {
+      businessId,
+      name: 'Consultation',
+      description: 'A skin read, a plan, and a straight answer on what it will cost.',
+      durationMinutes: 30,
+      priceMinor: 200_000,
+      displayOrder: 1,
+    },
+    {
+      businessId,
+      name: 'Hydrafacial',
+      description: 'Cleanse, extract and hydrate in one pass. No downtime.',
+      durationMinutes: 45,
+      priceMinor: 800_000,
+      displayOrder: 2,
+    },
+    {
+      businessId,
+      name: 'Laser session',
+      description: 'Single-area diode session. Course of six recommended.',
+      durationMinutes: 20,
+      priceMinor: 500_000,
+      displayOrder: 3,
+    },
     {
       businessId,
       name: 'Chemical peel',
+      description: 'Medium-depth peel with a patch test the week before.',
       durationMinutes: 40,
       priceMinor: 650_000,
       // Exercises the deposit path in Phase 2 without needing a config change.
@@ -192,8 +237,24 @@ async function seed() {
   }));
 
   const staff = await Staff.insertMany([
-    { businessId, name: 'Dr. Ayesha', serviceIds, workingHours: hours, active: true },
-    { businessId, name: 'Dr. Sana', serviceIds, workingHours: hours, active: true },
+    {
+      businessId,
+      name: 'Dr. Ayesha',
+      role: 'Aesthetic physician',
+      avatarUrl: photo('1630939687530-241d630735df', 'w=240&h=240'),
+      serviceIds,
+      workingHours: hours,
+      active: true,
+    },
+    {
+      businessId,
+      name: 'Dr. Sana',
+      role: 'Aesthetic physician',
+      avatarUrl: photo('1595085610896-fb31cfd5d4b7', 'w=240&h=240'),
+      serviceIds,
+      workingHours: hours,
+      active: true,
+    },
   ]);
 
   let phoneCounter = 3001234000;
@@ -289,6 +350,36 @@ async function seed() {
       }
     }
   }
+
+  // Published reviews for the marketplace profile. Fixtures, like everything
+  // here — 2.2 is what writes real ones, from a rating request after a visit.
+  await Review.insertMany([
+    {
+      businessId,
+      authorName: 'Hira A.',
+      rating: 5,
+      comment:
+        'Booked on WhatsApp at eleven at night and had a slot confirmed before I put the phone down. Dr. Ayesha talked me out of the package I came in asking for. Skin is better and I spent less.',
+      serviceName: 'Hydrafacial',
+      published: true,
+    },
+    {
+      businessId,
+      authorName: 'Mahnoor S.',
+      rating: 5,
+      comment: 'Six laser sessions, every one of them started within five minutes of the time on the message.',
+      serviceName: 'Laser session',
+      published: true,
+    },
+    {
+      businessId,
+      authorName: 'Rabia K.',
+      rating: 4,
+      comment: 'The peel needed a patch test first, which meant two visits instead of one. Annoying, but they were right to insist.',
+      serviceName: 'Chemical peel',
+      published: true,
+    },
+  ]);
 
   // Future bookings need occupancy rows or availability will cheerfully offer
   // times that are already taken — the seeded calendar and the seeded grid have

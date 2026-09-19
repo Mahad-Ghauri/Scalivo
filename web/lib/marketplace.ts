@@ -9,191 +9,48 @@
  * components, which in turn means data arrives here, on the server, at render
  * time. The pages must not care whether it came from a fixture or from Express.
  *
- * Right now it comes from a fixture. The backend exists but **has no public
- * read surface**: every route under `backend/src/` is mounted behind
- * `requireAuth, requireTenant()`, and a stranger opening `scalivo.app/skinare`
- * carries no JWT and belongs to no business. Building that public namespace is
- * backend work (see SWAP POINT below) and is tracked as the other half of 2.1.
- *
- * So: two sources implementing one interface, chosen by one constant. When the
- * public routes land, flip `SOURCE` to 'http'. No page changes.
+ * Two sources implement one interface: the backend's anonymous `/public`
+ * namespace, and a fixture for working on the site with no backend running.
+ * `MARKETPLACE_SOURCE=http` picks the real one (see SWAP POINT below). No page
+ * changes either way.
  */
 
-import type { Business, Service, Staff, WorkingHours } from '@scalivo/shared';
+import type {
+  BusinessCard,
+  FacetOption,
+  FeaturedReview,
+  MarketplaceBusiness,
+} from '@scalivo/shared';
 import { MOCK_BUSINESSES } from './mock-businesses';
+import { API_BASE } from './site';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
 /*
- * Fields below that are NOT in @scalivo/shared are marked `[web-only]`. They are
- * defined here rather than added to shared/ deliberately — shared/ is the
- * backend↔web API contract and adding speculative presentation fields to it
- * would make the backend responsible for shipping them before it has a public
- * route to ship them on. When the public endpoints are built, the ones that
- * survive contact with the API move into shared/types/business.ts and these
- * local declarations are deleted.
+ * The public contract lives in @scalivo/shared (types/marketplace.ts) now that
+ * the backend serves it — one definition, so the API and the pages cannot
+ * drift. Re-exported here so pages keep importing from the data layer only.
  */
-
-/**
- * A photo on a business profile.
- *
- * [web-only] — no equivalent in shared/. Owner-uploaded media is 2.1's "bounded
- * owner customisation (logo, cover, theme colour, ordered services)".
- */
-export interface GalleryImage {
-  url: string;
-  /** Never optional. A profile gallery with empty alt text is unusable on a screen reader. */
-  alt: string;
-}
-
-/**
- * A published review.
- *
- * [web-only] — reviews are milestone 2.2, which has no types in shared/ yet.
- * Note the shape already encodes 2.2's rule: only 4–5 star ratings are
- * published, so anything this layer returns is a rating of 4 or 5. Ratings of
- * 3 and below are flagged privately to the owner and never reach this surface.
- */
-export interface Review {
-  id: string;
-  authorName: string;
-  /** 4 or 5. See above — lower ratings are not published. */
-  rating: number;
-  comment: string;
-  /** ISO 8601. A string, not a Date: this crosses the server→client boundary. */
-  createdAt: string;
-  /** Which service was reviewed, when the rating request named one. */
-  serviceName: string | null;
-}
-
-/**
- * A service as a customer sees it.
- *
- * Derived from shared's `Service` so the price and duration semantics cannot
- * drift: `priceMinor` is paisa (800_000 = PKR 8,000), matching the seed at
- * backend/src/scripts/seed.ts. `businessId`, `bufferMinutes` and `active` are
- * dropped — turnaround time and retirement state are the owner's business, not
- * the customer's.
- */
-export type PublicService = Pick<
-  Service,
-  'id' | 'name' | 'durationMinutes' | 'priceMinor' | 'depositRequired' | 'depositAmountMinor' | 'displayOrder'
-> & {
-  /** [web-only] One line of plain-language description. */
-  description: string | null;
-};
-
-/**
- * A staff member as a customer sees it.
- *
- * `workingHours` is deliberately NOT here. Per-person schedules are exactly the
- * thing a public page must not publish — it would broadcast when each named
- * individual is alone in the building. Availability is answered by asking for
- * slots, never by exposing the pattern behind them.
- */
-export type PublicStaff = Pick<Staff, 'id' | 'name' | 'serviceIds'> & {
-  /** [web-only] "Aesthetic physician", "Head coach". */
-  role: string | null;
-  /** [web-only] */
-  avatarUrl: string | null;
-};
-
-/**
- * A business on the directory grid.
- *
- * Deliberately smaller than the full profile: the directory renders up to a few
- * dozen of these on a phone, and shipping every service, staff member and review
- * for each one is how a directory stops loading fast on mobile data.
- */
-export interface BusinessCard {
-  id: string;
-  slug: string;
-  name: string;
-  category: string;
-  city: string | null;
-  /** [web-only] */
-  neighbourhood: string | null;
-  /** [web-only] The one-line hook shown under the name. */
-  tagline: string;
-  /** [web-only] */
-  coverUrl: string | null;
-  /** [web-only] */
-  logoUrl: string | null;
-  /** [web-only] Mean of published reviews; null until there are any. */
-  rating: number | null;
-  /** [web-only] */
-  reviewCount: number;
-  /** [web-only] Cheapest active service, in paisa. Drives the "from PKR x" line. */
-  fromPriceMinor: number | null;
-  /** [web-only] A few service names, for scanning. Not the full list. */
-  popularServices: string[];
-}
-
-/**
- * A full public business profile.
- *
- * `Omit<Business, 'whatsapp'>` is load-bearing, not tidiness. `Business.whatsapp`
- * carries `sessionId`, `apiKeyRef`, `status` and `reconnectAttempts` — a
- * credential reference and a live operational health signal. Structurally
- * removing it here means no public page can leak it even by accident, and it
- * means the future `GET /public/businesses/:slug` has a typed reason to project
- * those fields away.
- */
-export interface MarketplaceBusiness extends Omit<Business, 'whatsapp'> {
-  /** [web-only] */
-  tagline: string;
-  /** [web-only] Two or three sentences. Rendered as prose, not markdown. */
-  about: string;
-  /** [web-only] */
-  neighbourhood: string | null;
-  /** [web-only] Street address, shown but not linked to a map in this phase. */
-  addressLine: string | null;
-  /** [web-only] */
-  logoUrl: string | null;
-  /** [web-only] */
-  coverUrl: string | null;
-  /** [web-only] 2.1's bounded customisation: one hex accent the owner picks. */
-  themeColor: string | null;
-  /** [web-only] */
-  gallery: GalleryImage[];
-  /**
-   * [web-only] Opening hours for the BUSINESS.
-   *
-   * shared/ models `workingHours` per `Staff` only, because availability is
-   * computed per person. A customer reading a profile wants one answer to "are
-   * they open Sunday?", so the public surface publishes the business-level
-   * envelope instead. Reuses shared's `WorkingHours` shape — local wall-clock,
-   * interpreted in `timezone`, never a UTC instant.
-   */
-  hours: WorkingHours[];
-  /** [web-only] */
-  rating: number | null;
-  /** [web-only] */
-  reviewCount: number;
-  services: PublicService[];
-  staff: PublicStaff[];
-  reviews: Review[];
-}
-
-/** A review shown away from its business — the home page carousel. */
-export interface FeaturedReview extends Review {
-  businessName: string;
-  businessSlug: string;
-}
+export type {
+  BusinessCard,
+  FacetOption,
+  FeaturedReview,
+  GalleryImage,
+  MarketplaceBusiness,
+  PublicBookingReceipt,
+  PublicHold,
+  PublicReview as Review,
+  PublicService,
+  PublicSlot,
+  PublicStaff,
+} from '@scalivo/shared';
 
 /** Directory and search filters. Absent means "no constraint", never "none". */
 export interface MarketplaceFilters {
   category?: string;
   city?: string;
-}
-
-/** A filter option plus how many published businesses it would match. */
-export interface FacetOption {
-  value: string;
-  label: string;
-  count: number;
 }
 
 /** What the data layer can answer. Both sources below implement exactly this. */
@@ -213,11 +70,7 @@ interface MarketplaceSource {
 /*  SWAP POINT                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Where the real API will live. Public and unauthenticated by design — these
- * pages are rendered for people with no account.
- */
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000';
+export { API_BASE };
 
 /**
  * **This line is the whole migration.** Change the fallback to 'http' once the
@@ -231,8 +84,16 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:30
 const SOURCE = (process.env.MARKETPLACE_SOURCE ?? 'mock') as 'mock' | 'http';
 
 /**
- * The routes `httpSource` expects. None of them exist yet — this is the
- * contract the backend half of 2.1 has to satisfy:
+ * Whether the profile page offers real online booking.
+ *
+ * Only against the real API: the fixtures' service and staff ids exist nowhere
+ * a hold could be taken, so booking against them would fail at the first tap.
+ * With fixtures, the booking section says "book over WhatsApp" instead.
+ */
+export const LIVE_BOOKING = SOURCE === 'http';
+
+/**
+ * The routes `httpSource` reads, served by backend/src/public/routes.ts:
  *
  *   GET /public/businesses?category=&city=          → BusinessCard[]
  *   GET /public/businesses?q=&category=&city=       → BusinessCard[]
@@ -241,11 +102,10 @@ const SOURCE = (process.env.MARKETPLACE_SOURCE ?? 'mock') as 'mock' | 'http';
  *   GET /public/businesses/slugs                    → string[]
  *   GET /public/reviews?limit=                      → FeaturedReview[]
  *
- * They CANNOT be mounted under the existing `/businesses` routers. Every one of
- * those is `requireAuth, requireTenant()`, and tenancy is precisely the thing
- * that does not apply to an anonymous reader. A separate `/public` router with
- * its own tests — including one proving it never returns an unpublished business
- * and never returns a `whatsapp` field — is the safe shape.
+ * A separate `/public` router rather than the tenant-scoped `/businesses` ones,
+ * because tenancy is precisely the idea that cannot apply to an anonymous
+ * reader. backend/tests/public.test.ts proves it never returns an unpublished
+ * business and never returns a `whatsapp` field.
  */
 async function getJson<T>(path: string, params?: Record<string, string | undefined>): Promise<T> {
   const url = new URL(path, API_BASE);
@@ -433,25 +293,7 @@ export const listFeaturedReviews = (limit = 8) => source.listFeaturedReviews(lim
 /*  Formatting                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Paisa → "Rs 8,000" (en-PK's own currency symbol). Minor units all the way to the edge: a price is never a
- * float anywhere in this codebase, and this is the only place it becomes text.
- */
-export function formatPrice(priceMinor: number): string {
-  return new Intl.NumberFormat('en-PK', {
-    style: 'currency',
-    currency: 'PKR',
-    maximumFractionDigits: 0,
-  }).format(priceMinor / 100);
-}
-
-/** 45 → "45 min", 90 → "1 hr 30 min". */
-export function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
-}
+export { formatDuration, formatPrice } from './format';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 

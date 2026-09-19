@@ -3,7 +3,7 @@ import { Client } from '../models/Client.js';
 import { loadContext, slotsFor } from '../bookings/availability.js';
 import { createBooking } from '../bookings/create.js';
 import { acquireHold, releaseHold } from '../bookings/holds.js';
-import { normalisePhone } from '../lib/phone.js';
+import { findOrCreateClient } from '../crm/clients.js';
 import { logger } from '../lib/logger.js';
 import { confirmBooking } from '../notifications/confirm.js';
 import type { SendDeps } from '../notifications/send.js';
@@ -46,48 +46,13 @@ export type WalkInResult =
   | Extract<BookingResult, { ok: false }>
   | { ok: false; reason: 'no_client' };
 
-/**
- * Find the person, or make them.
- *
- * Matching on the phone is the whole point. A regular who has messaged on
- * WhatsApp already exists as a Client keyed on the number WhatsApp reported, and
- * creating a second row for them here would split their visit history in two
- * with nothing on screen to say so. normalisePhone is what makes the owner's
- * `0320…` and WhatsApp's `92320…` the same key.
- */
+/** An existing customer the owner picked, or find-or-create — see crm/clients.ts. */
 async function resolveClient(request: WalkInRequest): Promise<string | null> {
   if (request.clientId) {
     const existing = await Client.exists({ _id: request.clientId });
     return existing ? request.clientId : null;
   }
-
-  const phone = request.phone ? normalisePhone(request.phone) : null;
-  const name = request.name?.trim() || null;
-
-  // A nameless, numberless walk-in is not a customer, it is an empty row. The
-  // owner has to give us something to call them.
-  if (!phone && !name) return null;
-
-  if (phone) {
-    const matched = await Client.findOne({ phone });
-    if (matched) {
-      // Backfill a name we did not have. Never overwrite one we did — WhatsApp's
-      // display name is the customer's own, and the owner's shorthand is not an
-      // improvement on it.
-      if (name && !matched.displayName) {
-        matched.displayName = name;
-        await matched.save();
-      }
-      return String(matched._id);
-    }
-  }
-
-  // No phone means the partial unique index lets this coexist with every other
-  // phone-less client — which is exactly why that index is partial and not
-  // sparse. See the note on the Client model.
-  const created = await Client.create({ phone, displayName: name });
-  logger.info({ clientId: String(created._id), hasPhone: Boolean(phone) }, 'walk-in client created');
-  return String(created._id);
+  return findOrCreateClient({ phone: request.phone, name: request.name, via: 'walk-in' });
 }
 
 export async function createWalkIn(

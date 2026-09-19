@@ -9,6 +9,7 @@ import { createCatalogRouter } from './catalog/routes.js';
 import { createCrmRouter } from './crm/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { createCalendarRouter } from './calendar/routes.js';
+import { createPublicRouter } from './public/routes.js';
 import { handleInboundMessage } from './whatsapp/router.js';
 import { handleSessionQr, handleSessionStatus } from './session-health/monitor.js';
 import { startReconcileJob } from './session-health/reconcile.js';
@@ -102,6 +103,10 @@ export function createApp(): Express {
   app.use('/businesses', createCrmRouter());
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
+
+  // Anonymous: the marketplace and web booking. Gated on `published`, not on a
+  // tenant — see public/routes.ts for why it can never live under /businesses.
+  app.use('/public', createPublicRouter(redis, provider));
 
   app.get('/health', async (_req, res) => {
     const report = await healthCheck();

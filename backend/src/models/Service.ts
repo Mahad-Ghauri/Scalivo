@@ -5,6 +5,9 @@ const serviceSchema = new Schema(
     businessId: { type: String, required: true, index: true },
     name: { type: String, required: true },
 
+    /** One plain-language line for the public profile. */
+    description: { type: String, default: null },
+
     /** Drives how many grid increments a booking spans. */
     durationMinutes: { type: Number, required: true },
 
