@@ -15,6 +15,11 @@ import { setBookingOutcome } from './outcome.js';
 import { confirmBooking } from '../notifications/confirm.js';
 import { fieldErrors, param } from '../http/params.js';
 import { Booking } from '../models/Booking.js';
+import { Business } from '../models/Business.js';
+import { Client } from '../models/Client.js';
+import { Service } from '../models/Service.js';
+import { Staff } from '../models/Staff.js';
+import { DateTime } from 'luxon';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
 const outcomeBody = z.object({
@@ -53,6 +58,18 @@ const bookingBody = z.object({
 });
 
 
+const listBookingsQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  skip: z.coerce.number().int().min(0).default(0),
+  status: z.string().optional(),
+  staffId: z.string().min(1).optional(),
+  serviceId: z.string().min(1).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').optional(),
+  q: z.string().trim().min(1).optional(),
+  sort: z.enum(['asc', 'desc']).default('desc'),
+});
+
 /**
  * How a refusal reaches the caller.
  *
@@ -83,6 +100,136 @@ const MESSAGE: Record<Exclude<BookingResult, { ok: true }>['reason'], string> = 
 export function createBookingRouter(redis: Redis, provider: MessagingProvider): Router {
   const router = express.Router();
   const json = express.json();
+
+  /**
+   * The appointments list.
+   * Paginated, filtered, and relationship-resolved.
+   */
+  router.get('/:businessId/bookings', requireAuth, requireTenant(), async (req, res) => {
+    const parsed = listBookingsQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid query', fields: fieldErrors(parsed.error) });
+      return;
+    }
+
+    const businessId = param(req, 'businessId');
+    const { limit, skip, status, staffId, serviceId, from, to, q, sort } = parsed.data;
+
+    let clientFilter: Record<string, unknown> | null = null;
+    if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matches = await Client.find({
+        $or: [{ displayName: new RegExp(escaped, 'i') }, { phone: new RegExp(escaped) }],
+      }).select('_id').limit(500);
+
+      if (matches.length === 0) {
+        res.json({ bookings: [], total: 0, limit, skip });
+        return;
+      }
+      clientFilter = { clientId: { $in: matches.map(c => String(c._id)) } };
+    }
+
+    const filter: Record<string, any> = {
+      businessId,
+      ...(clientFilter ?? {}),
+    };
+
+    if (status) filter.status = status;
+    if (staffId) filter.staffId = staffId;
+    if (serviceId) filter.serviceId = serviceId;
+
+    if (from || to) {
+      const business = await Business.findById(businessId).select('timezone');
+      const tz = business?.timezone || 'UTC';
+      
+      filter.startsAt = {};
+      if (from) {
+        // Inclusive business-local midnight
+        filter.startsAt.$gte = DateTime.fromISO(from, { zone: tz }).startOf('day').toJSDate();
+      }
+      if (to) {
+        // Exclusive next business-local midnight
+        filter.startsAt.$lt = DateTime.fromISO(to, { zone: tz }).plus({ days: 1 }).startOf('day').toJSDate();
+      }
+    }
+
+    const sortDir = sort === 'asc' ? 1 : -1;
+
+    const [bookings, total] = await Promise.all([
+      Booking.find(filter)
+        .sort({ startsAt: sortDir, _id: sortDir })
+        .skip(skip)
+        .limit(limit),
+      Booking.countDocuments(filter)
+    ]);
+
+    if (bookings.length === 0) {
+      res.json({ bookings: [], total, limit, skip });
+      return;
+    }
+
+    const [clients, services, staffs] = await Promise.all([
+      Client.find({ _id: { $in: [...new Set(bookings.map(b => b.clientId))] } }),
+      Service.find({ businessId, _id: { $in: [...new Set(bookings.map(b => b.serviceId))] } }),
+      Staff.find({ businessId, _id: { $in: [...new Set(bookings.map(b => b.staffId))] } }),
+    ]);
+
+    const clientMap = new Map(clients.map(c => [String(c._id), c]));
+    const serviceMap = new Map(services.map(s => [String(s._id), s]));
+    const staffMap = new Map(staffs.map(s => [String(s._id), s]));
+
+    const dtos = bookings.map(b => {
+      const c = clientMap.get(b.clientId);
+      const s = serviceMap.get(b.serviceId);
+      const st = staffMap.get(b.staffId);
+
+      return {
+        id: String(b._id),
+        startsAt: b.startsAt,
+        durationMinutes: b.durationMinutes,
+        status: b.status,
+        priceMinor: b.priceMinor,
+        source: b.source,
+        client: c ? { id: String(c._id), name: c.displayName, phone: c.phone } : null,
+        service: s ? { id: String(s._id), name: s.name } : null,
+        staff: st ? { id: String(st._id), name: st.name } : null,
+      };
+    });
+
+    res.json({ bookings: dtos, total, limit, skip });
+  });
+
+  /**
+   * Single appointment detail.
+   */
+  router.get('/:businessId/bookings/:bookingId', requireAuth, requireTenant(), async (req, res) => {
+    const businessId = param(req, 'businessId');
+    const bookingId = param(req, 'bookingId');
+
+    const booking = await Booking.findOne({ _id: bookingId, businessId });
+    if (!booking) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    const [client, service, staff] = await Promise.all([
+      Client.findById(booking.clientId),
+      Service.findOne({ _id: booking.serviceId, businessId }),
+      Staff.findOne({ _id: booking.staffId, businessId }),
+    ]);
+
+    res.json({
+      id: String(booking._id),
+      startsAt: booking.startsAt,
+      durationMinutes: booking.durationMinutes,
+      status: booking.status,
+      priceMinor: booking.priceMinor,
+      source: booking.source,
+      client: client ? { id: String(client._id), name: client.displayName, phone: client.phone } : null,
+      service: service ? { id: String(service._id), name: service.name } : null,
+      staff: staff ? { id: String(staff._id), name: staff.name } : null,
+    });
+  });
 
   /**
    * Held and booked slots are absent from this list, never marked unavailable

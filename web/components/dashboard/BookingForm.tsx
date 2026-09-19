@@ -164,9 +164,11 @@ export function BookingForm({ businessId, services, staff, clients, onSuccess }:
           aria-describedby={validationErrors.staffId ? errId('staffId') : undefined}
         >
           <option value="any">Any Available Staff</option>
-          {staff.map(s => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
+          {staff
+            .filter(s => !serviceId || s.serviceIds?.includes(serviceId))
+            .map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
         </select>
         {validationErrors.staffId && (
           <span id={errId('staffId')} className="text-xs text-red-600">

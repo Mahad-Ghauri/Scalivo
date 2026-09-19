@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { formatPrice } from '@/lib/marketplace';
 import type { ClientTag } from '@scalivo/shared';
 
@@ -18,6 +19,7 @@ interface CrmClient {
 interface Props {
   clients: CrmClient[];
   businessId: string;
+  timezone: string;
 }
 
 function TagBadge({ tag }: { tag: ClientTag }) {
@@ -50,8 +52,9 @@ function TagBadge({ tag }: { tag: ClientTag }) {
   );
 }
 
-export function CustomerList({ clients }: Props) {
+export function CustomerList({ clients, businessId, timezone }: Props) {
   const dateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
     month: 'short',
     day: 'numeric',
     year: 'numeric'
@@ -76,14 +79,16 @@ export function CustomerList({ clients }: Props) {
             return (
               <tr key={client.id} className="hover:bg-surface/50 transition-colors">
                 <td className="px-6 py-4">
-                  <div className="font-semibold text-ink">
-                    {client.displayName ?? 'Unknown Name'}
-                  </div>
-                  {client.phone && (
-                    <div className="text-[13px] text-muted mt-0.5 font-medium">
-                      {client.phone}
+                  <Link href={`/dashboard/${businessId}/customers/${client.clientId}`} className="block group">
+                    <div className="font-semibold text-ink group-hover:text-brand transition-colors">
+                      {client.displayName ?? 'Unknown Name'}
                     </div>
-                  )}
+                    {client.phone && (
+                      <div className="text-[13px] text-muted mt-0.5 font-medium group-hover:text-brand/80 transition-colors">
+                        {client.phone}
+                      </div>
+                    )}
+                  </Link>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-1.5">

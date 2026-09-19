@@ -1,17 +1,31 @@
-export default function DashboardStaffPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-display font-semibold text-ink capitalize">staff</h1>
-        <p className="mt-1 text-sm text-muted">Manage your staff here.</p>
-      </div>
+import { fetchApi } from '@/lib/api-client';
+import type { Staff, Service } from '@scalivo/shared';
+import { StaffManager } from '@/components/dashboard/StaffManager';
 
-      <div className="rounded-lg border border-line bg-white p-12 text-center">
-        <h2 className="text-lg font-medium text-ink">Staff coming soon</h2>
-        <p className="mt-2 text-sm text-muted">
-          This feature will be implemented in a future phase.
-        </p>
-      </div>
+export default async function DashboardStaffPage({
+  params,
+}: {
+  params: Promise<{ businessId: string }>;
+}) {
+  const { businessId } = await params;
+  
+  let staff: Staff[] = [];
+  let services: Service[] = [];
+  
+  try {
+    const [staffRes, servicesRes] = await Promise.all([
+      fetchApi<{ staff: Staff[] }>(`/businesses/${businessId}/staff?includeInactive=true`),
+      fetchApi<{ services: Service[] }>(`/businesses/${businessId}/services?includeInactive=true`)
+    ]);
+    staff = staffRes.staff;
+    services = servicesRes.services;
+  } catch (err) {
+    console.error('Failed to fetch staff/services', err);
+  }
+
+  return (
+    <div className="p-8">
+      <StaffManager businessId={businessId} staff={staff} services={services} />
     </div>
   );
 }
