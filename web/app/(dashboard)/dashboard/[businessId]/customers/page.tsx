@@ -24,6 +24,10 @@ interface CrmResponse {
   filteredWithinPage?: boolean;
 }
 
+interface BusinessResponse {
+  timezone: string;
+}
+
 export default async function DashboardCustomersPage({
   params,
   searchParams,
@@ -41,16 +45,22 @@ export default async function DashboardCustomersPage({
   const skip = (validPage - 1) * pageSize;
 
   let response: CrmResponse = { clients: [], total: 0 };
+  let business: BusinessResponse | null = null;
   let error = false;
 
   try {
-    response = await fetchApi<CrmResponse>(`/businesses/${businessId}/clients`, {
-      params: {
-        limit: pageSize.toString(),
-        skip: skip.toString(),
-        ...(searchQuery ? { q: searchQuery } : {}),
-      },
-    });
+    const [clientsRes, businessRes] = await Promise.all([
+      fetchApi<CrmResponse>(`/businesses/${businessId}/clients`, {
+        params: {
+          limit: pageSize.toString(),
+          skip: skip.toString(),
+          ...(searchQuery ? { q: searchQuery } : {}),
+        },
+      }),
+      fetchApi<BusinessResponse>(`/businesses/${businessId}`)
+    ]);
+    response = clientsRes;
+    business = businessRes;
   } catch (e) {
     error = true;
   }
@@ -58,6 +68,7 @@ export default async function DashboardCustomersPage({
   const { clients, total } = response;
   const isEmpty = total === 0 && !searchQuery;
   const isNoResults = total === 0 && searchQuery;
+  const timezone = business?.timezone ?? 'UTC';
 
   return (
     <div className="flex h-full flex-col">
@@ -117,7 +128,7 @@ export default async function DashboardCustomersPage({
           </div>
         ) : (
           <div className="space-y-4">
-            <CustomerList clients={clients} businessId={businessId} />
+            <CustomerList clients={clients} businessId={businessId} timezone={timezone} />
             <Pagination total={total} pageSize={pageSize} currentPage={validPage} />
           </div>
         )}
