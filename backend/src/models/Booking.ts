@@ -30,6 +30,16 @@ const bookingSchema = new Schema(
 
     /** Which surface created it — WhatsApp vs web is an evaluation metric. */
     source: { type: String, enum: ['whatsapp', 'web', 'owner'], required: true },
+
+    /**
+     * When the owner marked this done. Null until they do, and never unset.
+     *
+     * Its own field rather than `updatedAt`, because the review request is sent
+     * a fixed delay after this moment and `updatedAt` moves on every later
+     * write — editing a note on last week's appointment would make it newly due
+     * for a rating request, days after the visit.
+     */
+    completedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -37,5 +47,7 @@ const bookingSchema = new Schema(
 // Calendar reads (a business's day/week) and CRM reads (one client's history).
 bookingSchema.index({ businessId: 1, startsAt: 1 });
 bookingSchema.index({ businessId: 1, clientId: 1, startsAt: -1 });
+/** The review pass: one business's recently completed appointments. */
+bookingSchema.index({ businessId: 1, completedAt: 1 }, { sparse: true });
 
 export const Booking = model('Booking', bookingSchema);

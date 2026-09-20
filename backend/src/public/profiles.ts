@@ -1,12 +1,13 @@
-import type {
-  BusinessCard,
-  FacetOption,
-  FeaturedReview,
-  MarketplaceBusiness,
-  PublicReview,
-  PublicService,
-  PublicStaff,
-  WorkingHours,
+import {
+  REVIEW_PUBLISH_MIN_RATING,
+  type BusinessCard,
+  type FacetOption,
+  type FeaturedReview,
+  type MarketplaceBusiness,
+  type PublicReview,
+  type PublicService,
+  type PublicStaff,
+  type WorkingHours,
 } from '@scalivo/shared';
 import { Business } from '../models/Business.js';
 import { Review } from '../models/Review.js';
@@ -31,7 +32,7 @@ const BUSINESS_FIELDS =
 const PUBLISHED = { published: true } as const;
 
 /** 2.2's rule, enforced at the read as well as the write: 4–5 stars and flagged public. */
-const PUBLIC_REVIEW = { published: true, rating: { $gte: 4 } } as const;
+const PUBLIC_REVIEW = { published: true, rating: { $gte: REVIEW_PUBLISH_MIN_RATING } } as const;
 
 type BusinessDoc = Awaited<ReturnType<typeof loadBusinesses>>[number];
 type ServiceDoc = InstanceType<typeof Service>;

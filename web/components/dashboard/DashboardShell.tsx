@@ -19,6 +19,7 @@ const ROUTES = [
   { name: 'Calendar', href: '/calendar' },
   { name: 'Appointments', href: '/appointments' },
   { name: 'Customers', href: '/customers' },
+  { name: 'Reviews', href: '/reviews' },
   { name: 'Services', href: '/services' },
   { name: 'Staff', href: '/staff' },
   { name: 'Marketing', href: '/marketing' },
@@ -34,7 +35,8 @@ export function DashboardShell({ user, businesses, currentBusinessId, children }
   return (
     <div className="flex h-screen flex-col bg-white overflow-hidden">
       <header className="shrink-0 border-b border-line bg-white z-40">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3 md:px-8 md:py-3">
+        <div className="mx-auto flex 
+         flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3 md:px-8 md:py-3">
           <Link href="/" className="text-[26px] font-bold leading-none tracking-[-0.04em] text-ink shrink-0 mr-4">
             scalivo
           </Link>

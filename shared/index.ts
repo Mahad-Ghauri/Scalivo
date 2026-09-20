@@ -8,3 +8,5 @@ export * from './types/client.js';
 export * from './types/messaging.js';
 export * from './types/notifications.js';
 export * from './types/marketplace.js';
+export * from './types/review.js';
+export * from './types/analytics.js';

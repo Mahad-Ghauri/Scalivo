@@ -52,7 +52,16 @@ export async function setBookingOutcome(
     await session.withTransaction(async () => {
       written.booking = await Booking.findOneAndUpdate(
         { _id: bookingId, businessId, status: { $nin: TERMINAL } },
-        { $set: { status: outcome } },
+        {
+          $set: {
+            status: outcome,
+            // Stamped in the same write as the status, by the same guarded
+            // filter — so the review request that keys on it inherits the
+            // exactly-once property for free. Set here rather than in the
+            // review pass because this is the only moment we know it happened.
+            ...(outcome === BOOKING_STATUS.COMPLETED ? { completedAt: new Date() } : {}),
+          },
+        },
         { new: true, session },
       );
 

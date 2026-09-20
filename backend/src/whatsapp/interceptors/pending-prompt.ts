@@ -27,8 +27,20 @@ export async function applyPendingPrompt(
   const pending = await readPendingPrompt(redis, businessId, clientId);
   if (!pending) return conversation;
 
-  // Already answering it — leave the conversation alone.
-  if (conversation?.state === CONVERSATION_STATE.AWAITING_RATING) return conversation;
+  /**
+   * Already in the middle of answering one — leave the conversation alone.
+   *
+   * AWAITING_REVIEW_COMMENT is here for a case that really happens: two
+   * appointments completed the same afternoon, so a second rating request goes
+   * out while the customer is still typing the comment for the first. Without
+   * this, their sentence would be read as a rating for the other booking.
+   */
+  if (
+    conversation?.state === CONVERSATION_STATE.AWAITING_RATING ||
+    conversation?.state === CONVERSATION_STATE.AWAITING_REVIEW_COMMENT
+  ) {
+    return conversation;
+  }
 
   return {
     ...(conversation ?? { invalidCount: 0 }),

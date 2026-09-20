@@ -22,6 +22,15 @@ export const CONVERSATION_STATE = {
   AWAITING_DEPOSIT: 'awaiting_deposit',
   AWAITING_RATING: 'awaiting_rating',
   /**
+   * Asked only after a 4 or 5, and only ever entered from AWAITING_RATING.
+   *
+   * It has to be its own state rather than a flag on the last one, because the
+   * reply is free text: anything the customer types here is the comment,
+   * including a bare number. Reading `5` as another rating would overwrite the
+   * review they just left with the same review.
+   */
+  AWAITING_REVIEW_COMMENT: 'awaiting_review_comment',
+  /**
    * Picking WHICH existing booking. Shared by cancel and reschedule because the
    * question is identical — `intent` carries which one asked, so a customer who
    * typed CANCEL is not silently walked into rescheduling.

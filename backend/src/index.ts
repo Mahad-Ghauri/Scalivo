@@ -7,6 +7,8 @@ import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createCatalogRouter } from './catalog/routes.js';
 import { createCrmRouter } from './crm/routes.js';
+import { createReviewRouter } from './reviews/routes.js';
+import { createAnalyticsRouter } from './analytics/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { createCalendarRouter } from './calendar/routes.js';
 import { createPublicRouter } from './public/routes.js';
@@ -15,6 +17,7 @@ import { handleSessionQr, handleSessionStatus } from './session-health/monitor.j
 import { startReconcileJob } from './session-health/reconcile.js';
 import { handleMessageAck } from './notifications/ack.js';
 import { startReminderJob } from './notifications/reminders.js';
+import { startReviewRequestJob } from './reviews/request.js';
 import { logger } from './lib/logger.js';
 
 export function createApp(): Express {
@@ -101,6 +104,8 @@ export function createApp(): Express {
   // guards the session routes.
   app.use('/businesses', createCatalogRouter());
   app.use('/businesses', createCrmRouter());
+  app.use('/businesses', createReviewRouter());
+  app.use('/businesses', createAnalyticsRouter());
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
 
@@ -134,6 +139,11 @@ async function main() {
   // what drains notifications owed from an outage whose recovery webhook never
   // arrived — SINGLE INSTANCE, like the reconcile job above.
   startReminderJob({ redis, provider: createMessagingProvider() });
+
+  // Every five minutes rather than every minute: a rating request is due a
+  // couple of hours after an appointment ends, and nobody can tell the
+  // difference. SINGLE INSTANCE, like the two above.
+  startReviewRequestJob({ redis, provider: createMessagingProvider() });
 
   app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'scalivo backend listening'));
 }

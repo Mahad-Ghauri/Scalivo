@@ -2,6 +2,7 @@ import type { Redis } from 'ioredis';
 import {
   BOOKING_STATUS,
   DELIVERY_STATUS,
+  NOTIFICATION_KIND,
   type DeliveryStatus,
   type MessagingProvider,
   type NotificationKind,
@@ -116,7 +117,7 @@ async function deliver(deps: SendDeps, notificationId: string): Promise<Delivery
    * retry, because the first attempt can also follow a claim by some seconds.
    */
   const booking = await Booking.findById(notification.bookingId).select('status');
-  if (!booking || isTerminal(booking.status)) {
+  if (!booking || !stillOwed(notification.kind, booking.status)) {
     await settle(notification._id, DELIVERY_STATUS.SKIPPED, {
       lastError: booking ? `booking is ${booking.status}` : 'booking no longer exists',
     });
@@ -238,10 +239,25 @@ async function bumpAttempt(id: unknown, lastError: string): Promise<void> {
   await Notification.updateOne({ _id: id }, { $set: { lastError }, $inc: { attempts: 1 } });
 }
 
-function isTerminal(status: string | undefined): boolean {
+/**
+ * Is this message still owed, given what became of the appointment?
+ *
+ * The question used to be simply "is the booking over?", and that was right
+ * while every tracked notification was something sent BEFORE the appointment.
+ * A review request is the first one sent after it, so for that kind a completed
+ * booking is the precondition rather than a reason to drop the message.
+ *
+ * Cancelled and no-show still are — there is nothing to rate — which is the
+ * case that matters: a customer who never turned up must not be asked how it
+ * went, and a request claimed before the owner marked them absent would
+ * otherwise drain into exactly that.
+ */
+function stillOwed(kind: string, status: string | undefined): boolean {
+  if (kind === NOTIFICATION_KIND.REVIEW_REQUEST) return status === BOOKING_STATUS.COMPLETED;
+
   return (
-    status === BOOKING_STATUS.CANCELLED ||
-    status === BOOKING_STATUS.COMPLETED ||
-    status === BOOKING_STATUS.NO_SHOW
+    status !== BOOKING_STATUS.CANCELLED &&
+    status !== BOOKING_STATUS.COMPLETED &&
+    status !== BOOKING_STATUS.NO_SHOW
   );
 }

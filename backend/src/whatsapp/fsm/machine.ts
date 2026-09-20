@@ -1,10 +1,11 @@
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, BOOKING_STATUS } from '@scalivo/shared';
+import { ANY_STAFF, BOOKING_STATUS, REVIEW_COMMENT_MIN_LENGTH } from '@scalivo/shared';
 import { Booking } from '../../models/Booking.js';
 import { Service } from '../../models/Service.js';
 import { Staff } from '../../models/Staff.js';
 import { daysWithAvailability, getAvailability } from '../../bookings/availability.js';
 import { cancelBooking, createBooking, holdSlot } from '../../bookings/create.js';
+import { attachComment, recordRating } from '../../reviews/record.js';
 import { logger } from '../../lib/logger.js';
 import * as copy from '../messages.js';
 import { CONVERSATION_STATE, type Conversation, MAX_INVALID_INPUT } from './states.js';
@@ -457,14 +458,69 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
         return invalid(ctx, conversation, 'Reply with a number from 1 to 5.');
       }
 
-      // Publishing and the ≤3 private flag are SPEC §9, built in Phase 2. The
-      // state and its interceptor exist now because the AMBIGUITY they resolve
-      // exists now — a bare "4" must not fall through to the booking menu.
-      logger.info(
-        { businessId: ctx.businessId, clientId: ctx.clientId, bookingId: conversation.bookingId, rating },
-        'rating received',
-      );
-      return { replies: [copy.ratingThanks], conversation: null };
+      const recorded = await recordRating({
+        businessId: ctx.businessId,
+        clientId: ctx.clientId,
+        bookingId: conversation.bookingId!,
+        rating,
+      });
+
+      /**
+       * No completed appointment behind the prompt.
+       *
+       * Reachable if the owner un-completes a booking, or deletes it, between
+       * the request going out and the reply arriving. The customer answered a
+       * question in good faith, so they get the thank-you either way — the only
+       * thing lost is a review that would have had nothing to attach to.
+       */
+      if (!recorded.ok) {
+        logger.warn(
+          { businessId: ctx.businessId, bookingId: conversation.bookingId, rating },
+          'rating for a booking that is no longer completed',
+        );
+        return { replies: [copy.ratingThanks], conversation: null };
+      }
+
+      /**
+       * Only the published half is asked for a comment, and only the first
+       * time. SPEC §9.1 attaches the written note to the public review; asking
+       * an unhappy customer to write one would be inviting the public complaint
+       * the private path exists to pre-empt.
+       */
+      if (recorded.published && !recorded.alreadyRated) {
+        return {
+          replies: [copy.reviewCommentPrompt],
+          conversation: {
+            ...conversation,
+            state: CONVERSATION_STATE.AWAITING_REVIEW_COMMENT,
+            invalidCount: 0,
+          },
+        };
+      }
+
+      return {
+        replies: [recorded.published ? copy.ratingThanks : copy.ratingNoted],
+        conversation: null,
+      };
+    }
+
+    case CONVERSATION_STATE.AWAITING_REVIEW_COMMENT: {
+      const comment = ctx.text.trim();
+
+      /**
+       * Two ways to say nothing, and neither is invalid input.
+       *
+       * SKIP is offered in the prompt, and the no-words are accepted because
+       * someone who means no types "no". The length rule catches the case that
+       * actually bites: a customer who replies `hi` here wants to book again,
+       * and taking them literally publishes "hi" on the business's profile.
+       */
+      if (comment.length < REVIEW_COMMENT_MIN_LENGTH || /^(skip|no|nope|nahi|-)$/i.test(comment)) {
+        return { replies: [copy.ratingThanks], conversation: null };
+      }
+
+      await attachComment(ctx.businessId, conversation.bookingId!, comment);
+      return { replies: [copy.reviewPublished], conversation: null };
     }
 
     // HELP is terminal — the owner has been notified, and answering further

@@ -138,4 +138,38 @@ export const upcomingMenu = (
     bookings.map((b) => `${b.serviceName} — ${formatLocal(b.startsAt, timezone)}`),
   )}\n\nReply with a number.`;
 
+/**
+ * The rating request. One message, one keystroke to answer.
+ *
+ * No link and no form on purpose — SPEC §9 exists because every other review
+ * mechanism asks the customer to leave WhatsApp, and almost nobody does. The
+ * cost of that convenience is the ambiguity of a bare `4`, which the
+ * pending-prompt interceptor pays for us.
+ */
+export const ratingRequest = (details: { businessName: string; serviceName: string }) =>
+  `Thanks for coming in to ${details.businessName}! How was your ${details.serviceName}?\n\n` +
+  `Reply with a number from 1 to 5 — 5 is excellent.`;
+
 export const ratingThanks = 'Thanks for the feedback!';
+
+/**
+ * Asked only of the customers whose rating will be published.
+ *
+ * The opt-out is spelled out because the alternative — silence — leaves someone
+ * who has nothing to add stuck at a question, and their next message would be
+ * read as the comment.
+ */
+export const reviewCommentPrompt =
+  'Glad to hear it! Would you like to add a few words for our profile?\n\n' +
+  'Reply with your comment, or SKIP.';
+
+export const reviewPublished = 'Thank you — your review is now on our profile.';
+
+/**
+ * What a 1–3 hears. Deliberately identical in warmth to the 4–5 path and
+ * deliberately silent about the owner alert: SPEC §9.1 says the flag is
+ * private, and telling the customer "we've reported this internally" invites
+ * the escalation the private path exists to avoid.
+ */
+export const ratingNoted =
+  "Thanks for telling us — sorry it wasn't better. We'll look into it.";

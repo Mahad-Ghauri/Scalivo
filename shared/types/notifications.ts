@@ -24,6 +24,16 @@ export const NOTIFICATION_KIND = {
   CONFIRMATION: 'confirmation',
   /** "You're in tomorrow at 4" — sent once per configured lead time. */
   REMINDER: 'reminder',
+  /**
+   * "How was it? Reply 1–5" — sent once, a couple of hours after an appointment
+   * is marked complete.
+   *
+   * Tracked like the other two rather than sent as a chat reply, for a reason
+   * beyond idempotency: the count of these is the denominator of the capture
+   * rate (SPEC §9, "done when"). A request nobody recorded is a review that
+   * looks like it was never asked for.
+   */
+  REVIEW_REQUEST: 'review_request',
 } as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KIND)[keyof typeof NOTIFICATION_KIND];
