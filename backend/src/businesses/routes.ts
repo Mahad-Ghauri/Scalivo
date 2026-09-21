@@ -26,6 +26,24 @@ const PROVISION_MESSAGE: Record<ProvisionFailure, string> = {
   webhook_rejected: 'the gateway would not accept our webhook address',
 };
 
+/** Blank means "none": an optional text field is either real text or null. */
+function optionalText(max: number) {
+  return z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .transform((value) => (value ? value : null));
+}
+
+const optionalImageUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .nullable()
+  .refine((value) => !value || /^https:\/\/[^\s]+$/i.test(value), 'must be an https:// link')
+  .transform((value) => (value ? value : null));
+
 /**
  * Settings an owner can change after signup. Deliberately narrow: `slug` is
  * absent because it is the marketplace URL, and `category` because it decides
@@ -60,8 +78,61 @@ const settingsBody = z
         .max(4)
         .transform((list) => [...new Set(list)].sort((a, b) => b - a)),
     }).partial(),
+
+    /**
+     * The public profile. Presentation only, so the rules are about what ends
+     * up on someone else's screen: images must be https (an http one is a
+     * mixed-content hole on the profile page, and anything else is not an
+     * image), and the accent colour is a strict hex because it is written into
+     * a style attribute.
+     *
+     * An empty string clears an optional field back to null rather than
+     * storing '' — the profile page tests for presence, and '' would render an
+     * empty address line.
+     */
+    profile: z.object({
+      tagline: z.string().trim().max(120),
+      about: z.string().trim().max(2000),
+      neighbourhood: optionalText(80),
+      addressLine: optionalText(200),
+      logoUrl: optionalImageUrl,
+      coverUrl: optionalImageUrl,
+      themeColor: z
+        .union([z.literal(''), z.string().regex(/^#[0-9a-f]{6}$/i, 'must be a colour like #1a2b3c')])
+        .nullable()
+        .transform((value) => (value ? value.toLowerCase() : null)),
+    }).partial(),
+
+    published: z.boolean(),
   })
   .partial();
+
+/**
+ * What a business must have before it appears on the marketplace.
+ *
+ * The setup steps are here for the same reason they exist at all: a published
+ * profile whose services nobody can perform takes the customer to a booking
+ * page that says "no times available" forever, and they conclude the business
+ * is full rather than misconfigured. WhatsApp is deliberately NOT required —
+ * a web booking works without it, and a new business should be able to go
+ * live on the marketplace while its number is still being warmed up.
+ */
+const PUBLISH_STEPS = new Set<string>(['services', 'staff', 'hours', 'coverage']);
+
+async function publishBlockers(
+  businessId: string,
+  profile: { city: string | null; tagline: string },
+): Promise<string[]> {
+  const blockers: string[] = [];
+  if (!profile.city) blockers.push('Add your city so customers can find you');
+  if (!profile.tagline) blockers.push('Add a tagline — it is the line under your name in search');
+
+  const checklist = await setupChecklist(businessId);
+  for (const step of checklist.steps) {
+    if (PUBLISH_STEPS.has(step.id) && !step.done && step.detail) blockers.push(step.detail);
+  }
+  return blockers;
+}
 
 export function createBusinessRouter(provider: MessagingProvider): Router {
   const router = express.Router();
@@ -146,10 +217,37 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
      * business that touched the switch would fall back to the schema default.
      * Dotted paths set one field and leave its siblings alone.
      */
-    const { reminders, ...flat } = parsed.data;
+    // Judged on the business as it WILL be, so an owner can fill in the tagline
+    // and flip the switch in one save. Unpublishing is never refused.
+    if (parsed.data.published === true) {
+      const current = await Business.findById(businessId).select('city profile.tagline');
+      if (!current) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const blockers = await publishBlockers(businessId, {
+        city: parsed.data.city ?? current.city ?? null,
+        tagline: parsed.data.profile?.tagline ?? current.profile?.tagline ?? '',
+      });
+      if (blockers.length > 0) {
+        res.status(409).json({
+          error: 'not ready to publish',
+          fields: { published: blockers.join('. ') },
+          blockers,
+        });
+        return;
+      }
+    }
+
+    const { reminders, profile, ...flat } = parsed.data;
     const update: Record<string, unknown> = { ...flat };
     for (const [key, value] of Object.entries(reminders ?? {})) {
       update[`reminders.${key}`] = value;
+    }
+    // Same dotted-path reason as reminders: a replaced subdocument would wipe
+    // the gallery and every field the form did not send.
+    for (const [key, value] of Object.entries(profile ?? {})) {
+      update[`profile.${key}`] = value;
     }
 
     const updated = await Business.findByIdAndUpdate(businessId, { $set: update }, { new: true });
