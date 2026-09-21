@@ -75,6 +75,8 @@ export interface BookingContext {
    * arrives with the booking is a price the customer can edit.
    */
   priceMinor: number;
+  /** Null when the service takes no deposit. Also priced from the record, never the request. */
+  depositMinor: number | null;
 }
 
 export async function loadContext(
@@ -105,6 +107,8 @@ export async function loadContext(
     bufferMinutes,
     spanMinutes: durationMinutes + bufferMinutes,
     priceMinor: service.priceMinor,
+    depositMinor:
+      service.depositRequired && service.depositAmountMinor ? service.depositAmountMinor : null,
   };
 }
 

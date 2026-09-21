@@ -34,6 +34,15 @@ export const NOTIFICATION_KIND = {
    * looks like it was never asked for.
    */
   REVIEW_REQUEST: 'review_request',
+  /**
+   * "Pay the deposit to secure your slot" — the link, sent instead of the
+   * confirmation when the service needs a deposit. Tracked because it is the
+   * only way a WhatsApp customer learns they owe anything; a dropped one is a
+   * booking that silently expires.
+   */
+  DEPOSIT_REQUEST: 'deposit_request',
+  /** "We didn't receive the deposit, so the slot was released." */
+  DEPOSIT_EXPIRED: 'deposit_expired',
 } as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KIND)[keyof typeof NOTIFICATION_KIND];

@@ -1,8 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import mongoose, { type HydratedDocument, type InferSchemaType } from 'mongoose';
 import type { Redis } from 'ioredis';
 import {
   ANY_STAFF,
   BOOKING_STATUS,
+  type BookingStatus,
+  DEPOSIT_PAYMENT_WINDOW_MINUTES,
+  DEPOSIT_STATUS,
   type Booking as BookingContract,
   type BookingRequest,
   type BookingResult,
@@ -76,6 +80,8 @@ export function toBooking(
     status: doc.status,
     priceMinor: doc.priceMinor,
     source: doc.source,
+    depositMinor: doc.depositMinor ?? null,
+    depositStatus: doc.depositStatus ?? null,
     createdAt: doc.createdAt,
   };
 }
@@ -223,6 +229,34 @@ async function allowedToWork(
   }));
 }
 
+/** What the deposit rules make of this booking, before it is written. */
+function deposition(
+  ctx: BookingContext,
+  request: { source: 'whatsapp' | 'web' | 'owner'; depositAlreadyPaid?: boolean },
+  now: Date,
+): { status: BookingStatus; fields: Record<string, unknown> } {
+  if (ctx.depositMinor === null || request.source === 'owner') {
+    return { status: BOOKING_STATUS.PENDING, fields: {} };
+  }
+
+  if (request.depositAlreadyPaid) {
+    return {
+      status: BOOKING_STATUS.PENDING,
+      fields: { depositMinor: ctx.depositMinor, depositStatus: DEPOSIT_STATUS.PAID, depositPaidAt: now },
+    };
+  }
+
+  return {
+    status: BOOKING_STATUS.AWAITING_DEPOSIT,
+    fields: {
+      depositMinor: ctx.depositMinor,
+      depositStatus: DEPOSIT_STATUS.AWAITING,
+      depositDueBy: addMinutes(now, DEPOSIT_PAYMENT_WINDOW_MINUTES),
+      depositToken: randomBytes(18).toString('base64url'),
+    },
+  };
+}
+
 /**
  * Write the booking, or lose the race cleanly.
  *
@@ -245,6 +279,12 @@ export async function createBooking(
      * flag here would make the notice period advisory.
      */
     override?: boolean;
+    /**
+     * A reschedule of a booking whose deposit is already paid. The money moves
+     * with the appointment: asking again would charge them twice for one visit.
+     * The caller marks the old booking TRANSFERRED before cancelling it.
+     */
+    depositAlreadyPaid?: boolean;
   },
 ): Promise<BookingResult> {
   const ctx = await loadContext(request.businessId, request.serviceId);
@@ -282,6 +322,20 @@ export async function createBooking(
   // they appear together or not at all.
   const bookingId = new mongoose.Types.ObjectId();
 
+  /**
+   * "No deposit, no booking" (SPEC §12.1) — but the slot is claimed NOW.
+   *
+   * The occupancy rows go in with the booking exactly as for any other, so the
+   * hour is safe while the customer pays; what changes is the status. An
+   * AWAITING_DEPOSIT booking is on the calendar and in the grid, but it is not
+   * confirmed, nobody is told "you're booked", and the expiry pass releases it
+   * if the money does not arrive.
+   *
+   * Owner-entered bookings are exempt. A walk-in at the desk pays the deposit,
+   * if at all, in cash to the person entering it.
+   */
+  const deposit = deposition(ctx, request, now);
+
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
@@ -305,9 +359,10 @@ export async function createBooking(
             serviceId: request.serviceId,
             startsAt,
             durationMinutes: ctx.durationMinutes,
-            status: BOOKING_STATUS.PENDING,
+            status: deposit.status,
             priceMinor: ctx.priceMinor,
             source: request.source,
+            ...deposit.fields,
           },
         ],
         { session },

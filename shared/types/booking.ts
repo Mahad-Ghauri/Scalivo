@@ -1,4 +1,5 @@
 import type { BookingStatus } from '../constants/booking-status.js';
+import type { DepositStatus } from './deposit.js';
 
 /**
  * A booking. `startsAt` is always UTC — conversion to business-local happens at
@@ -16,7 +17,9 @@ export interface Booking {
   priceMinor: number;
   /** Which surface created it — a headline evaluation metric (WhatsApp vs web). */
   source: 'whatsapp' | 'web' | 'owner';
-  depositId?: string;
+  /** The deposit this booking required, in paisa. Null when none was asked for. */
+  depositMinor: number | null;
+  depositStatus: DepositStatus | null;
   createdAt: Date;
 }
 

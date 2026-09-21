@@ -54,6 +54,44 @@ const schema = z.object({
    * instead of sending. A missing credential must not stop the server booting.
    */
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
+
+  /**
+   * Where the marketplace site lives. Payment links point here (/pay/:token),
+   * and the gateway sends the customer's browser back here after paying.
+   */
+  WEB_URL: z.string().url().default('http://localhost:3001'),
+
+  /**
+   * Deposits gateway (SPEC §12). `simulated` is a stand-in checkout page served
+   * by this backend, for development and tests; it is refused in production
+   * below, because a simulated gateway in production confirms bookings nobody
+   * paid for.
+   */
+  PAYMENT_PROVIDER: z.enum(['simulated', 'jazzcash']).default('simulated'),
+
+  /** JazzCash merchant portal → Integration. Sandbox values until a live account exists. */
+  JAZZCASH_MERCHANT_ID: z.string().optional(),
+  JAZZCASH_PASSWORD: z.string().optional(),
+  JAZZCASH_INTEGRITY_SALT: z.string().optional(),
+  JAZZCASH_BASE_URL: z.string().url().default('https://sandbox.jazzcash.com.pk'),
+}).superRefine((value, ctx) => {
+  if (value.NODE_ENV === 'production' && value.PAYMENT_PROVIDER === 'simulated') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PAYMENT_PROVIDER'],
+      message: 'the simulated gateway confirms unpaid bookings and cannot run in production',
+    });
+  }
+  if (
+    value.PAYMENT_PROVIDER === 'jazzcash' &&
+    !(value.JAZZCASH_MERCHANT_ID && value.JAZZCASH_PASSWORD && value.JAZZCASH_INTEGRITY_SALT)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PAYMENT_PROVIDER'],
+      message: 'jazzcash needs JAZZCASH_MERCHANT_ID, JAZZCASH_PASSWORD and JAZZCASH_INTEGRITY_SALT',
+    });
+  }
 });
 
 export type Env = z.infer<typeof schema>;

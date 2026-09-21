@@ -60,6 +60,28 @@ const clientProfileSchema = new Schema(
      */
     marketingOptOut: { type: Boolean, default: false },
     lastMarketingMessageAt: { type: Date, default: null },
+
+    /**
+     * History from before Scalivo, as the owner's CSV stated it (2.7).
+     *
+     * Kept apart from the counters because the counters are a cache of the
+     * Booking collection, and recompute() rebuilds them from bookings alone —
+     * folding the import straight into totalVisits would let the first
+     * recompute quietly erase a customer's twelve pre-Scalivo visits. Recompute
+     * adds this back on instead, so it survives and re-importing REPLACES it
+     * rather than doubling it.
+     */
+    imported: {
+      type: {
+        visits: { type: Number, default: 0 },
+        spendMinor: { type: Number, default: 0 },
+        firstVisitAt: { type: Date, default: null },
+        lastVisitAt: { type: Date, default: null },
+        importedAt: { type: Date, required: true },
+        _id: false,
+      },
+      default: null,
+    },
   },
   { timestamps: true },
 );

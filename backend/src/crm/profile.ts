@@ -106,7 +106,13 @@ export async function recordOutcome(
  * exist nowhere else.
  */
 export async function recomputeProfile(businessId: string, clientId: string): Promise<void> {
-  const bookings = await Booking.find({ businessId, clientId }).sort({ startsAt: 1 });
+  const [bookings, existing] = await Promise.all([
+    Booking.find({ businessId, clientId }).sort({ startsAt: 1 }),
+    ClientProfile.findOne({ businessId, clientId }).select('imported'),
+  ]);
+  // Pre-Scalivo history from a CSV import. An input like notes, not a
+  // derivation — it exists nowhere else, so it is added back, never dropped.
+  const imported = existing?.imported ?? null;
 
   const completed = bookings.filter((b) => b.status === BOOKING_STATUS.COMPLETED);
   const serviceCounts = new Map<string, number>();
@@ -124,12 +130,16 @@ export async function recomputeProfile(businessId: string, clientId: string): Pr
     {
       $setOnInsert: { businessId, clientId },
       $set: {
-        totalVisits: completed.length,
+        totalVisits: completed.length + (imported?.visits ?? 0),
         noShows: bookings.filter((b) => b.status === BOOKING_STATUS.NO_SHOW).length,
         cancellations: bookings.filter((b) => b.status === BOOKING_STATUS.CANCELLED).length,
-        lifetimeSpendMinor: completed.reduce((sum, b) => sum + b.priceMinor, 0),
-        firstVisitAt: completed[0]?.startsAt ?? null,
-        lastVisitAt: completed[completed.length - 1]?.startsAt ?? null,
+        lifetimeSpendMinor:
+          completed.reduce((sum, b) => sum + b.priceMinor, 0) + (imported?.spendMinor ?? 0),
+        firstVisitAt: earliest(imported?.firstVisitAt ?? null, completed[0]?.startsAt ?? null),
+        lastVisitAt: latest(
+          imported?.lastVisitAt ?? null,
+          completed[completed.length - 1]?.startsAt ?? null,
+        ),
         lastBookingAt:
           createdAts.length > 0
             ? new Date(Math.max(...createdAts.map((d) => d.getTime())))
@@ -142,6 +152,16 @@ export async function recomputeProfile(businessId: string, clientId: string): Pr
   );
 
   logger.info({ businessId, clientId, visits: completed.length }, 'profile recomputed');
+}
+
+function earliest(a: Date | null, b: Date | null): Date | null {
+  if (!a || !b) return a ?? b;
+  return a < b ? a : b;
+}
+
+function latest(a: Date | null, b: Date | null): Date | null {
+  if (!a || !b) return a ?? b;
+  return a > b ? a : b;
 }
 
 /**

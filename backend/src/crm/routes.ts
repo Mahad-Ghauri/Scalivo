@@ -1,8 +1,10 @@
 import express, { type Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { BOOKING_STATUS } from '@scalivo/shared';
+import { BOOKING_STATUS, CLIENT_IMPORT_MAX_ROWS } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
+import { Business } from '../models/Business.js';
+import { importClients } from './import.js';
 import { Client } from '../models/Client.js';
 import { ClientProfile } from '../models/ClientProfile.js';
 import { Service } from '../models/Service.js';
@@ -34,6 +36,11 @@ const listQuery = z.object({
 });
 
 const notesBody = z.object({ notes: z.string().max(5000) });
+
+/** Only the envelope is checked here; each row is judged on its own in import.ts. */
+const importBody = z.object({
+  rows: z.array(z.unknown()).min(1).max(CLIENT_IMPORT_MAX_ROWS),
+});
 
 export function createCrmRouter(): Router {
   const router = express.Router();
@@ -217,6 +224,48 @@ export function createCrmRouter(): Router {
     logger.info({ businessId, clientId }, 'profile recomputed on request');
     res.json(await loadProfile(businessId, clientId));
   });
+
+  /**
+   * Bulk import from the owner's own list — see crm/import.ts.
+   *
+   * `?dryRun=true` is the preview: the same validation and matching, nothing
+   * written. The page runs it first so the owner sees "212 new, 14 already
+   * yours, 3 rows with no number" before anything changes, and a bad column
+   * mapping costs a second look rather than a cleanup.
+   *
+   * Row-level problems are results, not a 400: one typo in a 900-row sheet must
+   * not refuse the other 899.
+   */
+  router.post(
+    '/:businessId/clients/import',
+    ...guard,
+    // 2000 rows of name/phone/dates is a few hundred KB — past express's 100kb default.
+    express.json({ limit: '2mb' }),
+    async (req, res) => {
+      const parsed = importBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: `send between 1 and ${CLIENT_IMPORT_MAX_ROWS} rows at a time`,
+        });
+        return;
+      }
+
+      const businessId = param(req, 'businessId');
+      const business = await Business.findById(businessId).select('timezone');
+      if (!business) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      const result = await importClients({
+        businessId,
+        timezone: business.timezone ?? 'Asia/Karachi',
+        rows: parsed.data.rows,
+        dryRun: req.query.dryRun === 'true',
+      });
+      res.json(result);
+    },
+  );
 
   return router;
 }

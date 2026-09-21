@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { fetchApi } from '@/lib/api-client';
 import { CustomerList } from '@/components/dashboard/CustomerList';
 import { SearchInput } from '@/components/dashboard/SearchInput';
@@ -82,6 +83,12 @@ export default async function DashboardCustomersPage({
               Manage and search your client directory.
             </p>
           </div>
+          <Link
+            href={`/dashboard/${businessId}/customers/import`}
+            className="shrink-0 rounded-full border border-line bg-white px-4 py-2 text-[14px] font-semibold text-ink hover:bg-surface"
+          >
+            Import customers
+          </Link>
         </div>
 
         {!isEmpty && !error && (
@@ -111,8 +118,15 @@ export default async function DashboardCustomersPage({
             </div>
             <h2 className="mt-4 text-lg font-semibold text-ink">No customers yet</h2>
             <p className="mt-2 text-[15px] text-muted font-medium">
-              Your customers will appear here automatically after their first booking.
+              Your customers will appear here automatically after their first booking — or bring
+              in the ones you already have.
             </p>
+            <Link
+              href={`/dashboard/${businessId}/customers/import`}
+              className="mt-6 inline-flex rounded-full bg-ink px-5 py-2.5 text-[15px] font-semibold text-white hover:bg-ink/90"
+            >
+              Import from a spreadsheet
+            </Link>
           </div>
         ) : isNoResults ? (
           <div className="rounded-2xl border border-line bg-white p-16 text-center shadow-sm">

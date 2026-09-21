@@ -1,5 +1,5 @@
 import { Schema, model } from 'mongoose';
-import { BOOKING_STATUS } from '@scalivo/shared';
+import { BOOKING_STATUS, DEPOSIT_STATUS } from '@scalivo/shared';
 
 /**
  * An appointment. `startsAt` is always UTC.
@@ -40,6 +40,27 @@ const bookingSchema = new Schema(
      * for a rating request, days after the visit.
      */
     completedAt: { type: Date, default: null },
+
+    /**
+     * The deposit asked for, in paisa — null when none was.
+     *
+     * Copied from the service at booking time rather than looked up later, for
+     * two reasons: an owner raising the deposit next month must not change what
+     * this customer owed, and "was a deposit required?" is the split the whole
+     * no-show comparison (SPEC §12.3) runs on. A lookup would answer it with
+     * today's settings instead of the ones the customer actually booked under.
+     */
+    depositMinor: { type: Number, default: null },
+    depositStatus: { type: String, enum: [...Object.values(DEPOSIT_STATUS), null], default: null },
+    /** When an unpaid booking releases its slot. */
+    depositDueBy: { type: Date, default: null },
+    /**
+     * The capability in the payment link. Random, not the booking id: the link
+     * goes out over WhatsApp and gets forwarded, and an id is guessable enough
+     * to walk through other people's appointments.
+     */
+    depositToken: { type: String, default: null },
+    depositPaidAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -49,5 +70,12 @@ bookingSchema.index({ businessId: 1, startsAt: 1 });
 bookingSchema.index({ businessId: 1, clientId: 1, startsAt: -1 });
 /** The review pass: one business's recently completed appointments. */
 bookingSchema.index({ businessId: 1, completedAt: 1 }, { sparse: true });
+
+/** The expiry pass: unpaid bookings whose window has closed. */
+bookingSchema.index({ status: 1, depositDueBy: 1 }, { sparse: true });
+bookingSchema.index(
+  { depositToken: 1 },
+  { unique: true, partialFilterExpression: { depositToken: { $type: 'string' } } },
+);
 
 export const Booking = model('Booking', bookingSchema);

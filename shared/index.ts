@@ -10,3 +10,5 @@ export * from './types/notifications.js';
 export * from './types/marketplace.js';
 export * from './types/review.js';
 export * from './types/analytics.js';
+export * from './types/client-import.js';
+export * from './types/deposit.js';
