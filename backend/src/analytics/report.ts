@@ -71,12 +71,13 @@ export async function buildReport(request: ReportRequest): Promise<AnalyticsRepo
   const inRange = { businessId, startsAt: { $gte: start, $lt: end } };
   const completedInRange = { ...inRange, status: BOOKING_STATUS.COMPLETED };
 
-  const [byStatus, series, topServices, topClients, forecast] = await Promise.all([
+  const [byStatus, series, topServices, topClients, forecast, depositComparison] = await Promise.all([
     volumeByStatus(inRange),
     revenueSeries(completedInRange, timezone, granularity, from, to),
     servicesByRevenue(businessId, completedInRange),
     clientsBySpend(businessId),
     bookedAhead(businessId, now),
+    noShowsByDeposit(inRange),
   ]);
 
   const completed = byStatus.get(BOOKING_STATUS.COMPLETED);
@@ -98,7 +99,12 @@ export async function buildReport(request: ReportRequest): Promise<AnalyticsRepo
       completed: completedCount,
       noShow: noShowCount,
       cancelled: cancelled?.count ?? 0,
-      upcoming: (pending?.count ?? 0) + (confirmed?.count ?? 0),
+      // Unpaid holds are counted here so the breakdown still sums to the total;
+      // they are not in the forecast, which only counts appointments secured.
+      upcoming:
+        (pending?.count ?? 0) +
+        (confirmed?.count ?? 0) +
+        (byStatus.get(BOOKING_STATUS.AWAITING_DEPOSIT)?.count ?? 0),
     },
     // Unknown, not zero. A business whose first week is still ahead of it has
     // no no-show rate, and printing 0% would read as a record worth keeping.
@@ -106,7 +112,45 @@ export async function buildReport(request: ReportRequest): Promise<AnalyticsRepo
     topServices,
     topClients,
     forecast,
+    depositComparison,
   };
+}
+
+/**
+ * SPEC §12.3 — the research question deposits exist to answer: do customers
+ * who paid up front turn up more often?
+ *
+ * Split on whether a deposit was REQUIRED (depositMinor set at booking time),
+ * over the appointments that reached their hour. An unpaid deposit never
+ * reaches its hour — it expires and is cancelled — so every "with deposit" row
+ * here is one where money actually changed hands. Owner-entered bookings are
+ * never asked for one and sit on the "without" side, which is worth knowing
+ * when reading it: walk-ins rarely no-show at all.
+ */
+async function noShowsByDeposit(match: object): Promise<AnalyticsReport['depositComparison']> {
+  const rows = await Booking.aggregate<{ _id: boolean; reached: number; noShow: number }>([
+    {
+      $match: {
+        ...match,
+        status: { $in: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW] },
+      },
+    },
+    {
+      $group: {
+        _id: { $gt: [{ $ifNull: ['$depositMinor', 0] }, 0] },
+        reached: { $sum: 1 },
+        noShow: { $sum: { $cond: [{ $eq: ['$status', BOOKING_STATUS.NO_SHOW] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  const side = (withDeposit: boolean) => {
+    const row = rows.find((r) => r._id === withDeposit);
+    const reached = row?.reached ?? 0;
+    const noShow = row?.noShow ?? 0;
+    return { reached, noShow, rate: reached === 0 ? null : noShow / reached };
+  };
+  return { withDeposit: side(true), withoutDeposit: side(false) };
 }
 
 type StatusRow = { count: number; revenueMinor: number };

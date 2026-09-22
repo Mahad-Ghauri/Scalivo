@@ -254,6 +254,13 @@ async function bumpAttempt(id: unknown, lastError: string): Promise<void> {
  */
 function stillOwed(kind: string, status: string | undefined): boolean {
   if (kind === NOTIFICATION_KIND.REVIEW_REQUEST) return status === BOOKING_STATUS.COMPLETED;
+  // The payment link matters only while the booking is still waiting for it:
+  // one queued during an outage and sent after the customer paid would ask
+  // them to pay twice.
+  if (kind === NOTIFICATION_KIND.DEPOSIT_REQUEST) return status === BOOKING_STATUS.AWAITING_DEPOSIT;
+  if (kind === NOTIFICATION_KIND.DEPOSIT_EXPIRED) return status === BOOKING_STATUS.CANCELLED;
+  // Nothing confirms or reminds an appointment that is not yet secured.
+  if (status === BOOKING_STATUS.AWAITING_DEPOSIT) return false;
 
   return (
     status !== BOOKING_STATUS.CANCELLED &&

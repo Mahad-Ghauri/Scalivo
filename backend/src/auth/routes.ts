@@ -39,6 +39,17 @@ export const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
  * The loop is bounded because an unbounded one is a denial-of-service against
  * our own signup: a pathological name should fail fast, not spin.
  */
+/**
+ * The site's own top-level routes. A business profile lives at /<slug>, and a
+ * static route beats a dynamic one — so a salon called "Pay" would get a
+ * profile URL that the payment page answers instead, and nobody would ever
+ * reach it. Such a name gets the numeric suffix like any taken slug.
+ */
+const RESERVED_SLUGS = new Set([
+  'pay', 'search', 'login', 'register', 'signup', 'dashboard', 'api', 'admin',
+  'robots.txt', 'sitemap.xml', 'business', 'businesses',
+]);
+
 async function uniqueSlug(name: string): Promise<string> {
   const base =
     name
@@ -49,6 +60,7 @@ async function uniqueSlug(name: string): Promise<string> {
 
   for (let n = 0; n < 25; n += 1) {
     const candidate = n === 0 ? base : `${base}-${n + 1}`;
+    if (RESERVED_SLUGS.has(candidate)) continue;
     if (!(await Business.exists({ slug: candidate }))) return candidate;
   }
   throw new Error('could not allocate a slug');

@@ -31,6 +31,7 @@ import {
 } from './availability.js';
 import { acquireHold, releaseHold, verifyHold } from './holds.js';
 import { setBookingOutcome } from './outcome.js';
+import type { OutcomeActor } from '../payments/settle.js';
 import { recordBooking } from '../crm/profile.js';
 import { isDuplicateKey } from '../lib/mongo.js';
 
@@ -232,14 +233,14 @@ async function allowedToWork(
 /** What the deposit rules make of this booking, before it is written. */
 function deposition(
   ctx: BookingContext,
-  request: { source: 'whatsapp' | 'web' | 'owner'; depositAlreadyPaid?: boolean },
+  request: { source: 'whatsapp' | 'web' | 'owner'; rescheduledDeposit?: 'carry' | 'waive' },
   now: Date,
 ): { status: BookingStatus; fields: Record<string, unknown> } {
-  if (ctx.depositMinor === null || request.source === 'owner') {
+  if (ctx.depositMinor === null || request.source === 'owner' || request.rescheduledDeposit === 'waive') {
     return { status: BOOKING_STATUS.PENDING, fields: {} };
   }
 
-  if (request.depositAlreadyPaid) {
+  if (request.rescheduledDeposit === 'carry') {
     return {
       status: BOOKING_STATUS.PENDING,
       fields: { depositMinor: ctx.depositMinor, depositStatus: DEPOSIT_STATUS.PAID, depositPaidAt: now },
@@ -280,11 +281,15 @@ export async function createBooking(
      */
     override?: boolean;
     /**
-     * A reschedule of a booking whose deposit is already paid. The money moves
-     * with the appointment: asking again would charge them twice for one visit.
-     * The caller marks the old booking TRANSFERRED before cancelling it.
+     * A reschedule keeps the terms the original booking was made under.
+     *
+     *   'carry' — its deposit is already paid; the money moves with the
+     *             appointment (the caller marks the old one TRANSFERRED).
+     *   'waive' — it had none. Demanding one now would cancel a confirmed
+     *             appointment in exchange for an unpaid hold, and a customer
+     *             who then does not pay ends up with nothing.
      */
-    depositAlreadyPaid?: boolean;
+    rescheduledDeposit?: 'carry' | 'waive';
   },
 ): Promise<BookingResult> {
   const ctx = await loadContext(request.businessId, request.serviceId);
@@ -441,8 +446,12 @@ export async function createBooking(
  * success, not an error. Callers needing to tell "already done" from "never
  * existed" should use setBookingOutcome directly.
  */
-export async function cancelBooking(bookingId: string, businessId: string): Promise<boolean> {
-  const result = await setBookingOutcome(bookingId, businessId, BOOKING_STATUS.CANCELLED);
+export async function cancelBooking(
+  bookingId: string,
+  businessId: string,
+  actor: OutcomeActor = 'business',
+): Promise<boolean> {
+  const result = await setBookingOutcome(bookingId, businessId, BOOKING_STATUS.CANCELLED, { actor });
   return result.ok || result.reason === 'already_terminal';
 }
 

@@ -4,6 +4,7 @@ import { Booking } from '../models/Booking.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
 import { recordOutcome } from '../crm/profile.js';
 import { logger } from '../lib/logger.js';
+import { settleDeposit, type OutcomeActor } from '../payments/settle.js';
 
 /**
  * Marking an appointment done, missed, or confirmed.
@@ -41,6 +42,21 @@ export async function setBookingOutcome(
   bookingId: string,
   businessId: string,
   outcome: Outcome,
+  options: {
+    /**
+     * Who made it happen. Only deposits care: a business cancelling always
+     * refunds, a customer cancelling late does not. Defaults to the business,
+     * because every owner-facing route is one.
+     */
+    actor?: OutcomeActor;
+    /**
+     * Apply only if the booking is still in this status. The deposit expiry
+     * pass uses it so that a payment landing a millisecond earlier — flipping
+     * the booking out of AWAITING_DEPOSIT — wins, instead of being cancelled
+     * and refunded by a pass that read the list before the money arrived.
+     */
+    expectStatus?: BookingStatus;
+  } = {},
 ): Promise<OutcomeResult> {
   // The status flip and the freed slot commit together: a cancelled booking
   // whose occupancy survived would keep the hour unsellable forever.
@@ -51,7 +67,11 @@ export async function setBookingOutcome(
   try {
     await session.withTransaction(async () => {
       written.booking = await Booking.findOneAndUpdate(
-        { _id: bookingId, businessId, status: { $nin: TERMINAL } },
+        {
+          _id: bookingId,
+          businessId,
+          status: options.expectStatus ?? { $nin: TERMINAL },
+        },
         {
           $set: {
             status: outcome,
@@ -96,6 +116,15 @@ export async function setBookingOutcome(
     serviceId: booking.serviceId,
     staffId: booking.staffId,
   }).catch((err) => logger.error({ err, businessId, bookingId }, 'could not update the client profile'));
+
+  // Money last, and outside the transaction for the same reason as the CRM: a
+  // gateway that is slow or down must not un-cancel an appointment. A deposit
+  // left PAID on a cancelled booking is visible in the ledger and re-settleable.
+  await settleDeposit(
+    { id: bookingId, startsAt: booking.startsAt, depositStatus: booking.depositStatus ?? null },
+    CRM_EFFECT[outcome],
+    options.actor ?? 'business',
+  ).catch((err) => logger.error({ err, businessId, bookingId }, 'could not settle the deposit'));
 
   logger.info({ bookingId, businessId, outcome }, 'booking outcome recorded');
   return { ok: true, changed: true };

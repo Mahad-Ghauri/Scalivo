@@ -7,7 +7,9 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       MONGO_URI: 'mongodb://localhost:27017/scalivo-test?replicaSet=rs0',
-      POSTGRES_URL: 'postgres://scalivo:scalivo@localhost:5432/scalivo',
+      // Overridable for machines where a host Postgres owns 5432 — see the
+      // postgres service in docker-compose.yml.
+      POSTGRES_URL: process.env.TEST_POSTGRES_URL ?? 'postgres://scalivo:scalivo@localhost:5432/scalivo',
       REDIS_URL: 'redis://localhost:6379',
       OPENWA_BASE_URL: 'http://localhost:2785',
       OPENWA_API_KEY: 'owa_k1_test',

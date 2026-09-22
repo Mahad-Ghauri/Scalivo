@@ -19,9 +19,14 @@ import { handleMessageAck } from './notifications/ack.js';
 import { startReminderJob } from './notifications/reminders.js';
 import { startReviewRequestJob } from './reviews/request.js';
 import { logger } from './lib/logger.js';
+import { createDepositRouter } from './payments/routes.js';
+import { startDepositExpiryJob } from './payments/deposits.js';
+import { ensurePaymentSchema } from './payments/ledger.js';
+import { createPaymentProvider, usePaymentProvider } from './payments/registry.js';
 
 export function createApp(): Express {
   const app = express();
+  usePaymentProvider(createPaymentProvider());
   const provider = createMessagingProvider();
 
   // NOTE: express.json() is applied per-route, NOT globally. The webhook needs
@@ -113,6 +118,12 @@ export function createApp(): Express {
   // tenant — see public/routes.ts for why it can never live under /businesses.
   app.use('/public', createPublicRouter(redis, provider));
 
+  // Deposits (SPEC §12): the payment page's data under /public, and the
+  // gateway's return under /payments. Both anonymous; see payments/routes.ts.
+  const deposits = createDepositRouter({ redis, provider });
+  app.use('/public', deposits.publicRouter);
+  app.use('/payments', deposits.gatewayRouter);
+
   app.get('/health', async (_req, res) => {
     const report = await healthCheck();
     res.status(report.ok ? 200 : 503).json(report);
@@ -123,6 +134,8 @@ export function createApp(): Express {
 
 async function main() {
   await connectAll();
+  // Before the app exists: the first payment return must find its tables.
+  await ensurePaymentSchema();
   const app = createApp();
 
   // The webhook stream is the primary signal; this is the safety net under it.
@@ -144,6 +157,11 @@ async function main() {
   // couple of hours after an appointment ends, and nobody can tell the
   // difference. SINGLE INSTANCE, like the two above.
   startReviewRequestJob({ redis, provider: createMessagingProvider() });
+
+  // Every minute: a released slot is only worth something while it can still
+  // be resold. SINGLE INSTANCE, like the others — two passes would both
+  // inquire, and the loser's "slot released" message would be a duplicate.
+  startDepositExpiryJob({ redis, provider: createMessagingProvider() });
 
   app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'scalivo backend listening'));
 }

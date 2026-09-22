@@ -341,7 +341,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
 
       res.status(201).json({
         ...result.booking,
-        ...(confirmed ? { status: BOOKING_STATUS.CONFIRMED } : {}),
+        ...(confirmed?.ok && !confirmed.awaitingDeposit ? { status: BOOKING_STATUS.CONFIRMED } : {}),
       });
     } catch (err) {
       logger.error({ err, businessId: param(req, 'businessId') }, 'booking failed');
@@ -462,6 +462,12 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         res
           .status(result.reason === 'not_found' ? 404 : 409)
           .json({ error: 'cannot confirm this booking', reason: result.reason });
+        return;
+      }
+      if (result.awaitingDeposit) {
+        // Confirmation belongs to the payment. The link has been (re)sent; the
+        // dedupe claim means the customer did not get it twice.
+        res.status(409).json({ error: 'waiting for the deposit', reason: 'awaiting_deposit' });
         return;
       }
       if (!result.changed) {

@@ -4,6 +4,7 @@ import { Business } from '../models/Business.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 import * as copy from '../whatsapp/messages.js';
 import { sendTracked, type SendDeps, type SendOutcome } from './send.js';
 
@@ -32,7 +33,13 @@ import { sendTracked, type SendDeps, type SendOutcome } from './send.js';
  */
 
 export type ConfirmResult =
-  | { ok: true; changed: boolean; delivery: SendOutcome }
+  | {
+      ok: true;
+      changed: boolean;
+      delivery: SendOutcome;
+      /** The booking is held pending a deposit; the payment link went out instead. */
+      awaitingDeposit?: boolean;
+    }
   | { ok: false; reason: 'not_found' | 'already_terminal' };
 
 export async function confirmBooking(
@@ -68,6 +75,37 @@ export async function confirmBooking(
     Staff.findById(booking.staffId).select('name'),
   ]);
   if (!business) return { ok: false, reason: 'not_found' };
+
+  /**
+   * A deposit-required booking is not confirmed by the customer's YES — it is
+   * confirmed by the money (SPEC §12.1). So every path that would say "you're
+   * booked" says "pay to secure it" instead, and the confirmation proper is
+   * sent by payments/deposits.ts once the gateway reports success. Routing it
+   * here, rather than at each caller, is what keeps WhatsApp, web and the
+   * owner's confirm button from each needing to know deposits exist.
+   */
+  if (booking.status === BOOKING_STATUS.AWAITING_DEPOSIT) {
+    const delivery = await sendTracked(deps, {
+      businessId,
+      clientId: booking.clientId,
+      bookingId,
+      kind: NOTIFICATION_KIND.DEPOSIT_REQUEST,
+      dedupeKey: `${bookingId}:deposit_request`,
+      text: copy.depositRequest({
+        businessName: business.name,
+        serviceName: service?.name ?? 'your appointment',
+        staffName: staff?.name ?? 'our team',
+        startsAt: booking.startsAt,
+        timezone: business.timezone,
+        depositMinor: booking.depositMinor ?? 0,
+        dueBy: booking.depositDueBy ?? booking.startsAt,
+        payUrl: `${env.WEB_URL}/pay/${booking.depositToken}`,
+      }),
+      scheduledFor: new Date(),
+    });
+    logger.info({ bookingId, businessId }, 'deposit requested');
+    return { ok: true, changed: false, delivery, awaitingDeposit: true };
+  }
 
   const delivery = await sendTracked(deps, {
     businessId,
