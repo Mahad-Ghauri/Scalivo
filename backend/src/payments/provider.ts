@@ -27,6 +27,8 @@ export interface PaymentReturn {
   outcome: PaymentOutcome;
   /** The gateway's own transaction id, for reconciliation with its portal. */
   providerRef: string | null;
+  /** What the gateway says it charged, when it says. Checked against what we asked for. */
+  amountMinor: number | null;
   code: string | null;
   message: string | null;
 }

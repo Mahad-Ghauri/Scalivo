@@ -149,6 +149,12 @@ export interface PublicBookingReceipt {
   serviceName: string;
   staffName: string;
   status: string;
+  /**
+   * Set when the booking is held pending a deposit: the page goes straight to
+   * /pay/:token, because the booking does not exist in any useful sense until
+   * it is paid.
+   */
+  depositToken: string | null;
 }
 
 export type PublicBookingError =

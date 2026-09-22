@@ -251,6 +251,13 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
     setSubmitting(false);
 
     if (result.ok) {
+      // A deposit-required booking is not booked yet — it is held while they
+      // pay. Straight to the payment page rather than a receipt that would
+      // say "You're booked" about an appointment that may expire.
+      if (result.data.depositToken) {
+        window.location.assign(`/pay/${encodeURIComponent(result.data.depositToken)}`);
+        return;
+      }
       setHold(null);
       setReceipt(result.data);
       sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -464,9 +471,19 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
                     disabled={submitting}
                     className="inline-flex h-12 w-full items-center justify-center rounded-full bg-ink px-6 text-[16px] font-semibold text-white transition-colors hover:bg-black/80 disabled:opacity-60 sm:w-auto"
                   >
-                    {submitting ? 'Booking…' : service.priceMinor === 0 ? 'Confirm booking' : `Confirm booking · ${formatPrice(service.priceMinor)}`}
+                    {submitting
+                      ? 'Booking…'
+                      : service.depositRequired && service.depositAmountMinor
+                        ? `Continue to deposit · ${formatPrice(service.depositAmountMinor)}`
+                        : service.priceMinor === 0
+                          ? 'Confirm booking'
+                          : `Confirm booking · ${formatPrice(service.priceMinor)}`}
                   </button>
-                  <p className="mt-3 text-[13px] text-muted">No account needed. Nothing is charged online.</p>
+                  <p className="mt-3 text-[13px] text-muted">
+                    {service.depositRequired && service.depositAmountMinor
+                      ? `No account needed. A ${formatPrice(service.depositAmountMinor)} deposit secures the slot and comes off your bill; the rest is paid at ${businessName}.`
+                      : 'No account needed. Nothing is charged online.'}
+                  </p>
                 </div>
               </form>
             </Step>

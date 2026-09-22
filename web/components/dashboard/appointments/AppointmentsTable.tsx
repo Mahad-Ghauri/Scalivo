@@ -31,6 +31,7 @@ export function AppointmentsTable({ bookings, timezone }: { bookings: Appointmen
 
   const statusColors: Record<string, string> = {
     [BOOKING_STATUS.PENDING]: 'bg-yellow-100 text-yellow-800',
+    [BOOKING_STATUS.AWAITING_DEPOSIT]: 'bg-orange-100 text-orange-800',
     [BOOKING_STATUS.CONFIRMED]: 'bg-blue-100 text-blue-800',
     [BOOKING_STATUS.COMPLETED]: 'bg-green-100 text-green-800',
     [BOOKING_STATUS.NO_SHOW]: 'bg-red-100 text-red-800',
@@ -94,7 +95,7 @@ export function AppointmentsTable({ bookings, timezone }: { bookings: Appointmen
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[b.status] || statusColors[BOOKING_STATUS.PENDING]}`}>
-                      {b.status}
+                      {b.status.replaceAll('_', ' ')}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

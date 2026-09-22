@@ -81,6 +81,15 @@ export interface AnalyticsReport {
    */
   noShowRate: number | null;
 
+  /**
+   * No-shows split by whether a deposit was required — SPEC §12.3. Rates are
+   * null, not 0, when that side has no appointments that reached their hour.
+   */
+  depositComparison: {
+    withDeposit: DepositSide;
+    withoutDeposit: DepositSide;
+  };
+
   topServices: TopService[];
   topClients: TopClient[];
 
@@ -94,4 +103,11 @@ export interface AnalyticsReport {
    * never a confident line through two points.
    */
   forecast: { revenueMinor: number; bookings: number };
+}
+
+export interface DepositSide {
+  /** Completed + no-show: the appointments whose hour came. */
+  reached: number;
+  noShow: number;
+  rate: number | null;
 }

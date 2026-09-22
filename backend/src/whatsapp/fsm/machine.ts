@@ -1,11 +1,12 @@
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, BOOKING_STATUS, REVIEW_COMMENT_MIN_LENGTH } from '@scalivo/shared';
+import { ANY_STAFF, BOOKING_STATUS, DEPOSIT_STATUS, REVIEW_COMMENT_MIN_LENGTH } from '@scalivo/shared';
 import { Booking } from '../../models/Booking.js';
 import { Service } from '../../models/Service.js';
 import { Staff } from '../../models/Staff.js';
 import { daysWithAvailability, getAvailability } from '../../bookings/availability.js';
 import { cancelBooking, createBooking, holdSlot } from '../../bookings/create.js';
 import { attachComment, recordRating } from '../../reviews/record.js';
+import { transferDeposit } from '../../payments/deposits.js';
 import { logger } from '../../lib/logger.js';
 import * as copy from '../messages.js';
 import { CONVERSATION_STATE, type Conversation, MAX_INVALID_INPUT } from './states.js';
@@ -251,6 +252,15 @@ async function promptConfirm(
 async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promise<TurnResult> {
   const startsAt = new Date(base.slotStart!);
 
+  // A reschedule keeps the original booking's deposit terms: a paid deposit
+  // moves across, and a booking that never had one is not asked for one now —
+  // see rescheduledDeposit in bookings/create.ts.
+  const previous = base.bookingId
+    ? await Booking.findOne({ _id: base.bookingId, businessId: ctx.businessId }).select('depositStatus')
+    : null;
+  const depositAlreadyPaid = previous?.depositStatus === DEPOSIT_STATUS.PAID;
+  const rescheduledDeposit = base.bookingId ? (depositAlreadyPaid ? 'carry' : 'waive') : undefined;
+
   const attempt = (holdToken: string) =>
     createBooking(redis, {
       businessId: ctx.businessId,
@@ -260,6 +270,7 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
       startsAt,
       source: 'whatsapp',
       holdToken,
+      ...(rescheduledDeposit ? { rescheduledDeposit } : {}),
       ...(ctx.now ? { now: ctx.now } : {}),
     });
 
@@ -301,7 +312,12 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
   // Rescheduling is cancel-then-book, in that order deliberately: booking first
   // would need the old slot free, and freeing it first would risk losing it to
   // someone else. Cancelling after a CONFIRMED new booking is the safe half.
-  if (base.bookingId) await cancelBooking(base.bookingId, ctx.businessId);
+  if (base.bookingId) {
+    // Transfer BEFORE cancelling: the cancellation then finds no paid deposit
+    // to settle, and the money is on the booking the customer will attend.
+    if (depositAlreadyPaid) await transferDeposit(base.bookingId, result.booking.id);
+    await cancelBooking(base.bookingId, ctx.businessId, 'customer');
+  }
 
   /**
    * The "you're booked" message is NOT a reply.
@@ -448,7 +464,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
         return invalid(ctx, conversation, 'Reply YES to cancel or NO to keep it.');
       }
 
-      await cancelBooking(conversation.bookingId!, ctx.businessId);
+      // The customer's own cancellation: a paid deposit comes back only with
+      // enough notice (payments/settle.ts).
+      await cancelBooking(conversation.bookingId!, ctx.businessId, 'customer');
       return { replies: [copy.cancelled], conversation: null };
     }
 
@@ -525,9 +543,11 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
 
     // HELP is terminal — the owner has been notified, and answering further
     // would talk over the human who is about to. GREETING is transient and
-    // never persisted. AWAITING_DEPOSIT is unreachable until Phase 2 wires a
-    // payment webhook; if a stale one is ever read back, drop it rather than
-    // stranding the customer in a state with no exit.
+    // never persisted. AWAITING_DEPOSIT is never stored either: a deposit is
+    // waited on by the BOOKING's status, not the conversation's, because the
+    // answer arrives from the payment gateway rather than from the chat. The
+    // conversation ends with the payment link, and the next message starts a
+    // fresh one. A stale one read back is dropped rather than stranding them.
     case CONVERSATION_STATE.HELP:
     case CONVERSATION_STATE.GREETING:
     case CONVERSATION_STATE.AWAITING_DEPOSIT:

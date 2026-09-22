@@ -164,6 +164,8 @@ export default async function DashboardAnalyticsPage({
               <StatusBreakdown volume={report.volume} />
             </div>
 
+            <DepositComparison comparison={report.depositComparison} />
+
             <div className="grid gap-6 lg:grid-cols-2">
               <TopList
                 title="Top services"
@@ -225,6 +227,51 @@ function TopList({
             </li>
           ))}
         </ol>
+      )}
+    </section>
+  );
+}
+
+/**
+ * SPEC §12.3: do customers who paid a deposit turn up more often?
+ *
+ * Two numbers side by side rather than a chart — it is one comparison, and a
+ * pair of bars would add nothing a reader cannot see from the figures. Each
+ * side says how many appointments it rests on, because 1 no-show out of 3 is
+ * not a finding and must not look like one.
+ */
+function DepositComparison({ comparison }: { comparison: AnalyticsReport['depositComparison'] }) {
+  const { withDeposit, withoutDeposit } = comparison;
+  if (withDeposit.reached === 0 && withoutDeposit.reached === 0) return null;
+
+  const side = (label: string, data: typeof withDeposit) => (
+    <div>
+      <p className="text-[13px] text-muted">{label}</p>
+      <p className="mt-1 text-[28px] font-bold tabular-nums tracking-tight text-ink">
+        {data.rate === null ? '—' : `${Math.round(data.rate * 100)}%`}
+      </p>
+      <p className="text-[13px] text-muted">
+        {data.reached === 0
+          ? 'No appointments yet'
+          : `${data.noShow} of ${data.reached} appointment${data.reached === 1 ? '' : 's'}`}
+      </p>
+    </div>
+  );
+
+  return (
+    <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
+      <h2 className="text-sm font-medium text-muted">No-shows, with and without a deposit</h2>
+      <p className="mt-0.5 text-[13px] text-muted/80">
+        Appointments that reached their hour, in this range. Walk-ins you enter yourself never need a deposit.
+      </p>
+      <div className="mt-5 grid grid-cols-2 gap-6 sm:max-w-md">
+        {side('Deposit paid', withDeposit)}
+        {side('No deposit', withoutDeposit)}
+      </div>
+      {Math.min(withDeposit.reached, withoutDeposit.reached) < 20 && (
+        <p className="mt-4 text-[13px] text-muted">
+          Too few appointments on one side to read much into yet.
+        </p>
       )}
     </section>
   );

@@ -21,6 +21,8 @@ export interface InfraNeeds {
   replicaSet?: boolean;
   /** The suite uses holds, conversation state, or the outbound queue. */
   redis?: boolean;
+  /** The suite touches the payments ledger. */
+  postgres?: boolean;
 }
 
 /**
@@ -51,6 +53,14 @@ export async function infraReady(needs: InfraNeeds = {}): Promise<boolean> {
       await probe.connect();
       await probe.ping();
       await probe.quit();
+    }
+
+    if (needs.postgres) {
+      const { Client } = await import('pg');
+      const probe = new Client({ connectionString: process.env.POSTGRES_URL, connectionTimeoutMillis: 2000 });
+      await probe.connect();
+      await probe.query('SELECT 1');
+      await probe.end();
     }
 
     return true;

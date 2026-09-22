@@ -107,6 +107,7 @@ export class JazzCashProvider implements PaymentProvider {
       txnRef: body.pp_TxnRefNo ?? '',
       outcome,
       providerRef: body.pp_RetreivalReferenceNo ?? body.pp_AuthCode ?? null,
+      amountMinor: body.pp_Amount ? Number(body.pp_Amount) : null,
       code,
       message: body.pp_ResponseMessage ?? null,
     };

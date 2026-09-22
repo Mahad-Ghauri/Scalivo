@@ -1,4 +1,5 @@
 import { BOOKING_STATUS, type AvailableSlot, type PublicBookingReceipt, type PublicSlot } from '@scalivo/shared';
+import { Booking } from '../models/Booking.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
 import { createBooking } from '../bookings/create.js';
@@ -133,7 +134,15 @@ export async function bookFromWeb(
       priceMinor: result.booking.priceMinor,
       serviceName: service?.name ?? '',
       staffName: staff?.name ?? '',
-      status: confirmed?.ok ? BOOKING_STATUS.CONFIRMED : result.booking.status,
+      status:
+        confirmed?.ok && !confirmed.awaitingDeposit ? BOOKING_STATUS.CONFIRMED : result.booking.status,
+      depositToken: confirmed?.ok && confirmed.awaitingDeposit ? await depositTokenOf(result.booking.id) : null,
     },
   };
+}
+
+/** Read back rather than put on the shared Booking contract, which the owner app also receives. */
+async function depositTokenOf(bookingId: string): Promise<string | null> {
+  const booking = await Booking.findById(bookingId).select('depositToken');
+  return booking?.depositToken ?? null;
 }

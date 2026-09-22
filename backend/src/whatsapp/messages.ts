@@ -72,6 +72,41 @@ export const booked = (details: {
   `See you at ${details.businessName}. Reply CANCEL or RESCHEDULE any time.`;
 
 /**
+ * The deposit ask, sent INSTEAD of "you're booked".
+ *
+ * It must not read like a confirmation. The slot is held, not booked, and a
+ * customer who skims "Hydrafacial, Saturday 4pm" and stops reading will turn
+ * up to an appointment that expired. So the first line says what is missing,
+ * and the deadline is a clock time rather than "30 minutes", because the
+ * message may be read long after it was sent.
+ */
+export const depositRequest = (details: {
+  businessName: string;
+  serviceName: string;
+  staffName: string;
+  startsAt: Date;
+  timezone: string;
+  depositMinor: number;
+  dueBy: Date;
+  payUrl: string;
+}) =>
+  `Almost booked — a deposit of ${formatPrice(details.depositMinor)} secures your slot.\n\n` +
+  `${details.serviceName} with ${details.staffName}\n` +
+  `${formatLocal(details.startsAt, details.timezone)}\n\n` +
+  `Pay here: ${details.payUrl}\n\n` +
+  `We'll hold it until ${formatLocal(details.dueBy, details.timezone, 'h:mm a')}. ` +
+  `The deposit comes off your bill at ${details.businessName}.`;
+
+export const depositExpired = (details: {
+  serviceName: string;
+  startsAt: Date;
+  timezone: string;
+}) =>
+  `We didn't receive the deposit in time, so the ${details.serviceName} slot on ` +
+  `${formatLocal(details.startsAt, details.timezone)} has been released.\n\n` +
+  `Message us any time to book again.`;
+
+/**
  * The reminder.
  *
  * Deliberately shorter than the confirmation and deliberately re-states the
