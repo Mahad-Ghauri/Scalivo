@@ -184,6 +184,7 @@ function toCard(business: MarketplaceBusiness): BusinessCard {
     rating: business.rating,
     reviewCount: business.reviewCount,
     fromPriceMinor: prices.length > 0 ? Math.min(...prices) : null,
+    featured: false,
     popularServices: [...business.services]
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .slice(0, 3)

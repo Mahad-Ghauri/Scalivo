@@ -10,6 +10,7 @@ import {
   type Booking as BookingContract,
   type BookingRequest,
   type BookingResult,
+  type GrowChannel,
   HOLD_TTL_SECONDS,
   type Hold,
 } from '@scalivo/shared';
@@ -290,6 +291,8 @@ export async function createBooking(
      *             who then does not pay ends up with nothing.
      */
     rescheduledDeposit?: 'carry' | 'waive';
+    /** Web only: which Grow channel the customer arrived through. */
+    channel?: GrowChannel | null;
   },
 ): Promise<BookingResult> {
   const ctx = await loadContext(request.businessId, request.serviceId);
@@ -367,6 +370,7 @@ export async function createBooking(
             status: deposit.status,
             priceMinor: ctx.priceMinor,
             source: request.source,
+            channel: request.channel ?? null,
             ...deposit.fields,
           },
         ],

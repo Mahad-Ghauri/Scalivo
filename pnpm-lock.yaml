@@ -95,6 +95,9 @@ importers:
       next:
         specifier: ^15.0.3
         version: 15.5.24(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      qrcode-generator:
+        specifier: ^1.5.2
+        version: 1.5.2
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -2407,6 +2410,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  qrcode-generator@1.5.2:
+    resolution: {integrity: sha512-pItrW0Z9HnDBnFmgiNrY1uxRdri32Uh9EjNYLPVC2zZ3ZRIIEqBoDgm4DkvDwNNDHTK7FNkmr8zAa77BYc9xNw==}
 
   qs@6.15.3:
     resolution: {integrity: sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==}
@@ -5104,6 +5110,8 @@ snapshots:
       ipaddr.js: 1.9.1
 
   punycode@2.3.1: {}
+
+  qrcode-generator@1.5.2: {}
 
   qs@6.15.3:
     dependencies:

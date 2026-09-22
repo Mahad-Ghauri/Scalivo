@@ -73,6 +73,12 @@ export interface BusinessCard {
   /** Cheapest active service, in paisa. */
   fromPriceMinor: number | null;
   popularServices: string[];
+  /**
+   * A paid-for position (SPEC §10 boost). Sorted first and ALWAYS labelled on
+   * the card — a ranking the customer cannot tell was bought is an advert
+   * pretending to be a recommendation.
+   */
+  featured: boolean;
 }
 
 /**

@@ -8,6 +8,8 @@ import { categoryLabel, type BusinessCard } from '@/lib/marketplace';
  * would say "Highly recommended" on every card within a week.
  */
 function badgeFor(business: BusinessCard): string | null {
+  // Paid position first, and always said out loud — see BusinessCard.featured.
+  if (business.featured) return 'Featured';
   if (business.reviewCount > 0 && business.reviewCount < 20) return 'New';
   if (business.rating !== null && business.rating >= 4.8) return 'Highly Recommended';
   if (business.fromPriceMinor === 0) return 'Free first visit';
@@ -41,7 +43,9 @@ export function VenueCard({ business }: { business: BusinessCard }) {
       <div className="mt-2.5 flex items-start justify-between gap-3">
         <h3 className="text-[16px] font-semibold leading-snug">
           {/* The whole card is the link, via the stretched ::after. */}
-          <Link href={`/${business.slug}`} className="after:absolute after:inset-0 after:content-['']">
+          {/* ?ref= credits the owner's Grow funnel with a marketplace visit. The
+              referrer can't: a client-side navigation never updates it. */}
+          <Link href={`/${business.slug}?ref=marketplace`} className="after:absolute after:inset-0 after:content-['']">
             {business.name}
           </Link>
         </h3>

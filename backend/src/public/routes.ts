@@ -1,7 +1,14 @@
 import express, { type Request, type RequestHandler, type Router } from 'express';
 import { z } from 'zod';
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, type MessagingProvider, type PublicBookingError, type PublicHold } from '@scalivo/shared';
+import {
+  ANY_STAFF,
+  FUNNEL_EVENTS,
+  GROW_CHANNELS,
+  type MessagingProvider,
+  type PublicBookingError,
+  type PublicHold,
+} from '@scalivo/shared';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { fieldErrors, param } from '../http/params.js';
@@ -13,8 +20,10 @@ import {
   getBusinessBySlug,
   listBusinesses,
   listSlugs,
+  publishedBusiness,
   publishedBusinessId,
 } from './profiles.js';
+import { recordFunnelEvent } from '../grow/funnel.js';
 import { bookFromWeb, releaseWebHold, toPublicSlot } from './booking.js';
 
 /**
@@ -66,7 +75,24 @@ const bookingBody = z.object({
   holdToken: z.string().uuid(),
   name: z.string().trim().min(1, 'tell us your name').max(80),
   phone: z.string().trim().min(7, 'enter your WhatsApp number').max(20),
+  // Attribution, not input the booking depends on: an unknown value is
+  // "direct", never a refused booking.
+  channel: z.enum(GROW_CHANNELS).optional().catch(undefined),
 });
+
+/**
+ * A funnel beacon. The visitor id is a random value the browser made up and
+ * kept — not a person, not a cookie anyone else can read — and exists only so a
+ * reload is not a second visitor.
+ */
+const eventBody = z.object({
+  type: z.enum(FUNNEL_EVENTS),
+  channel: z.enum(GROW_CHANNELS).catch('direct'),
+  visitorId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+});
+
+/** Crawlers and link previewers that run scripts. Counting them would fill the funnel with nobody. */
+const AUTOMATED = /bot|crawl|spider|slurp|headless|lighthouse|preview|facebookexternalhit/i;
 
 const STATUS: Record<PublicBookingError, number> = {
   slot_taken: 409,
@@ -219,6 +245,49 @@ export function createPublicRouter(redis: Redis, provider: MessagingProvider): R
     safely(async (req, res) => {
       const limit = Math.min(Math.max(Number(req.query.limit) || 8, 1), 24);
       res.json(await featuredReviews(limit));
+    }),
+  );
+
+  /**
+   * Profile views and booking-form starts, for the owner's Grow funnel.
+   *
+   * Sent as text/plain so the browser treats it as a simple request — no CORS
+   * preflight doubling every page view — and with keepalive, so a customer who
+   * taps away mid-send is still counted. Always 204: the page never waits on
+   * this, and a refusal would tell a scraper nothing useful anyway.
+   */
+  router.post(
+    '/businesses/:slug/events',
+    // Generous: mobile carriers put whole neighbourhoods behind one address,
+    // and losing a count is cheap next to losing a customer's booking.
+    rateLimit(redis, 'event', 300, 10 * 60),
+    express.text({ type: ['text/plain', 'application/json'], limit: '1kb' }),
+    safely(async (req, res) => {
+      if (AUTOMATED.test(req.get('user-agent') ?? '')) {
+        res.status(204).end();
+        return;
+      }
+
+      let raw: unknown;
+      try {
+        raw = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      } catch {
+        raw = null;
+      }
+      const parsed = eventBody.safeParse(raw);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'invalid event' });
+        return;
+      }
+
+      const business = await publishedBusiness(param(req, 'slug'));
+      if (!business) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+
+      await recordFunnelEvent(redis, { businessId: business.id, timezone: business.timezone, ...parsed.data });
+      res.status(204).end();
     }),
   );
 

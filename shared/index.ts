@@ -12,3 +12,4 @@ export * from './types/review.js';
 export * from './types/analytics.js';
 export * from './types/client-import.js';
 export * from './types/deposit.js';
+export * from './types/grow.js';

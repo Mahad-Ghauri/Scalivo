@@ -27,7 +27,7 @@ import { Staff } from '../models/Staff.js';
 
 /** Only these fields are ever loaded from a Business on this path. */
 const BUSINESS_FIELDS =
-  'slug name category city timezone slotIncrementMinutes minNoticeMinutes bookingHorizonDays published profile';
+  'slug name category city timezone slotIncrementMinutes minNoticeMinutes bookingHorizonDays published profile boost';
 
 const PUBLISHED = { published: true } as const;
 
@@ -124,10 +124,15 @@ function toPublicReview(review: InstanceType<typeof Review>): PublicReview {
   };
 }
 
+/** A boost is live until its expiry — read against the clock, never a stored flag. */
+export const isBoosted = (business: { boost?: { until?: Date | null } | null }, now = new Date()): boolean =>
+  Boolean(business.boost?.until && business.boost.until > now);
+
 function toCard(
   business: BusinessDoc,
   services: ServiceDoc[],
   rating: { rating: number; count: number } | undefined,
+  now: Date,
 ): BusinessCard {
   const prices = services.map((s) => s.priceMinor);
   return {
@@ -144,6 +149,7 @@ function toCard(
     reviewCount: rating?.count ?? 0,
     fromPriceMinor: prices.length > 0 ? Math.min(...prices) : null,
     popularServices: services.slice(0, 3).map((s) => s.name),
+    featured: isBoosted(business, now),
   };
 }
 
@@ -184,6 +190,7 @@ export async function listBusinesses(filters: {
   ]);
 
   const servicesOf = (id: string) => services.filter((s) => s.businessId === id);
+  const now = new Date();
 
   return businesses
     .filter((business) => {
@@ -203,10 +210,17 @@ export async function listBusinesses(filters: {
     })
     .map((business) => {
       const id = String(business._id);
-      return toCard(business, servicesOf(id), ratings.get(id));
+      return toCard(business, servicesOf(id), ratings.get(id), now);
     })
-    // Well-reviewed first, then most-reviewed; unrated last.
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || b.reviewCount - a.reviewCount);
+    // Boosted first — only among businesses that already MATCHED, so a boost
+    // buys position, never relevance. Then well-reviewed, then most-reviewed;
+    // unrated last.
+    .sort(
+      (a, b) =>
+        Number(b.featured) - Number(a.featured) ||
+        (b.rating ?? 0) - (a.rating ?? 0) ||
+        b.reviewCount - a.reviewCount,
+    );
 }
 
 /** How many reviews a profile page carries. The rating and count still cover all of them. */
@@ -260,6 +274,12 @@ export async function getBusinessBySlug(slug: string): Promise<MarketplaceBusine
 export async function publishedBusinessId(slug: string): Promise<string | null> {
   const business = await Business.findOne({ slug, ...PUBLISHED }).select('_id');
   return business ? String(business._id) : null;
+}
+
+/** The id and zone for a slug, PUBLISHED only — what the funnel beacon needs to date an event. */
+export async function publishedBusiness(slug: string): Promise<{ id: string; timezone: string } | null> {
+  const business = await Business.findOne({ slug, ...PUBLISHED }).select('_id timezone');
+  return business ? { id: String(business._id), timezone: business.timezone } : null;
 }
 
 export async function listSlugs(): Promise<string[]> {

@@ -22,7 +22,7 @@ const ROUTES = [
   { name: 'Reviews', href: '/reviews' },
   { name: 'Services', href: '/services' },
   { name: 'Staff', href: '/staff' },
-  { name: 'Marketing', href: '/marketing' },
+  { name: 'Grow', href: '/grow' },
   { name: 'Analytics', href: '/analytics' },
   { name: 'Settings', href: '/settings' },
 ];
@@ -33,8 +33,8 @@ export function DashboardShell({ user, businesses, currentBusinessId, children }
   const basePath = `/dashboard/${currentBusinessId}`;
 
   return (
-    <div className="flex h-screen flex-col bg-white overflow-hidden">
-      <header className="shrink-0 border-b border-line bg-white z-40">
+    <div className="flex h-screen flex-col bg-white overflow-hidden print:block print:h-auto print:overflow-visible">
+      <header className="shrink-0 border-b border-line bg-white z-40 print:hidden">
         <div className="mx-auto flex 
          flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3 md:px-8 md:py-3">
           <Link href="/" className="text-[26px] font-bold leading-none tracking-[-0.04em] text-ink shrink-0 mr-4">
@@ -110,8 +110,8 @@ export function DashboardShell({ user, businesses, currentBusinessId, children }
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-[1440px] px-5 py-6 md:px-8 h-full">
+      <main className="flex-1 min-h-0 overflow-y-auto print:overflow-visible">
+        <div className="mx-auto max-w-[1440px] px-5 py-6 md:px-8 h-full print:max-w-none print:p-0">
           {children}
         </div>
       </main>

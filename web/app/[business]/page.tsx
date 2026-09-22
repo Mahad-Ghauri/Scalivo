@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { BookingFlow } from '@/components/BookingFlow';
 import { Carousel, Slide } from '@/components/Carousel';
 import { CheckIcon, ChatIcon, PinIcon, Star, Stars } from '@/components/Icons';
+import { FunnelBeacon } from '@/components/FunnelBeacon';
 import { LocalBusinessJsonLd } from '@/components/LocalBusinessJsonLd';
 import { ClockLine, OpeningHours, OpenStatus } from '@/components/OpeningHours';
 import { HideWhileBooking } from '@/components/HideWhileBooking';
@@ -96,6 +97,8 @@ export default async function BusinessPage({ params }: { params: Params }) {
       {/* Clears the pinned mobile bar so it never covers the footer. */}
       <main className="mx-auto max-w-[1440px] px-5 pb-28 md:px-8 md:pb-0">
         <LocalBusinessJsonLd business={business} />
+        {/* Only against the real API — fixture slugs exist nowhere to count against. */}
+        {LIVE_BOOKING ? <FunnelBeacon slug={business.slug} /> : null}
 
         {/* Title block */}
         <div className="pt-6 md:pt-8">

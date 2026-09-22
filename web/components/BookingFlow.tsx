@@ -11,6 +11,7 @@ import type {
 
 import { ArrowLeft, ArrowRight, CheckIcon, ChatIcon } from '@/components/Icons';
 import { formatDuration, formatPrice } from '@/lib/format';
+import { currentChannel, track } from '@/lib/funnel';
 import { API_BASE } from '@/lib/site';
 
 /**
@@ -98,6 +99,15 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
   const [receipt, setReceipt] = useState<PublicBookingReceipt | null>(null);
 
   const service = services.find((s) => s.id === serviceId) ?? null;
+
+  /* The funnel's middle step: the first service picked on this page load,
+     however it was picked. Choosing a second one is the same visitor. */
+  const started = useRef(false);
+  useEffect(() => {
+    if (!serviceId || started.current) return;
+    started.current = true;
+    track(slug, 'start');
+  }, [serviceId, slug]);
   const qualified = useMemo(
     () => (serviceId ? staff.filter((member) => member.serviceIds.includes(serviceId)) : []),
     [serviceId, staff],
@@ -246,6 +256,7 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
         holdToken: hold.token,
         name,
         phone,
+        channel: currentChannel(slug),
       }),
     });
     setSubmitting(false);

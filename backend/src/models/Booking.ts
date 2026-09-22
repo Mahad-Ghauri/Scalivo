@@ -1,5 +1,5 @@
 import { Schema, model } from 'mongoose';
-import { BOOKING_STATUS, DEPOSIT_STATUS } from '@scalivo/shared';
+import { BOOKING_STATUS, DEPOSIT_STATUS, GROW_CHANNELS } from '@scalivo/shared';
 
 /**
  * An appointment. `startsAt` is always UTC.
@@ -30,6 +30,14 @@ const bookingSchema = new Schema(
 
     /** Which surface created it — WhatsApp vs web is an evaluation metric. */
     source: { type: String, enum: ['whatsapp', 'web', 'owner'], required: true },
+
+    /**
+     * Where a WEB booking's customer came from — the poster, an Instagram post,
+     * the marketplace. The last step of the Grow funnel (SPEC §10), and the only
+     * way to tell an owner whether the poster on their counter is working.
+     * Null for WhatsApp and owner bookings, which have no page visit behind them.
+     */
+    channel: { type: String, enum: [...GROW_CHANNELS, null], default: null },
 
     /**
      * When the owner marked this done. Null until they do, and never unset.
@@ -70,6 +78,8 @@ bookingSchema.index({ businessId: 1, startsAt: 1 });
 bookingSchema.index({ businessId: 1, clientId: 1, startsAt: -1 });
 /** The review pass: one business's recently completed appointments. */
 bookingSchema.index({ businessId: 1, completedAt: 1 }, { sparse: true });
+/** The funnel's last step: one business's bookings by when they were MADE, not when they happen. */
+bookingSchema.index({ businessId: 1, createdAt: 1 });
 
 /** The expiry pass: unpaid bookings whose window has closed. */
 bookingSchema.index({ status: 1, depositDueBy: 1 }, { sparse: true });

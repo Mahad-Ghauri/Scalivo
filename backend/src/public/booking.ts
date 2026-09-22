@@ -1,4 +1,10 @@
-import { BOOKING_STATUS, type AvailableSlot, type PublicBookingReceipt, type PublicSlot } from '@scalivo/shared';
+import {
+  BOOKING_STATUS,
+  type AvailableSlot,
+  type GrowChannel,
+  type PublicBookingReceipt,
+  type PublicSlot,
+} from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
@@ -72,6 +78,7 @@ export async function bookFromWeb(
     holdToken: string;
     name: string;
     phone: string;
+    channel?: GrowChannel | undefined;
   },
 ): Promise<WebBookingResult> {
   /**
@@ -97,6 +104,7 @@ export async function bookFromWeb(
     startsAt: input.startsAt,
     holdToken: input.holdToken,
     source: 'web',
+    channel: input.channel ?? 'direct',
   });
 
   if (!result.ok) {

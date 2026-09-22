@@ -90,6 +90,15 @@ const businessSchema = new Schema(
     published: { type: Boolean, default: false },
 
     /**
+     * Grow's listing boost (SPEC §10). An expiry rather than a flag, so a boost
+     * ends on its own: nothing has to remember to switch it off, and an owner
+     * who forgets it is on is not featured forever.
+     */
+    boost: {
+      until: { type: Date, default: null },
+    },
+
+    /**
      * What the public profile page shows. Presentation only — nothing here is
      * read by booking, availability or messaging, and all of it is optional so
      * an unpublished business need not fill any of it in.

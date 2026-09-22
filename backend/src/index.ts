@@ -9,6 +9,7 @@ import { createCatalogRouter } from './catalog/routes.js';
 import { createCrmRouter } from './crm/routes.js';
 import { createReviewRouter } from './reviews/routes.js';
 import { createAnalyticsRouter } from './analytics/routes.js';
+import { createGrowRouter } from './grow/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { createCalendarRouter } from './calendar/routes.js';
 import { createPublicRouter } from './public/routes.js';
@@ -111,6 +112,7 @@ export function createApp(): Express {
   app.use('/businesses', createCrmRouter());
   app.use('/businesses', createReviewRouter());
   app.use('/businesses', createAnalyticsRouter());
+  app.use('/businesses', createGrowRouter());
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
 
