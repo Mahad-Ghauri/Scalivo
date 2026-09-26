@@ -180,6 +180,21 @@ export default async function GrowPage({
         </section>
       </div>
 
+      {/* --------------------------------------------------- win customers back */}
+      <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="text-[17px] font-semibold text-ink">Win customers back</h2>
+        <p className="mt-0.5 text-[13px] text-muted">
+          The cheapest booking you will get is from someone who has already been in. Customers who are overdue get an
+          automatic reminder to rebook, and you can message the ones who have drifted away.
+        </p>
+        <Link
+          href={`${basePath}/broadcast`}
+          className="mt-5 inline-flex h-10 items-center rounded-full border border-line px-5 text-[15px] font-semibold text-ink hover:bg-surface"
+        >
+          Open win-back
+        </Link>
+      </section>
+
       {/* ------------------------------------------------------- share */}
       <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
         <h2 className="text-[17px] font-semibold text-ink">Share your booking link</h2>

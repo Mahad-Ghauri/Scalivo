@@ -139,11 +139,19 @@ async function pickBooking(
  * Upserts because STOP can arrive before the customer has ever booked — an
  * unhappy recipient of a broadcast is exactly the person most likely to send
  * it, and they may have no profile yet.
+ *
+ * The instant is stored alongside the flag so a campaign can report the opt-outs
+ * it actually provoked (§6.3). Cleared on the way back in: an old timestamp left
+ * behind a re-subscription would attribute their historic STOP to whatever
+ * campaign came next.
  */
 async function setOptOut(businessId: string, clientId: string, optOut: boolean): Promise<void> {
   await ClientProfile.updateOne(
     { businessId, clientId },
-    { $setOnInsert: { businessId, clientId }, $set: { marketingOptOut: optOut } },
+    {
+      $setOnInsert: { businessId, clientId },
+      $set: { marketingOptOut: optOut, marketingOptOutAt: optOut ? new Date() : null },
+    },
     { upsert: true, setDefaultsOnInsert: true },
   );
 }

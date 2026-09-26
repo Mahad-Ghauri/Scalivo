@@ -43,9 +43,61 @@ export const NOTIFICATION_KIND = {
   DEPOSIT_REQUEST: 'deposit_request',
   /** "We didn't receive the deposit, so the slot was released." */
   DEPOSIT_EXPIRED: 'deposit_expired',
+
+  /**
+   * "It's been six weeks since your Hydrafacial — want to book your next?"
+   * (SPEC §6.1). Automatic, one per lapse, and the first message here that no
+   * customer ever asked for.
+   */
+  REBOOK_NUDGE: 'rebook_nudge',
+
+  /**
+   * One recipient of an owner's broadcast (SPEC §6.2). Carries `campaignId`,
+   * which is what makes a campaign's outcome a query rather than a counter
+   * somebody has to remember to increment.
+   */
+  CAMPAIGN: 'campaign',
 } as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KIND)[keyof typeof NOTIFICATION_KIND];
+
+/**
+ * The line that divides "owed" from "asked for", and the only reason the
+ * distinction is drawn in the shared contract rather than at each call site.
+ *
+ * A customer who sends STOP has silenced everything on the left and nothing on
+ * the right. That is not a compromise — a booking they made and a reminder for
+ * it are a conversation they started, and dropping the reminder would be a
+ * worse failure than the opt-out was a request. §6.5 says so explicitly, and
+ * getting it backwards is either spam or a missed appointment.
+ *
+ * Every caller that sends without being asked checks this set. The review
+ * request is on it too: asking a customer to rate you is the business's
+ * reputation, not the customer's appointment.
+ */
+export const MARKETING_KINDS: readonly NotificationKind[] = [
+  NOTIFICATION_KIND.REBOOK_NUDGE,
+  NOTIFICATION_KIND.CAMPAIGN,
+  NOTIFICATION_KIND.REVIEW_REQUEST,
+];
+
+export const isMarketing = (kind: NotificationKind): boolean => MARKETING_KINDS.includes(kind);
+
+/**
+ * The subset whose PURPOSE is to produce a booking, and therefore the only
+ * messages a later booking may be attributed to (§6.3).
+ *
+ * The review request is marketing — it needs consent and it draws on the same
+ * daily allowance — but it is not retention, and letting it claim attribution
+ * would be a measurement bug rather than a nicety: a customer nudged on Monday
+ * and asked for a rating on Wednesday would credit Wednesday's rating request
+ * with Thursday's booking, and the nudge that actually did the work would report
+ * a conversion of zero.
+ */
+export const RETENTION_KINDS: readonly NotificationKind[] = [
+  NOTIFICATION_KIND.REBOOK_NUDGE,
+  NOTIFICATION_KIND.CAMPAIGN,
+];
 
 export const DELIVERY_STATUS = {
   /**
@@ -133,7 +185,8 @@ export interface Notification {
   id: string;
   businessId: string;
   clientId: string;
-  bookingId: string;
+  /** Null for a nudge or a broadcast: those are about a customer, not an appointment. */
+  bookingId: string | null;
   kind: NotificationKind;
   status: DeliveryStatus;
   text: string;

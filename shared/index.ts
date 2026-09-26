@@ -13,3 +13,5 @@ export * from './types/analytics.js';
 export * from './types/client-import.js';
 export * from './types/deposit.js';
 export * from './types/grow.js';
+export * from './types/retention.js';
+export * from './types/agent.js';

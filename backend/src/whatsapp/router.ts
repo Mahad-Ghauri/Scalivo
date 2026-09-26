@@ -13,6 +13,7 @@ import {
 import { handleGlobalCommand } from './interceptors/global-commands.js';
 import { applyPendingPrompt } from './interceptors/pending-prompt.js';
 import { advance } from './fsm/machine.js';
+import { attributeReply } from '../retention/attribute.js';
 import { enqueue } from '../session-health/outbound-queue.js';
 import { confirmBooking } from '../notifications/confirm.js';
 import { PUSH_CHANNEL, pushToOwners } from '../push/fcm.js';
@@ -73,6 +74,14 @@ export async function handleInboundMessage(
     { _id: business._id },
     { $set: { 'whatsapp.lastInboundAt': message.receivedAt } },
   );
+
+  /**
+   * If the last thing we sent them was a nudge or a broadcast, this is the reply
+   * to it (§6.3). Recorded before the interceptors run, because a customer whose
+   * answer to a nudge is STOP has still answered it — and that is the single most
+   * informative reply a campaign can get.
+   */
+  await attributeReply(businessId, clientId, message.receivedAt);
 
   // ── Stage 3: lock ────────────────────────────────────────────────────────
   // Two messages a second apart otherwise race on the same state: both read

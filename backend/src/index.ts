@@ -10,6 +10,8 @@ import { createCrmRouter } from './crm/routes.js';
 import { createReviewRouter } from './reviews/routes.js';
 import { createAnalyticsRouter } from './analytics/routes.js';
 import { createGrowRouter } from './grow/routes.js';
+import { createRetentionRouter } from './retention/routes.js';
+import { createAgentRouter } from './agent/routes.js';
 import { createBookingRouter } from './bookings/routes.js';
 import { createCalendarRouter } from './calendar/routes.js';
 import { createPublicRouter } from './public/routes.js';
@@ -19,6 +21,9 @@ import { startReconcileJob } from './session-health/reconcile.js';
 import { handleMessageAck } from './notifications/ack.js';
 import { startReminderJob } from './notifications/reminders.js';
 import { startReviewRequestJob } from './reviews/request.js';
+import { startNudgeJob } from './retention/nudges.js';
+import { startCampaignJob } from './retention/campaigns.js';
+import { startAgentJob } from './agent/job.js';
 import { logger } from './lib/logger.js';
 import { createDepositRouter } from './payments/routes.js';
 import { startDepositExpiryJob } from './payments/deposits.js';
@@ -113,6 +118,8 @@ export function createApp(): Express {
   app.use('/businesses', createReviewRouter());
   app.use('/businesses', createAnalyticsRouter());
   app.use('/businesses', createGrowRouter());
+  app.use('/businesses', createRetentionRouter({ redis, provider }));
+  app.use('/businesses', createAgentRouter({ redis, provider }));
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
 
@@ -164,6 +171,33 @@ async function main() {
   // be resold. SINGLE INSTANCE, like the others — two passes would both
   // inquire, and the loser's "slot released" message would be a duplicate.
   startDepositExpiryJob({ redis, provider: createMessagingProvider() });
+
+  /**
+   * Retention (SPEC §6). Two passes, both SINGLE INSTANCE like everything above,
+   * and here the rule is stricter than for the others: these are the only jobs
+   * that message people who are not expecting to hear from us. A second replica
+   * would not merely duplicate work — it would double the unsolicited volume
+   * leaving one WhatsApp number, which is how the number gets restricted and
+   * every booking for that business stops.
+   *
+   * The spacing itself is enforced in Redis rather than by the tick interval
+   * (retention/throttle.ts), so the two passes share one allowance and neither
+   * can burst on its own.
+   */
+  startNudgeJob({ redis, provider: createMessagingProvider() });
+  startCampaignJob({ redis, provider: createMessagingProvider() });
+
+  /**
+   * The agent (SPEC §11). Every five minutes, SINGLE INSTANCE like the rest —
+   * though this is the one pass where a second instance would be merely
+   * embarrassing rather than damaging: the unique claim on each briefing means the
+   * loser's insert fails, so the owner gets one notification either way.
+   *
+   * It runs LAST because it reads what the others wrote. The daily briefing
+   * counts today's bookings, the weekly summary reads the same analytics the
+   * dashboard does, and the win-back suggestion asks retention who is reachable.
+   */
+  startAgentJob({ redis, provider: createMessagingProvider() });
 
   app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'scalivo backend listening'));
 }

@@ -219,3 +219,64 @@ export const reviewPublished = 'Thank you — your review is now on our profile.
  */
 export const ratingNoted =
   "Thanks for telling us — sorry it wasn't better. We'll look into it.";
+
+/**
+ * Retention — SPEC §6. The only messages here that nobody asked for, which is
+ * why they are the only ones that carry an opt-out line.
+ */
+
+/**
+ * The line every marketing message ends with.
+ *
+ * Not decoration and not a legal reflex: `STOP` is already honoured by the
+ * interceptor chain from any state, so this is simply telling the customer about
+ * a control that exists. A marketing message without it is one the recipient can
+ * only escape by blocking the number — and a blocked number stops delivering
+ * appointment reminders too.
+ */
+export const optOutLine = 'Reply STOP to stop these messages.';
+
+/**
+ * "It's been a while" — §6.1.
+ *
+ * Names the service they actually had, because that is the whole difference
+ * between this and a mailshot: the customer can tell it was written about them.
+ * BOOK rather than a number, since a bare digit from an idle conversation is an
+ * opener that lands on the service menu — the word gets them the same menu and
+ * reads like an instruction instead of a guess.
+ *
+ * The gap is given in whole weeks. "It's been 37 days" is a database talking.
+ */
+export const rebookNudge = (details: {
+  firstName: string | null;
+  businessName: string;
+  serviceName: string | null;
+  weeksSince: number;
+}) => {
+  const hello = details.firstName ? `Hi ${details.firstName}` : 'Hi';
+  const what = details.serviceName ? `your ${details.serviceName}` : 'your last visit';
+  const when =
+    details.weeksSince <= 1 ? 'a week' : details.weeksSince >= 8 ? 'a while' : `${details.weeksSince} weeks`;
+
+  return (
+    `${hello} — it's been ${when} since ${what} at ${details.businessName}. ` +
+    `Would you like to book your next one?\n\n` +
+    `Reply BOOK and I'll show you what's free.\n\n${optOutLine}`
+  );
+};
+
+/**
+ * The broadcast the owner is offered before they write their own — §6.2.
+ *
+ * A default rather than a blank box, because the owner this is built for has
+ * never written a marketing message and a blank box is where the feature stops
+ * being used. It says nothing that is not true of every business here, and it
+ * invents no offer: a discount is the owner's decision to make, not a template's.
+ */
+export const campaignTemplate = (businessName: string) =>
+  `We haven't seen you at ${businessName} in a while — we'd love to have you back. ` +
+  `Reply BOOK and I'll show you what's free this week.`;
+
+/** An owner's message, with the opt-out line added if they have not written one. */
+export const campaignMessage = (body: string) =>
+  /\bstop\b/i.test(body) ? body.trim() : `${body.trim()}\n\n${optOutLine}`;

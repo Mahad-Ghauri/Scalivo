@@ -8,7 +8,6 @@ import {
 } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
 import { Business } from '../models/Business.js';
-import { Client } from '../models/Client.js';
 import { Notification } from '../models/Notification.js';
 import { Review } from '../models/Review.js';
 import { Service } from '../models/Service.js';
@@ -17,6 +16,7 @@ import { logger } from '../lib/logger.js';
 import * as copy from '../whatsapp/messages.js';
 import { writePendingPrompt } from '../whatsapp/state.js';
 import { sendTracked, type SendDeps } from '../notifications/send.js';
+import { NOT_ELIGIBLE, marketingEligibility } from '../retention/eligibility.js';
 
 /**
  * Asking how it went — SPEC §9.1, once per appointment.
@@ -132,9 +132,16 @@ export async function requestReviewsFor(
      * reminder is owed regardless. A review request is not owed to anybody: it
      * is the business asking a favour to build its own reputation, which is
      * exactly what `STOP` said no to.
+     *
+     * Through the shared check, which is a FIX rather than a tidy-up: this used
+     * to read `Client.marketingOptOut` — a field on the global person document
+     * that nothing has ever written — while STOP writes the per-business flag on
+     * ClientProfile. The opt-out looked honoured and was not. Only the quiet
+     * period is skipped: a rating request is about an appointment that just
+     * happened, and asking a fortnight later is not asking.
      */
-    const client = await Client.findById(booking.clientId).select('marketingOptOut');
-    if (client?.marketingOptOut) continue;
+    const eligibility = await marketingEligibility(businessId, booking.clientId, now);
+    if (!eligibility.ok && eligibility.reason === NOT_ELIGIBLE.OPTED_OUT) continue;
 
     const service = await Service.findById(booking.serviceId).select('name');
 

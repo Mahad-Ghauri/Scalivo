@@ -272,7 +272,17 @@ describe.skipIf(!infraUp)('review collection', () => {
     });
 
     it('honours a marketing opt-out, unlike a confirmation or a reminder', async () => {
-      await Client.updateOne({ _id: clientId }, { $set: { marketingOptOut: true } });
+      /**
+       * Opted out the way a customer actually does it, rather than by writing the
+       * flag this code happens to read.
+       *
+       * That distinction is the whole test. It previously set
+       * `Client.marketingOptOut` — a field on the global person document that
+       * nothing in production has ever written — while `STOP` writes the
+       * per-business flag on ClientProfile. The test passed and the feature did
+       * not work: a customer who opted out kept being asked for ratings.
+       */
+      await say('STOP');
       await completedBooking(REVIEW_REQUEST_DELAY_MINUTES + 10);
 
       await runPass();
