@@ -48,6 +48,12 @@ export async function handleInboundMessage(
   // a booking bot answering every message in a family group is a support ticket.
   if (message.fromMe || message.isGroup) return;
 
+  // Nothing a person sent: linking a device makes WhatsApp emit protocol events
+  // for existing contacts, which arrive as type 'unknown' with no body. Checked
+  // before identity so they create no client either. Media stays — a voice note
+  // is a customer talking, and gets the invalid-input reply.
+  if (!message.body.trim() && !message.hasMedia) return;
+
   // ── Stage 2: identity ────────────────────────────────────────────────────
   // sessionId is the only routing key an inbound event carries, and it is on
   // the envelope, not inside `data`.

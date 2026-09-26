@@ -74,6 +74,24 @@ function isNo(text: string): boolean {
 }
 
 /**
+ * Does an opening message read like someone starting a conversation?
+ *
+ * Deliberately generous — a greeting or booking word anywhere in the message is
+ * enough — because a miss costs only the welcome line: everything else still
+ * gets the menu, just after an apology instead of a "Welcome back".
+ *
+ * A bare number counts: it is a customer answering a menu whose conversation
+ * timed out, which is someone clearly trying to book, not gibberish.
+ */
+function isOpener(text: string): boolean {
+  return (
+    /^\s*\d+\s*$/.test(text) ||
+    /\b(h+i+|he+y+|hel+o+|hy|salaa?m|slam|as+ala+m\w*|aoa|book\w*|appointments?|menu|services?|prices?|rates?)\b/i.test(text) ||
+    /سلام/.test(text)
+  );
+}
+
+/**
  * Re-prompt, or hand over to a human.
  *
  * The counter resets on every valid input, so this counts consecutive
@@ -351,8 +369,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
   // IDLE — the absence of a key, not a stored state.
   if (!conversation) {
     const opening = await promptService(ctx, {});
+    const lead = isOpener(ctx.text) ? copy.greeting(ctx.businessName, ctx.firstName) : copy.notUnderstood;
     return {
-      replies: [copy.greeting(ctx.businessName, ctx.firstName), ...opening.replies],
+      replies: [lead, ...opening.replies],
       conversation: opening.conversation,
     };
   }
@@ -467,7 +486,22 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
       // The customer's own cancellation: a paid deposit comes back only with
       // enough notice (payments/settle.ts).
       await cancelBooking(conversation.bookingId!, ctx.businessId, 'customer');
-      return { replies: [copy.cancelled], conversation: null };
+      return offerRebook(ctx, conversation.bookingId!);
+    }
+
+    case CONVERSATION_STATE.OFFERING_REBOOK: {
+      const answer = ctx.text.trim();
+      if (answer === '2' || isNo(answer)) return { replies: [copy.rebookDeclined], conversation: null };
+      if (answer !== '1' && !isYes(answer)) {
+        return invalid(ctx, conversation, 'Reply 1 to book another day, or 2 if not.');
+      }
+
+      return promptDate(redis, ctx, {
+        state: CONVERSATION_STATE.SELECTING_DATE,
+        serviceId: conversation.serviceId!,
+        ...(conversation.staffId ? { staffId: conversation.staffId } : {}),
+        invalidCount: 0,
+      });
     }
 
     case CONVERSATION_STATE.AWAITING_RATING: {
@@ -554,6 +588,38 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     case CONVERSATION_STATE.RESCHEDULING:
       return { replies: [], conversation: null };
   }
+}
+
+/**
+ * "Cancelled" plus an offer to book the same thing on another day.
+ *
+ * The staff member carries over only while they can still take it — an offer
+ * naming someone who has since left would end in "nothing available". If the
+ * service itself is gone there is nothing to offer, so the cancel ends there.
+ */
+async function offerRebook(ctx: TurnContext, bookingId: string): Promise<TurnResult> {
+  const booking = await Booking.findOne({ _id: bookingId, businessId: ctx.businessId });
+  const service = booking
+    ? await Service.findOne({ _id: booking.serviceId, businessId: ctx.businessId, active: true })
+    : null;
+  if (!booking || !service) return { replies: [copy.cancelled], conversation: null };
+
+  const staff = await Staff.findOne({
+    _id: booking.staffId,
+    businessId: ctx.businessId,
+    active: true,
+    serviceIds: booking.serviceId,
+  });
+
+  return {
+    replies: [copy.cancelled, copy.rebookOffer({ serviceName: service.name, staffName: staff?.name ?? null })],
+    conversation: {
+      state: CONVERSATION_STATE.OFFERING_REBOOK,
+      serviceId: String(service._id),
+      ...(staff ? { staffId: String(staff._id) } : {}),
+      invalidCount: 0,
+    },
+  };
 }
 
 /** Build the CANCELLING / RESCHEDULING prompt from the customer's real bookings. */

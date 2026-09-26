@@ -38,6 +38,12 @@ export const CONVERSATION_STATE = {
   SELECTING_BOOKING: 'selecting_booking',
   RESCHEDULING: 'rescheduling',
   CANCELLING: 'cancelling',
+  /**
+   * Straight after a cancel: "book the same thing on another day?" Carries the
+   * cancelled booking's serviceId/staffId, never its bookingId — a yes starts a
+   * new booking, and a bookingId would make commit() treat it as a reschedule.
+   */
+  OFFERING_REBOOK: 'offering_rebook',
   HELP: 'help',
 } as const;
 

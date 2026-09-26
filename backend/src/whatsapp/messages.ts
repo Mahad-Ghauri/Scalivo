@@ -144,6 +144,9 @@ export const nothingAvailable = (serviceName: string) =>
 
 export const invalidInput = 'Sorry, I didn\'t catch that. Reply with one of the numbers above.';
 
+/** An opener that is not a greeting or a booking word. The menu follows it. */
+export const notUnderstood = "Sorry, I didn't understand that.";
+
 export const tooManyInvalid = (businessName: string) =>
   `Sorry, I'm not following. Reply HELP and someone from ${businessName} will message you directly.`;
 
@@ -162,6 +165,14 @@ export const cancelPrompt = (details: { serviceName: string; startsAt: Date; tim
   `Reply YES to cancel or NO to keep it.`;
 
 export const cancelled = 'Your appointment has been cancelled.';
+
+/** Sent after `cancelled`. Staff is named only when they can still take the booking. */
+export const rebookOffer = (details: { serviceName: string; staffName: string | null }) =>
+  `Would you like to book ${details.serviceName}` +
+  `${details.staffName ? ` with ${details.staffName}` : ''} on another day?\n\n` +
+  `${numbered(['Yes', 'No'])}\n\nReply with a number.`;
+
+export const rebookDeclined = 'No problem. Message us any time to book again.';
 
 export const cancelKept = 'No problem — your appointment is unchanged.';
 

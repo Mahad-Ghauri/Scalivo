@@ -225,6 +225,23 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     expect(await say('hi')).toContain('Sana');
   });
 
+  it('welcomes the common ways of opening a chat', async () => {
+    for (const opening of ['hello', 'Assalam o Alaikum', 'AOA', 'I want to book']) {
+      await redis.flushdb();
+      expect(await say(opening), opening).toContain('Welcome');
+    }
+  });
+
+  // A "Welcome back" in answer to gibberish reads as the bot not listening. The
+  // menu still follows, so a real customer who typo'd their opener is not stuck.
+  it('apologises for an unrecognised opener, then shows the menu anyway', async () => {
+    const reply = await say('Dhhdjd');
+    expect(reply).toContain("didn't understand");
+    expect(reply).not.toContain('Welcome');
+    expect(reply).toContain('Hydrafacial');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SERVICE);
+  });
+
   describe('global commands beat the FSM', () => {
     it('honours STOP mid-booking and discards the conversation', async () => {
       await walkToConfirming();
@@ -289,6 +306,39 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       expect(await say('yes')).toContain('cancelled');
       expect((await Booking.findById(booking!._id))?.status).toBe(BOOKING_STATUS.CANCELLED);
       expect(await SlotOccupancy.countDocuments({ bookingId: String(booking!._id) })).toBe(0);
+    });
+
+    it('offers to rebook the same service and staff after a cancel', async () => {
+      await walkToConfirming();
+      await say('yes');
+      const booking = await Booking.findOne({ businessId, clientId });
+      const staff = await Staff.findById(booking!.staffId);
+
+      await say('CANCEL');
+      const reply = await say('yes');
+      expect(reply).toContain('cancelled');
+      expect(reply).toContain('another day');
+      expect(reply).toContain(`Hydrafacial with ${staff!.name}`);
+      expect((await conversation())?.state).toBe(CONVERSATION_STATE.OFFERING_REBOOK);
+
+      expect(await say('1')).toContain('Which day');
+      const next = await conversation();
+      expect(next?.state).toBe(CONVERSATION_STATE.SELECTING_DATE);
+      expect(next?.serviceId).toBe(hydrafacial);
+      expect(next?.staffId).toBe(booking!.staffId);
+      // A fresh booking, not a reschedule: carrying the cancelled booking's id
+      // would have commit() try to cancel it a second time.
+      expect(next?.bookingId).toBeUndefined();
+    });
+
+    it('ends the conversation when the rebook offer is declined', async () => {
+      await walkToConfirming();
+      await say('yes');
+      await say('CANCEL');
+      await say('yes');
+
+      expect(await say('no')).toContain('No problem');
+      expect(await conversation()).toBeNull();
     });
 
     it('keeps the booking when a cancel is declined', async () => {
@@ -470,6 +520,18 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
 
       await say('hi', { fromMe: true });
       expect(provider.sent).toHaveLength(0);
+    });
+
+    // Linking a device makes WhatsApp emit protocol events (key distribution,
+    // sync) for existing contacts, and OpenWA surfaces them as message.received
+    // with type 'unknown' and no body. Answering them sent the booking menu to
+    // people who had never written to the business.
+    it('ignores an empty non-media event, and creates no client for it', async () => {
+      const ghostLid = '99999999999999@lid';
+      await Client.deleteMany({ lids: ghostLid });
+      await say('', { type: 'unknown', body: '', contactLid: ghostLid, contactPhone: '923330000000' });
+      expect(provider.sent).toHaveLength(0);
+      expect(await Client.findOne({ lids: ghostLid })).toBeNull();
     });
 
     it('ignores a message for a session no business owns', async () => {
