@@ -26,6 +26,13 @@ import { logger } from '../lib/logger.js';
 export const PUSH_CHANNEL = {
   BOOKINGS: 'scalivo.bookings',
   SESSION_HEALTH: 'scalivo.session_health',
+  /**
+   * The agent's briefings (SPEC §11). A third channel for the same reason there
+   * is a second one: an owner who does not want a summary every morning must be
+   * able to silence that WITHOUT silencing the outage alarm. One channel for both
+   * would make the daily briefing the thing that hides "customers cannot book".
+   */
+  BRIEFING: 'scalivo.briefings',
 } as const;
 
 let app: App | null = null;

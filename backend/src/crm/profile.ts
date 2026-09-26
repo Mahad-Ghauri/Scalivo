@@ -3,6 +3,7 @@ import { Booking } from '../models/Booking.js';
 import { Client } from '../models/Client.js';
 import { ClientProfile } from '../models/ClientProfile.js';
 import { logger } from '../lib/logger.js';
+import { attributeRebooking } from '../retention/attribute.js';
 import {
   averageGapDays,
   computeTags,
@@ -36,6 +37,7 @@ export async function recordBooking(
   businessId: string,
   clientId: string,
   bookedAt: Date,
+  bookingId?: string,
 ): Promise<void> {
   await ClientProfile.updateOne(
     { businessId, clientId },
@@ -45,6 +47,14 @@ export async function recordBooking(
     },
     { upsert: true, setDefaultsOnInsert: true },
   );
+
+  /**
+   * Retention's conversion numerator (§6.3), stamped here because this is the
+   * one function every booking passes through — WhatsApp, web and the owner's
+   * own calendar alike. Attributing it at the three call sites instead would
+   * mean three chances for one of them to drift.
+   */
+  if (bookingId) await attributeRebooking(businessId, clientId, bookingId, bookedAt);
 }
 
 /**

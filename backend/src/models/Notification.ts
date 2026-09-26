@@ -24,21 +24,57 @@ const notificationSchema = new Schema(
   {
     businessId: { type: String, required: true, index: true },
     clientId: { type: String, required: true },
-    bookingId: { type: String, required: true },
+
+    /**
+     * The appointment this is about — absent for marketing.
+     *
+     * Required until retention (§6) shipped, and it could not stay that way: a
+     * rebooking nudge exists precisely BECAUSE there is no appointment, and a
+     * broadcast is about a person. Optional rather than a second collection,
+     * because everything else on this row — the dedupe claim, the delivery
+     * status, the ack that moves it — is identical for both, and splitting them
+     * would mean two answers to "did this customer ever hear from us".
+     */
+    bookingId: { type: String, default: null },
+
+    /**
+     * The broadcast this send belongs to (§6.2).
+     *
+     * Present only on CAMPAIGN rows, and it is what makes a campaign's outcome a
+     * query over these rows rather than a set of counters that drift: delivered
+     * is an ack, replied and rebooked are stamped below, and none of it has to
+     * be aggregated at send time and hoped to be right later.
+     */
+    campaignId: { type: String, default: null },
 
     kind: { type: String, enum: Object.values(NOTIFICATION_KIND), required: true },
 
     /**
-     * The claim. `<bookingId>:confirmation`, `<bookingId>:reminder:1440`.
+     * The claim. `<bookingId>:confirmation`, `<bookingId>:reminder:1440`,
+     * `nudge:<clientId>:<lastVisitDay>`, `campaign:<campaignId>:<clientId>`.
      *
-     * Built from the booking and the lead time rather than from a timestamp, so
-     * that re-running a tick, restarting the process, or changing the schedule
-     * cannot manufacture a second identity for the same message.
+     * Built from the thing itself rather than from a timestamp, so that
+     * re-running a tick, restarting the process, or changing the schedule cannot
+     * manufacture a second identity for the same message. The nudge key is keyed
+     * on the visit they are lapsing FROM, which is what makes it one nudge per
+     * lapse instead of one per day for as long as they stay away.
      */
     dedupeKey: { type: String, required: true, unique: true },
 
     /** The LID or phone the message was addressed to, as resolved at send time. */
     to: { type: String, default: null },
+
+    /**
+     * Had this business never reached this person before? (§6.5, FINDING #3.)
+     *
+     * Recorded at claim time on marketing sends, because it is unrecoverable
+     * afterwards — the moment the message is delivered, the contact is no longer
+     * cold, and the one number an owner needs ("how many of those 40 had never
+     * messaged me?") could never be reconstructed. It is also what the stricter
+     * daily cap counts, and the honest explanation for a campaign whose delivery
+     * rate is poor.
+     */
+    coldContact: { type: Boolean, default: false },
 
     /**
      * What was said — or would have been.
@@ -74,6 +110,20 @@ const notificationSchema = new Schema(
 
     attempts: { type: Number, default: 0 },
     lastError: { type: String, default: null },
+
+    /**
+     * Attribution for a marketing message (§6.3), stamped when the thing
+     * happens rather than inferred when the report is read.
+     *
+     * Both are written once and never moved — the first reply and the first
+     * booking inside the attribution window are the ones that belong to this
+     * message. Computing them at read time was the alternative and it is worse
+     * in the way that matters: the window is measured from the send, so a report
+     * run six months later would have to reconstruct what "within two weeks"
+     * meant then, and would quietly change its own history.
+     */
+    repliedAt: { type: Date, default: null },
+    rebookedBookingId: { type: String, default: null },
   },
   { timestamps: true },
 );
@@ -86,5 +136,18 @@ notificationSchema.index({ businessId: 1, status: 1, scheduledFor: 1 });
 
 /** Reading a booking's message history, for the owner's timeline and for tests. */
 notificationSchema.index({ bookingId: 1, kind: 1 });
+
+/**
+ * Two retention reads, both hot enough to earn an index.
+ *
+ * The first is the attribution write on every inbound message and every booking:
+ * "has this client had a marketing message lately?" Unindexed it would scan a
+ * business's whole message history on each customer reply.
+ *
+ * The second is a campaign's report and its drain pass, which both work through
+ * one campaign's recipients.
+ */
+notificationSchema.index({ businessId: 1, clientId: 1, kind: 1, scheduledFor: -1 });
+notificationSchema.index({ campaignId: 1, status: 1 }, { sparse: true });
 
 export const Notification = model('Notification', notificationSchema);

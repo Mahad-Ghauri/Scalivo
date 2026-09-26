@@ -59,6 +59,25 @@ const clientProfileSchema = new Schema(
      * opt-out has to survive them being a happy customer somewhere else.
      */
     marketingOptOut: { type: Boolean, default: false },
+
+    /**
+     * When they said STOP. Null while they are opted in.
+     *
+     * A timestamp rather than just the flag, because §6.3 asks for opted-out as a
+     * campaign OUTCOME, and a flag cannot say which message provoked it. Without
+     * this, every campaign after the one that upset somebody would keep counting
+     * their opt-out as its own.
+     */
+    marketingOptOutAt: { type: Date, default: null },
+
+    /**
+     * The last unsolicited message of any kind — nudge or broadcast.
+     *
+     * The over-messaging guard (§6.5) reads this, which is why it is one field
+     * and not one per campaign: a customer targeted by three campaigns in a month
+     * must hear once, and each campaign counting only its own sends is how all
+     * three arrive.
+     */
     lastMarketingMessageAt: { type: Date, default: null },
 
     /**

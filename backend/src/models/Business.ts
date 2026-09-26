@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import {
+  DEFAULT_BRIEFING_HOUR,
   DEFAULT_BOOKING_HORIZON_DAYS,
   DEFAULT_MIN_NOTICE_MINUTES,
   DEFAULT_REMINDER_LEAD_MINUTES,
@@ -84,6 +85,46 @@ const businessSchema = new Schema(
         type: [Number],
         default: () => [...DEFAULT_REMINDER_LEAD_MINUTES],
       },
+    },
+
+    retention: {
+      /**
+       * The automatic rebooking nudges (SPEC §6.1).
+       *
+       * On by default, which is only defensible because of the lateness bound in
+       * NUDGE_MAX_LATE_DAYS: switching this on cannot message everyone who has
+       * ever drifted, only those who crossed their own return window in the last
+       * three weeks. Without that bound the default would have to be off, and a
+       * retention feature nobody switches on is a retention feature that does
+       * not exist.
+       *
+       * Off is still a real choice, exactly as it is for reminders — a business
+       * whose owner would rather phone people themselves is not misconfigured.
+       */
+      nudges: { type: Boolean, default: true },
+    },
+
+    /**
+     * The agent (SPEC §11) — the daily briefing, the Monday summary, the alerts.
+     *
+     * On by default like the nudges, and for a weaker-looking but sufficient
+     * reason: nothing here reaches a customer. The worst an unwanted briefing
+     * costs is a notification the owner turns off, which is not the same class of
+     * mistake as an unwanted message to somebody's phone.
+     */
+    agent: {
+      briefings: { type: Boolean, default: true },
+
+      /**
+       * Business-local hour for the daily briefing, bounded by
+       * BRIEFING_HOUR_RANGE at the route. A salon that opens at noon does not
+       * want 7am, and the owner of a gym that opens at six wants it earlier than
+       * the spec's default.
+       */
+      hour: { type: Number, default: DEFAULT_BRIEFING_HOUR },
+
+      /** See AgentSettings.whatsappTo — why this is null by default. */
+      whatsappTo: { type: String, default: null },
     },
 
     /** Hidden from the marketplace until the minimum profile fields are set. */
