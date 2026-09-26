@@ -69,6 +69,20 @@ const schema = z.object({
    */
   PAYMENT_PROVIDER: z.enum(['simulated', 'jazzcash']).default('simulated'),
 
+  /**
+   * Gemini, for the agent's phrasing (SPEC §11). OPTIONAL, and meant to be.
+   *
+   * Without it every briefing still goes out, written from the templates in
+   * agent/templates.ts — the LLM only rewrites prose that was already correct, so
+   * a missing key costs wording and nothing else. Keeping it optional is what
+   * makes that claim testable rather than aspirational: the whole agent runs, and
+   * is demonstrated, with no credential at all.
+   */
+  GEMINI_API_KEY: z.string().optional(),
+
+  /** Flash rather than Pro: the task is a one-paragraph rewrite on a deadline. */
+  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+
   /** JazzCash merchant portal → Integration. Sandbox values until a live account exists. */
   JAZZCASH_MERCHANT_ID: z.string().optional(),
   JAZZCASH_PASSWORD: z.string().optional(),

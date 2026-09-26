@@ -415,7 +415,12 @@ export async function createBooking(
   // updated AFTER the commit and outside the transaction: a failure here must
   // never roll back a booking the customer has been told they have. Any drift
   // it causes is repairable with recomputeProfile().
-  await recordBooking(request.businessId, request.clientId, doc.createdAt ?? now).catch((err) =>
+  await recordBooking(
+    request.businessId,
+    request.clientId,
+    doc.createdAt ?? now,
+    String(bookingId),
+  ).catch((err) =>
     logger.error({ err, businessId: request.businessId }, 'could not update the client profile'),
   );
 

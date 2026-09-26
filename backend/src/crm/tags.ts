@@ -74,6 +74,22 @@ export function nextExpectedVisitAt(profile: TaggableProfile): Date | null {
   return new Date(profile.lastVisitAt.getTime() + gap * DAY_MS);
 }
 
+/**
+ * The instant they crossed into AT_RISK, or null when there is no cadence to be
+ * late against.
+ *
+ * Exported for the retention pass (SPEC §6.1), which needs to know not just
+ * whether someone is at risk but *when they became* it — a nudge is worth
+ * sending in the weeks after that moment and not two years later. Deriving it
+ * there would mean a second copy of the multiplier, and two copies of a
+ * threshold is how a tag and the message about the tag come to disagree.
+ */
+export function atRiskSince(profile: TaggableProfile): Date | null {
+  const gap = averageGapDays(profile);
+  if (gap === null || !profile.lastVisitAt) return null;
+  return new Date(profile.lastVisitAt.getTime() + gap * AT_RISK_GAP_MULTIPLIER * DAY_MS);
+}
+
 export interface TagContext {
   /** An appointment already on the books. Someone booked is not lapsing. */
   hasUpcomingBooking: boolean;
