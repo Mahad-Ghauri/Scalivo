@@ -1,9 +1,11 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth/user';
 import { fetchApi } from '@/lib/api-client';
-import { type CalendarView, BOOKING_STATUS } from '@scalivo/shared';
+import { type BriefingFeed, type CalendarView, BOOKING_STATUS } from '@scalivo/shared';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { AppointmentList } from '@/components/dashboard/AppointmentList';
+import { BriefingCard } from '@/components/dashboard/agent/BriefingCard';
 import { formatPrice } from '@/lib/marketplace';
 
 interface Props {
@@ -47,9 +49,13 @@ export default async function DashboardOverviewPage({ params }: Props) {
   // Parallel fetch pattern (BFF orchestration)
   // Calendar returns a grouped view bounded by the requested local dates.
   // Clients query fetches only the count (limit=1) to avoid loading the whole collection.
-  const [calendarView, clientsData] = await Promise.all([
+  const [calendarView, clientsData, feed] = await Promise.all([
     fetchApi<CalendarView>(`/businesses/${businessId}/calendar?from=${todayStr}&to=${endWindowStr}`),
     fetchApi<{ total: number }>(`/businesses/${businessId}/clients?limit=1`),
+    // The agent's latest (SPEC §11). Caught rather than awaited strictly: a
+    // summary is the least important thing on this page and must never be the
+    // reason the diary fails to load.
+    fetchApi<BriefingFeed>(`/businesses/${businessId}/agent/briefings?limit=1`).catch(() => null),
   ]);
 
   if (!calendarView || !clientsData) {
@@ -89,6 +95,8 @@ export default async function DashboardOverviewPage({ params }: Props) {
     .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
     .slice(0, 5);
 
+  const latest = feed?.briefings[0] ?? null;
+
   return (
     <div className="space-y-8">
       <div>
@@ -97,6 +105,27 @@ export default async function DashboardOverviewPage({ params }: Props) {
           Welcome to your {business.name} dashboard.
         </p>
       </div>
+
+      {/*
+        The agent's latest, above the numbers (SPEC §11).
+
+        First on the page because it is the only thing here that has already done
+        the reading for the owner — the stat cards below tell them what happened,
+        this tells them what it means and what to do about it. It is also how an
+        owner who never taps a notification still meets the feature.
+      */}
+      {latest && (
+        <section>
+          <BriefingCard businessId={businessId} briefing={latest} timezone={timezone} />
+          <Link
+            href={`/dashboard/${businessId}/briefings`}
+            className="mt-2 inline-block text-[14px] font-semibold text-brand hover:underline"
+          >
+            Everything Scalivo has told you
+            {feed && feed.unread > 1 ? ` · ${feed.unread} unread` : ''}
+          </Link>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard 

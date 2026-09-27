@@ -34,6 +34,16 @@ const feedQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(DEFAULT_FEED_SIZE),
 });
 
+/**
+ * The development trigger's optional clock.
+ *
+ * Without it, the pass can only ever be exercised at whatever time it happens to
+ * be — so the weekly summary is testable on Mondays and the 7am briefing is
+ * testable between seven and eleven. Both of those are the code paths most worth
+ * checking by hand, and neither should require waiting for a particular morning.
+ */
+const runBody = z.object({ at: z.coerce.date().optional() });
+
 const settingsBody = z.object({
   enabled: z.boolean().optional(),
   hour: z.number().int().min(BRIEFING_HOUR_RANGE.min).max(BRIEFING_HOUR_RANGE.max).optional(),
@@ -160,9 +170,15 @@ export function createAgentRouter(deps: SendDeps): Router {
    * Refused in production, where a route that manufactures owner notifications on
    * request is a way to push whatever the caller likes to somebody's phone.
    */
-  router.post('/:businessId/agent/run', ...guard, async (req, res) => {
+  router.post('/:businessId/agent/run', ...guard, json, async (req, res) => {
     if (env.NODE_ENV === 'production') {
       res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    const parsed = runBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid request', fields: fieldErrors(parsed.error) });
       return;
     }
 
@@ -172,7 +188,7 @@ export function createAgentRouter(deps: SendDeps): Router {
       return;
     }
 
-    const results = await briefBusiness(deps, business);
+    const results = await briefBusiness(deps, business, parsed.data.at ?? new Date());
     res.json({
       sent: results.filter((result) => result.sent).length,
       // Naming what was skipped and why, because "sent: 0" on a demo is otherwise

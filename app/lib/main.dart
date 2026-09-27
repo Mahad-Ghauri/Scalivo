@@ -71,6 +71,11 @@ class _RootState extends State<_Root> {
     // on Home and making a worried owner hunt for the fix wastes the minutes
     // the alert bought.
     push.onNotificationTap((route) {
+      // Only '/qr' has a screen to open. A briefing's route ('/briefings') falls
+      // through deliberately: the notification body IS the whole briefing, so a
+      // tap that does nothing costs the owner nothing, and the archive lives on
+      // the web dashboard. A Flutter screen for it belongs with the rest of the
+      // app's build-out, not wedged into the agent.
       if (route != '/qr') return;
       navigatorKey.currentState?.push(
         MaterialPageRoute<void>(builder: (_) => const QrScreen()),

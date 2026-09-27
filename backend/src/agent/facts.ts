@@ -60,17 +60,41 @@ export async function rosterMinutes(
   localDate: string,
   timezone: string,
 ): Promise<number> {
+  return minutesOn(await loadRoster(businessId), localDate, timezone);
+}
+
+/** One shift, as the schema stores it: local wall clock, Sunday-0. */
+interface Shift {
+  dayOfWeek: number;
+  opensAt: string;
+  closesAt: string;
+  breaks?: { startsAt?: string | null; endsAt?: string | null }[];
+}
+
+/**
+ * The roster, read once.
+ *
+ * The alert detectors ask about a month of days at a time — twenty-eight for the
+ * baseline and up to six ahead — and a query per day turns one pass into sixty
+ * round trips per business. The working hours do not change between those
+ * questions, so they are loaded once and the arithmetic is done in memory.
+ */
+export async function loadRoster(businessId: string): Promise<Shift[][]> {
+  const staff = await Staff.find({ businessId, active: true }).select('workingHours');
+  return staff.map((member) => (member.workingHours ?? []) as Shift[]);
+}
+
+/** Staffed minutes on one local date, from an already-loaded roster. */
+export function minutesOn(roster: Shift[][], localDate: string, timezone: string): number {
   const day = DateTime.fromISO(localDate, { zone: timezone });
   if (!day.isValid) return 0;
 
   // Luxon's Monday-1..Sunday-7 against the schema's Sunday-0.
   const dayOfWeek = day.weekday === 7 ? 0 : day.weekday;
 
-  const staff = await Staff.find({ businessId, active: true }).select('workingHours');
-
   let minutes = 0;
-  for (const member of staff) {
-    for (const shift of member.workingHours ?? []) {
+  for (const member of roster) {
+    for (const shift of member) {
       if (shift.dayOfWeek !== dayOfWeek) continue;
 
       const open = clock(shift.opensAt);

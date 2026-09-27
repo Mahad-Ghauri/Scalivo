@@ -18,7 +18,10 @@ import { Briefing } from '../models/Briefing.js';
 import { Campaign } from '../models/Campaign.js';
 import { buildAudience } from '../retention/audience.js';
 import { toBusinessLocal } from '../lib/time.js';
-import { countOnDate, noShowWindow, rosterMinutes } from './facts.js';
+import { countOnDate, loadRoster, minutesOn, noShowWindow } from './facts.js';
+
+/** The working hours of every active staff member, loaded once per pass. */
+type Roster = Awaited<ReturnType<typeof loadRoster>>;
 
 /**
  * The thresholds — SPEC §11.1's event-driven triggers.
@@ -73,9 +76,13 @@ export async function detectAlerts(
   timezone: string,
   now: Date,
 ): Promise<AlertCandidate[]> {
+  // Loaded once and passed down: the empty-day detector asks about a month of
+  // days, and a roster query per day would make one pass sixty round trips.
+  const roster = await loadRoster(businessId);
+
   const found = await Promise.all([
     noShowSpike(businessId, now),
-    emptyDayAhead(businessId, timezone, now),
+    emptyDayAhead(businessId, timezone, now, roster),
     lapsedPileup(businessId, timezone, now),
   ]);
 
@@ -138,8 +145,9 @@ async function emptyDayAhead(
   businessId: string,
   timezone: string,
   now: Date,
+  roster: Roster,
 ): Promise<AlertCandidate | null> {
-  const typical = await typicalDay(businessId, timezone, now);
+  const typical = await typicalDay(businessId, timezone, now, roster);
   if (typical < EMPTY_DAY_MIN_BASELINE) return null;
 
   for (let offset = EMPTY_DAY_HORIZON.min; offset <= EMPTY_DAY_HORIZON.max; offset++) {
@@ -149,7 +157,7 @@ async function emptyDayAhead(
     // Not staffed is a day off, not an empty day. Alerting on a Sunday the
     // business chooses to close is the single fastest way to lose an owner's
     // trust in everything else the agent says.
-    if ((await rosterMinutes(businessId, date, timezone)) === 0) continue;
+    if (minutesOn(roster, date, timezone) === 0) continue;
     if ((await countOnDate(businessId, date, timezone)) > 0) continue;
 
     return {
@@ -168,7 +176,12 @@ async function emptyDayAhead(
 }
 
 /** Appointments per staffed day over the last four weeks — the business's own normal. */
-async function typicalDay(businessId: string, timezone: string, now: Date): Promise<number> {
+async function typicalDay(
+  businessId: string,
+  timezone: string,
+  now: Date,
+  roster: Roster,
+): Promise<number> {
   let staffedDays = 0;
   let appointments = 0;
 
@@ -179,7 +192,7 @@ async function typicalDay(businessId: string, timezone: string, now: Date): Prom
     // Closed days are excluded from both halves of the average. Including them
     // would drag a six-day business's normal down by a seventh and make its
     // genuinely empty Tuesdays look ordinary.
-    if ((await rosterMinutes(businessId, date, timezone)) === 0) continue;
+    if (minutesOn(roster, date, timezone) === 0) continue;
 
     staffedDays += 1;
     appointments += await countOnDate(businessId, date, timezone);

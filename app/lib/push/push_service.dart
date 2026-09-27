@@ -23,6 +23,15 @@ abstract final class PushChannels {
   /// High priority, sound, sticky. This is the one that matters.
   static const sessionHealth = 'scalivo.session_health';
   static const sessionHealthName = 'WhatsApp connection';
+
+  /// The agent's daily and weekly summaries, and its alerts (SPEC §11).
+  ///
+  /// A third channel for the same reason there is a second one: a summary arrives
+  /// every single morning, which makes it the most likely thing an owner ever
+  /// wants to silence. Sharing a channel with bookings would take their booking
+  /// pings with it; sharing one with the alarm would be unforgivable.
+  static const briefings = 'scalivo.briefings';
+  static const briefingsName = 'Daily summary';
 }
 
 /// Data-payload key the backend sets so the app knows where to send someone.
@@ -126,7 +135,7 @@ class PushService {
     }());
   }
 
-  /// Creates the two channels above. Android needs them to exist before the
+  /// Creates the three channels above. Android needs them to exist before the
   /// first notification arrives, or it silently uses a default channel — and a
   /// default channel is one the owner can mute along with everything else.
   Future<void> ensureChannels() async {
@@ -166,6 +175,17 @@ class PushService {
           enableVibration: true,
         ),
       );
+
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          PushChannels.briefings,
+          PushChannels.briefingsName,
+          description: 'Your morning summary, the Monday look back, and things worth your attention.',
+          // Default rather than low: it should appear in the tray and be worth
+          // reading, but it must never make a sound at seven in the morning.
+          importance: Importance.defaultImportance,
+        ),
+      );
     } catch (err) {
       debugPrint('[push] could not create channels: $err');
     }
@@ -181,6 +201,16 @@ class PushService {
     final channel = message.data['channel'] as String? ?? PushChannels.bookings;
     final isAlarm = channel == PushChannels.sessionHealth;
 
+    // The name has to match the channel that was created under this id, or a
+    // notification arriving before ensureChannels ran would register a channel
+    // the owner sees under the wrong label in their system settings — and Android
+    // never renames a channel once it exists.
+    final name = switch (channel) {
+      PushChannels.sessionHealth => PushChannels.sessionHealthName,
+      PushChannels.briefings => PushChannels.briefingsName,
+      _ => PushChannels.bookingsName,
+    };
+
     await _local.show(
       notification.hashCode,
       notification.title,
@@ -188,7 +218,7 @@ class PushService {
       NotificationDetails(
         android: AndroidNotificationDetails(
           channel,
-          isAlarm ? PushChannels.sessionHealthName : PushChannels.bookingsName,
+          name,
           importance: isAlarm ? Importance.max : Importance.defaultImportance,
           priority: isAlarm ? Priority.high : Priority.defaultPriority,
         ),

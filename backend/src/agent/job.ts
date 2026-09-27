@@ -131,15 +131,29 @@ export async function briefBusiness(
   const lateBy = now.getTime() - dailyDue.getTime();
 
   if (lateBy >= 0 && lateBy <= BRIEFING_MAX_LATE_MINUTES * 60_000) {
-    sent.push(
-      await deliverBriefing(deps, {
-        ...shared,
-        kind: BRIEFING_KIND.DAILY,
-        dedupeKey: `daily:${today}`,
-        scheduledFor: dailyDue,
-        facts: await dailyFacts(businessId, timezone, today),
-      }),
-    );
+    const facts = await dailyFacts(businessId, timezone, today);
+
+    /**
+     * Nothing booked and nobody rostered is a day off, not a quiet day.
+     *
+     * Briefing an owner at seven in the morning to tell them their closed Sunday
+     * is empty is the daily equivalent of the empty-day alert firing on a day the
+     * business chooses not to open — and it would happen every single week, which
+     * is how a summary becomes the notification someone turns off. A day with
+     * appointments on it is still briefed however the roster reads, because a
+     * walk-in booked onto a closed day is exactly the thing worth being told.
+     */
+    if (facts.appointments > 0 || facts.openHours > 0) {
+      sent.push(
+        await deliverBriefing(deps, {
+          ...shared,
+          kind: BRIEFING_KIND.DAILY,
+          dedupeKey: `daily:${today}`,
+          scheduledFor: dailyDue,
+          facts,
+        }),
+      );
+    }
   }
 
   /* --------------------------------------------------- the Monday summary */
