@@ -291,35 +291,42 @@ export async function parseIntent(text: string, vocabulary: Vocabulary): Promise
 
   if (reply === null) return null;
 
-  return readJson(reply);
+  return readIntentJson(reply);
 }
 
 /**
  * The model's reply, if it is the shape it was asked for.
  *
- * Fences get stripped because models add them even when told not to, and the
- * braces are located rather than assumed because a stray preamble is a formatting
- * slip, not a reason to send the customer to the menu. Anything else — bad JSON,
- * an array, a number where a string belongs — is rejected whole. A partially
- * understood intent is worse than none: it would act on half a sentence.
+ * Reading between the first `{` and the last `}` is the whole tolerance, and it
+ * covers everything models actually do to a JSON reply: markdown fences, a
+ * "Here is the JSON:" preamble, a trailing remark, or one object wrapped in an
+ * array. Those are formatting slips, not reasons to send the customer to the menu.
+ *
+ * It is also all the validation the shape needs. Anything that is not a single
+ * object between those braces — prose, two objects, a truncated reply — fails to
+ * parse and lands in the catch, so a separate "is it an object" check would be
+ * unreachable. A missing or non-string field becomes null rather than failing the
+ * whole intent: a model that answers `"day": 6` has still read the service
+ * correctly, and there is no reason to discard the half it got right.
+ *
+ * Exported so the tolerances can be tested without a model to produce them — the
+ * shapes worth handling are known from what models actually do, not guessed.
  */
-function readJson(reply: string): RawIntent | null {
+export function readIntentJson(reply: string): RawIntent | null {
   const start = reply.indexOf('{');
   const end = reply.lastIndexOf('}');
   if (start === -1 || end <= start) return null;
 
-  let parsed: unknown;
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(reply.slice(start, end + 1));
+    parsed = JSON.parse(reply.slice(start, end + 1)) as Record<string, unknown>;
   } catch {
     logger.warn({ reply }, 'gemini returned something that is not JSON — falling back to the menu');
     return null;
   }
 
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-
   const field = (key: keyof RawIntent): string | null => {
-    const value = (parsed as Record<string, unknown>)[key];
+    const value = parsed[key];
     return typeof value === 'string' && value.trim() ? value.trim() : null;
   };
 
@@ -348,6 +355,15 @@ export function resolveIntent(
   raw: RawIntent,
   context: Vocabulary & { timezone: string; now: Date },
 ): ResolvedIntent {
+  /**
+   * A name that matches nothing resolves to nothing, and the customer gets the menu
+   * with no comment on it.
+   *
+   * Tempting to say "we don't offer that" instead, and wrong: the instruction tells
+   * the model to copy from the list, so a name that is not on the list means the
+   * model invented one. Denying a service on the strength of a word the customer may
+   * never have typed is worse than showing them what is available.
+   */
   const services = matchRows(raw.service, context.services);
   const serviceId = services.length === 1 ? (services[0] ?? null) : null;
 

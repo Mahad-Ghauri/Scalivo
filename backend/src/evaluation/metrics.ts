@@ -288,7 +288,24 @@ async function byOpener(
 ): Promise<OpenerCompletion[]> {
   const rows = await Promise.all(
     Object.values(FLOW_OPENER).map(async (opener): Promise<OpenerCompletion | null> => {
-      const mine = { ...started, opener };
+      /**
+       * `$in` with null rather than an equality match, and only this makes the
+       * baseline real.
+       *
+       * Every flow recorded before 3.2 has no `opener` field at all — a Mongoose
+       * default applies when a document is created, never retroactively — and
+       * `{opener: 'menu'}` does not match a missing field. Matched by equality, the
+       * menu arm would silently begin at whenever the field was added, so the
+       * comparison would be free text against a fortnight of menu traffic instead of
+       * against the whole accumulated history. `$in: [value, null]` matches a null
+       * and an absent field alike, which is what "absent means menu" has to mean to
+       * be worth writing down. It is also why the split adds up to the headline
+       * rate, which the tests assert against a row carrying no opener.
+       */
+      const mine = {
+        ...started,
+        opener: opener === FLOW_OPENER.MENU ? { $in: [opener, null] } : opener,
+      };
 
       /**
        * Flows that tried to reach a booking and settled one way or the other — the

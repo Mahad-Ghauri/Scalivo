@@ -504,8 +504,12 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
  * **It will not book an exact time it was not given.** The jump straight to the
  * confirmation happens only when the customer named a clock time, that time is
  * genuinely free, and there was no staff question outstanding.
+ *
+ * Exported for the tests. In production it is reached only through `advance`, which
+ * is the only thing that decides whether a parse happened at all — the tests hand it
+ * a resolved intent directly so the ladder can be checked without a model.
  */
-async function resumeFromIntent(
+export async function resumeFromIntent(
   redis: Redis,
   ctx: TurnContext,
   resolved: ResolvedIntent,
@@ -522,7 +526,9 @@ async function resumeFromIntent(
     ? (ctx.conversation.opener ?? FLOW_OPENER.MENU)
     : FLOW_OPENER.FREE_TEXT;
 
-  const base: Partial<Conversation> = {
+  // Everything a conversation is except the state, which each prompt builder sets
+  // to whatever question it is about to ask.
+  const base: Omit<Conversation, 'state'> = {
     ...(resolved.serviceId ? { serviceId: resolved.serviceId } : {}),
     ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
     ...(resolved.date ? { date: resolved.date } : {}),
