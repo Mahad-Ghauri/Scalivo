@@ -1,3 +1,6 @@
+import type { FlowOpener } from '@scalivo/shared';
+import type { TimeWindow } from './intent.js';
+
 /**
  * The conversation state machine's vocabulary. See docs/fsm-design.md §4.
  *
@@ -61,6 +64,21 @@ export interface Conversation {
   staffId?: string;
   /** Business-local calendar date, 'YYYY-MM-DD'. */
   date?: string;
+
+  /**
+   * A time of day the customer asked for in words — "saturday afternoon".
+   *
+   * A collected selection like any other, and stored for the same reason `date` is:
+   * it has to survive the questions still to be asked. A customer who says
+   * "afternoon" and is then asked which staff member must not lose the afternoon on
+   * the way through, and one who replies NO at the confirmation should see other
+   * afternoon times rather than the whole day again.
+   *
+   * Set only by the free-text path (fsm/intent.ts). The menu never collects one:
+   * there is no numbered list of times of day, and adding one would trade the step
+   * this is meant to save for a step of its own.
+   */
+  within?: TimeWindow;
   /** UTC instant, ISO. */
   slotStart?: string;
   /** Proves ownership of the soft hold at confirm time. */
@@ -90,6 +108,20 @@ export interface Conversation {
 
   /** Which command opened the booking picker. Only set alongside SELECTING_BOOKING. */
   intent?: 'cancel' | 'reschedule';
+
+  /**
+   * Whether this conversation began with a numbered menu or a parsed sentence.
+   *
+   * Absent means the menu — the overwhelming majority, and the default the recorder
+   * applies, so nothing has to set it for the common case.
+   *
+   * It lives here because the FlowRun row is written turn by turn, and the fact that
+   * needs recording was established on the FIRST turn. Redis holds it for the 30
+   * minutes the conversation lasts; the durable copy goes on the row. That split is
+   * milestone 3.9's whole lesson applied one milestone later: state that only ever
+   * holds the present cannot answer a question about the past.
+   */
+  opener?: FlowOpener;
 }
 
 /** docs/fsm-design.md §4.2 — enough to absorb typos, few enough to escape a loop. */

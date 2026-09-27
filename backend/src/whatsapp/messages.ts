@@ -45,6 +45,47 @@ export const slotMenu = (slots: Date[], timezone: string) =>
     slots.map((slot) => formatLocal(slot, timezone, 'h:mm a')),
   )}\n\nReply with a number.`;
 
+/**
+ * What we understood from a sentence, said back before anything is held — the
+ * free-text path's first line (milestone 3.2).
+ *
+ * This is not politeness. A parse can be wrong in ways the customer cannot see:
+ * "facial" at a salon with three of them, a Saturday that was meant to be next
+ * Saturday. Echoing the interpretation puts it in front of them at the point where
+ * correcting it costs one message, rather than at the confirmation where they have
+ * already spent three. Anything the parse did NOT establish is simply absent, so
+ * the line never implies a choice the customer did not make.
+ */
+export const understood = (details: {
+  serviceName: string | null;
+  staffName: string | null;
+  date: string | null;
+  windowLabel: string | null;
+  timezone: string;
+}) => {
+  const parts = [
+    details.serviceName,
+    details.staffName ? `with ${details.staffName}` : null,
+    details.date
+      ? toBusinessLocal(new Date(`${details.date}T12:00:00Z`), details.timezone).toFormat('cccc d LLLL')
+      : null,
+    details.windowLabel,
+  ].filter((part): part is string => part !== null);
+
+  return `Got it — ${parts.join(', ')}.`;
+};
+
+/**
+ * The time of day they asked for has nothing free.
+ *
+ * Says so rather than silently widening: a customer who asked for the afternoon and
+ * is shown a 10am slot without explanation reads it as the bot ignoring them. The
+ * filter is dropped at the same time, so the rest of the conversation stops
+ * promising a window that does not exist.
+ */
+export const nothingInWindow = (windowLabel: string) =>
+  `Nothing free ${windowLabel} — here's the rest of the day:`;
+
 export const confirmation = (details: {
   serviceName: string;
   staffName: string;

@@ -1,5 +1,11 @@
 import type { Redis } from 'ioredis';
-import { ANY_STAFF, BOOKING_STATUS, DEPOSIT_STATUS, REVIEW_COMMENT_MIN_LENGTH } from '@scalivo/shared';
+import {
+  ANY_STAFF,
+  BOOKING_STATUS,
+  DEPOSIT_STATUS,
+  FLOW_OPENER,
+  REVIEW_COMMENT_MIN_LENGTH,
+} from '@scalivo/shared';
 import { Booking } from '../../models/Booking.js';
 import { Service } from '../../models/Service.js';
 import { Staff } from '../../models/Staff.js';
@@ -10,6 +16,16 @@ import { transferDeposit } from '../../payments/deposits.js';
 import { logger } from '../../lib/logger.js';
 import * as copy from '../messages.js';
 import { CONVERSATION_STATE, type Conversation, MAX_INVALID_INPUT } from './states.js';
+import {
+  hasBookingDetail,
+  isUseful,
+  localMinutes,
+  parseIntent,
+  resolveIntent,
+  type ResolvedIntent,
+  type Vocabulary,
+  worthLooking,
+} from './intent.js';
 
 /**
  * The booking conversation. docs/fsm-design.md §4 is the specification; this is
@@ -118,9 +134,30 @@ function invalid(ctx: TurnContext, conversation: Conversation, prompt: string): 
 // Prompt builders. Each one queries, then stores exactly what it printed.
 // ---------------------------------------------------------------------------
 
-async function promptService(ctx: TurnContext, base: Partial<Conversation>): Promise<TurnResult> {
-  const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
+/**
+ * The service list. `only` narrows it to a parse's candidates.
+ *
+ * Narrowing is what a half-understood sentence is worth: "facial" at a salon with
+ * three of them cannot become a decision, but it can become a three-item list
+ * instead of a nine-item one. An empty `only` means no narrowing at all — the
+ * ordinary menu — rather than an empty menu.
+ */
+async function promptService(
+  ctx: TurnContext,
+  base: Partial<Conversation>,
+  only: string[] = [],
+): Promise<TurnResult> {
+  const services = await Service.find({
+    businessId: ctx.businessId,
+    active: true,
+    ...(only.length > 0 ? { _id: { $in: only } } : {}),
+  }).sort({ displayOrder: 1 });
+
+  // No services at all is a business that is not set up; a narrowing that matches
+  // nothing is a stale id, and both are better answered by the full list than by
+  // silence. Only the unnarrowed emptiness is a dead end.
   if (services.length === 0) {
+    if (only.length > 0) return promptService(ctx, base);
     return { replies: [copy.helpRequested], conversation: null };
   }
 
@@ -140,6 +177,10 @@ async function promptStaffOrDate(
   ctx: TurnContext,
   base: Conversation,
 ): Promise<TurnResult> {
+  // Already named, by a sentence rather than a menu pick. Asking again would undo
+  // the only thing the parse was for.
+  if (base.staffId) return promptDate(redis, ctx, base);
+
   const staff = await Staff.find({
     businessId: ctx.businessId,
     active: true,
@@ -168,6 +209,14 @@ async function promptStaffOrDate(
 }
 
 async function promptDate(redis: Redis, ctx: TurnContext, base: Conversation): Promise<TurnResult> {
+  // The day is already settled — from a sentence, since no menu path arrives here
+  // with one. Skipping straight to times is the point of having parsed it.
+  //
+  // This is also what breaks the mutual recursion with promptSlot: the "this day
+  // filled up" fallback below clears `date` before coming back here, so a full day
+  // asks again instead of bouncing.
+  if (base.date) return promptSlot(redis, ctx, base);
+
   const days = await daysWithAvailability(redis, ctx.businessId, base.serviceId!, {
     ...(base.staffId ? { staffId: base.staffId } : {}),
   });
@@ -206,14 +255,45 @@ async function promptSlot(
 
   // The day filled between being offered and being chosen. Never present an
   // empty list as a choice — go back to the days that do have room.
-  if (slots.length === 0) return promptDate(redis, ctx, base);
+  //
+  // The chosen day is dropped on the way, because it is no longer a choice they
+  // have: keeping it would send promptDate straight back here.
+  if (slots.length === 0) {
+    const fresh: Conversation = { ...base };
+    delete fresh.date;
+    delete fresh.within;
+    return promptDate(redis, ctx, fresh);
+  }
+
+  // A time of day they asked for in words, applied to what is actually free.
+  const within = base.within;
+  const offered = within
+    ? slots.filter((s) => {
+        const minutes = localMinutes(s.startsAt, ctx.timezone);
+        return minutes >= within.from && minutes < within.to;
+      })
+    : slots;
+
+  /**
+   * Their window is empty, but the day is not. Widen to the whole day and say so.
+   *
+   * The filter is dropped rather than kept, so nothing later in the conversation —
+   * a NO at the confirmation, a slot taken from under them — goes on promising a
+   * window the customer has already been told is empty. Recursing once is safe
+   * precisely because `within` is gone on the way in.
+   */
+  if (within && offered.length === 0) {
+    const widened: Conversation = { ...base };
+    delete widened.within;
+    return promptSlot(redis, ctx, widened, copy.nothingInWindow(within.label));
+  }
 
   return {
-    replies: [...(lead ? [lead] : []), copy.slotMenu(slots.map((s) => s.startsAt), ctx.timezone)],
+    replies: [...(lead ? [lead] : []), copy.slotMenu(offered.map((s) => s.startsAt), ctx.timezone)],
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_SLOT,
-      options: slots.map((s) => s.startsAt.toISOString()),
+      options: offered.map((s) => s.startsAt.toISOString()),
       invalidCount: 0,
     },
   };
@@ -361,6 +441,152 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Free text — milestone 3.2
+// ---------------------------------------------------------------------------
+
+/**
+ * Try to read a sentence, and if it says anything, start further down the menu.
+ *
+ * Null means "the menu, as before" and is the answer for most messages: no model
+ * configured, nothing in the text worth parsing, a parse that resolved nothing, a
+ * timeout. Every one of those falls through to the same place, which is why the
+ * feature can be switched on for a tenant without a flag — a business with no
+ * Gemini key simply never leaves the menu path.
+ */
+async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult | null> {
+  // The free half of the gate first, so a bare number or a pasted essay costs no
+  // queries at all.
+  if (!worthLooking(ctx.text)) return null;
+
+  const [services, staff] = await Promise.all([
+    Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 }),
+    Staff.find({ businessId: ctx.businessId, active: true }),
+  ]);
+
+  const vocabulary: Vocabulary = {
+    services: services.map((s) => ({ id: String(s._id), name: s.name })),
+    staff: staff.map((s) => ({ id: String(s._id), name: s.name, serviceIds: s.serviceIds })),
+  };
+
+  if (!hasBookingDetail(ctx.text, vocabulary)) return null;
+
+  const raw = await parseIntent(ctx.text, vocabulary);
+  if (!raw) return null;
+
+  const resolved = resolveIntent(raw, {
+    ...vocabulary,
+    timezone: ctx.timezone,
+    now: ctx.now ?? new Date(),
+  });
+  if (!isUseful(resolved)) return null;
+
+  return resumeFromIntent(redis, ctx, resolved, vocabulary);
+}
+
+/**
+ * Enter the menu at the first thing the sentence did not settle.
+ *
+ * There is no separate free-text state machine — the parse fills in
+ * `Conversation` fields and the ordinary prompt builders take it from there, each
+ * one skipping the question it already has an answer to. That is what keeps
+ * `docs/fsm-design.md` §9's promise that the menu stays the fallback and the
+ * confirmation backbone: every path below ends in CONFIRMING, and **no appointment
+ * is written without a YES**, whatever the model decided.
+ *
+ * ## Two things it deliberately will not do
+ *
+ * **It will not choose a staff member on the customer's silence.** A sentence that
+ * names nobody at a business with several qualified staff still gets the staff
+ * question. Skipping it would save a message and create a trap: the confirmation
+ * names whoever was assigned, and a NO there returns to the time list, so there
+ * would be no route to a different person short of starting over.
+ *
+ * **It will not book an exact time it was not given.** The jump straight to the
+ * confirmation happens only when the customer named a clock time, that time is
+ * genuinely free, and there was no staff question outstanding.
+ */
+async function resumeFromIntent(
+  redis: Redis,
+  ctx: TurnContext,
+  resolved: ResolvedIntent,
+  vocabulary: Vocabulary,
+): Promise<TurnResult> {
+  /**
+   * How this flow began — which a parse partway through must not rewrite.
+   *
+   * A customer who was shown the numbered list and then typed a sentence entered
+   * through the menu, and recording them as a free-text flow would move a menu
+   * failure into free text's column. Entry is the thing being compared.
+   */
+  const opener = ctx.conversation
+    ? (ctx.conversation.opener ?? FLOW_OPENER.MENU)
+    : FLOW_OPENER.FREE_TEXT;
+
+  const base: Partial<Conversation> = {
+    ...(resolved.serviceId ? { serviceId: resolved.serviceId } : {}),
+    ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
+    ...(resolved.date ? { date: resolved.date } : {}),
+    ...(resolved.within ? { within: resolved.within } : {}),
+    opener,
+    invalidCount: 0,
+  };
+
+  const lead = copy.understood({
+    serviceName: resolved.serviceId
+      ? (vocabulary.services.find((s) => s.id === resolved.serviceId)?.name ?? null)
+      : null,
+    staffName: resolved.staffId
+      ? (vocabulary.staff.find((s) => s.id === resolved.staffId)?.name ?? null)
+      : null,
+    date: resolved.date,
+    windowLabel: resolved.within?.label ?? null,
+    timezone: ctx.timezone,
+  });
+
+  const result = await run();
+  return { ...result, replies: [lead, ...result.replies] };
+
+  async function run(): Promise<TurnResult> {
+    // No single service. The day and the window still survive on the conversation,
+    // so whatever they pick from the (possibly narrowed) list goes straight to times.
+    if (!resolved.serviceId) return promptService(ctx, base, resolved.serviceOptions);
+
+    const settled: Conversation = { ...base, state: CONVERSATION_STATE.SELECTING_SERVICE };
+
+    /**
+     * Straight to the confirmation, for a customer who named a time that is free.
+     *
+     * Gated on the staff question being settled — either they named someone, or
+     * there is nobody to choose between. Otherwise this would assign a staff member
+     * silently, which is the one shortcut the ladder refuses to take.
+     *
+     * Availability is queried twice on this path, once here and once inside
+     * promptSlot if the time turns out to be taken. Worth the second query: it only
+     * happens when a clock time was given, and the alternative is duplicating the
+     * hold-and-summarise logic to save a read.
+     */
+    const qualified = vocabulary.staff.filter((member) =>
+      member.serviceIds.includes(resolved.serviceId as string),
+    );
+
+    if (resolved.at !== null && resolved.date && (resolved.staffId || qualified.length <= 1)) {
+      const slots = await getAvailability(redis, {
+        businessId: ctx.businessId,
+        serviceId: resolved.serviceId,
+        date: resolved.date,
+        ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
+        ...(ctx.now ? { now: ctx.now } : {}),
+      });
+
+      const exact = slots.find((s) => localMinutes(s.startsAt, ctx.timezone) === resolved.at);
+      if (exact) return promptConfirm(redis, ctx, settled, exact.startsAt);
+    }
+
+    return promptStaffOrDate(redis, ctx, settled);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 /** One inbound message, one turn. The interceptor chain has already run. */
 export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResult> {
@@ -368,6 +594,11 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
 
   // IDLE — the absence of a key, not a stored state.
   if (!conversation) {
+    // A first message is where a sentence is most likely to carry detail, and the
+    // only place the customer has not already been given a numbered list to answer.
+    const parsed = await fromFreeText(redis, ctx);
+    if (parsed) return parsed;
+
     const opening = await promptService(ctx, {});
     const lead = isOpener(ctx.text) ? copy.greeting(ctx.businessName, ctx.firstName) : copy.notUnderstood;
     return {
@@ -380,6 +611,21 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     case CONVERSATION_STATE.SELECTING_SERVICE: {
       const serviceId = pickOption(ctx.text, conversation.options);
       if (!serviceId) {
+        /**
+         * The number was not a number. Before apologising, read it as a sentence.
+         *
+         * A customer looking at the menu who types "hydrafacial tomorrow at 3" has
+         * given more than the list asked for, and answering that with "reply with
+         * one of the numbers above" is the interface being obtuse. This is also the
+         * single likeliest place to earn an escalation back: three of these in a row
+         * is how a flow ends up in HELP.
+         *
+         * Strictly after pickOption, so a bare "2" is always the menu pick it looks
+         * like and never goes near the model.
+         */
+        const parsed = await fromFreeText(redis, ctx);
+        if (parsed) return parsed;
+
         const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
         return invalid(ctx, conversation, copy.serviceMenu(services));
       }

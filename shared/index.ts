@@ -15,3 +15,4 @@ export * from './types/deposit.js';
 export * from './types/grow.js';
 export * from './types/retention.js';
 export * from './types/agent.js';
+export * from './types/evaluation.js';

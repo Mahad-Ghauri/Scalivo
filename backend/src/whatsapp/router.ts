@@ -13,6 +13,7 @@ import {
 import { handleGlobalCommand } from './interceptors/global-commands.js';
 import { applyPendingPrompt } from './interceptors/pending-prompt.js';
 import { advance } from './fsm/machine.js';
+import { recordFlowStep } from './flow-run.js';
 import { attributeReply } from '../retention/attribute.js';
 import { enqueue } from '../session-health/outbound-queue.js';
 import { confirmBooking } from '../notifications/confirm.js';
@@ -112,6 +113,26 @@ export async function handleInboundMessage(
     });
 
     if (command) {
+      /**
+       * A command can end a booking mid-flow, and the funnel has to hear about it.
+       *
+       * The conversation is read HERE rather than earlier in the chain for two
+       * reasons. It keeps stage 4's decision provably independent of state — the
+       * whole point of this file's ordering is that a command means the same thing
+       * from anywhere — and it keeps the extra Redis read on the rare path instead
+       * of on every message. Without it the flow would be left open and later read
+       * as an abandonment, which would report the opt-out machinery working
+       * correctly as the booking flow failing.
+       */
+      const interrupted = await readConversation(deps.redis, businessId, clientId);
+      await recordFlowStep({
+        businessId,
+        clientId,
+        before: interrupted,
+        after: command.conversation,
+        at: message.receivedAt,
+      });
+
       await persist(deps.redis, businessId, clientId, command.conversation);
       await reply(deps, message, businessId, clientId, command.replies);
 
@@ -152,6 +173,23 @@ export async function handleInboundMessage(
       { businessId, clientId, from: conversation?.state ?? 'idle', to: result.conversation?.state ?? 'idle' },
       'conversation transition',
     );
+
+    /**
+     * The same transition, written down somewhere it survives.
+     *
+     * The line above reaches pino, pino reaches stdout, and stdout is collected
+     * nowhere — so the booking-completion metric was being logged into a void.
+     * Successes become Bookings and were always recoverable; the abandonments
+     * existed only in that log line, and they are the denominator.
+     */
+    await recordFlowStep({
+      businessId,
+      clientId,
+      before: conversation,
+      after: result.conversation,
+      bookingId: result.confirms,
+      at: message.receivedAt,
+    });
 
     await persist(deps.redis, businessId, clientId, result.conversation);
     await reply(deps, message, businessId, clientId, result.replies);

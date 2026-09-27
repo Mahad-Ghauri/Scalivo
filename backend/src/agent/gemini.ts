@@ -1,5 +1,5 @@
 import { BRIEFING_TEXT_MAX } from '@scalivo/shared';
-import { env } from '../config/env.js';
+import { generate } from '../lib/gemini.js';
 import { logger } from '../lib/logger.js';
 
 /**
@@ -30,8 +30,6 @@ import { logger } from '../lib/logger.js';
 /** Long enough for a rewrite, short enough that nobody waits for a briefing. */
 const TIMEOUT_MS = 8_000;
 
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-
 /**
  * The instruction. Constrained deliberately: what it may change, what it may not,
  * and how long it has to be.
@@ -60,47 +58,22 @@ const INSTRUCTION = [
  * not produce a warning every morning forever.
  */
 export async function rephrase(body: string): Promise<string | null> {
-  const key = env.GEMINI_API_KEY;
-  if (!key) return null;
+  const text = await generate({
+    instruction: INSTRUCTION,
+    input: body,
+    // Low but not zero: the job is a natural rewrite, and a deterministic one
+    // reads like a thesaurus was applied to the template.
+    temperature: 0.4,
+    maxOutputTokens: 300,
+    timeoutMs: TIMEOUT_MS,
+    purpose: 'briefing',
+  });
 
-  try {
-    const response = await fetch(
-      `${ENDPOINT}/${env.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: INSTRUCTION }] },
-          contents: [{ role: 'user', parts: [{ text: body }] }],
-          generationConfig: {
-            // Low but not zero: the job is a natural rewrite, and a deterministic
-            // one reads like a thesaurus was applied to the template.
-            temperature: 0.4,
-            maxOutputTokens: 300,
-          },
-        }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      },
-    );
+  // No key, a timeout, a refusal — all of them mean the same thing here, and the
+  // template that goes out instead was already correct.
+  if (text === null) return null;
 
-    if (!response.ok) {
-      // Quota and key problems are worth seeing once, at warn: the agent still
-      // works, but somebody configured something that is not doing anything.
-      logger.warn({ status: response.status }, 'gemini declined — using the plain briefing');
-      return null;
-    }
-
-    const data = (await response.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-
-    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
-    return clean(text, body);
-  } catch (err) {
-    // Includes the timeout. A slow model must never delay a briefing.
-    logger.warn({ err }, 'gemini unavailable — using the plain briefing');
-    return null;
-  }
+  return clean(text, body);
 }
 
 /**

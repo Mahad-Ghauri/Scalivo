@@ -5,6 +5,7 @@ import type { InboundMessage, MessagingProvider, SendResult } from '@scalivo/sha
 import { BOOKING_STATUS, SESSION_STATUS } from '@scalivo/shared';
 import { Booking } from '../src/models/Booking.js';
 import { Notification } from '../src/models/Notification.js';
+import { FlowRun } from '../src/models/FlowRun.js';
 import { Business } from '../src/models/Business.js';
 import { Client } from '../src/models/Client.js';
 import { ClientProfile } from '../src/models/ClientProfile.js';
@@ -143,6 +144,10 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       Booking.deleteMany({ businessId }),
       // Bookings now confirm, and a confirmation leaves a row behind.
       Notification.deleteMany({ businessId }),
+      // Every conversation this suite drives is now also recorded for the booking
+      // funnel (milestone 3.9). Left behind, they accumulate across runs — and an
+      // abandoned flow from the previous run reads as this run's abandonment.
+      FlowRun.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       BlockedTime.deleteMany({ businessId }),
