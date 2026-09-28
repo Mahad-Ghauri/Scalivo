@@ -6,6 +6,7 @@ import { Staff } from '../models/Staff.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import * as copy from '../whatsapp/messages.js';
+import { meTokenFor } from '../me/token.js';
 import { sendTracked, type SendDeps, type SendOutcome } from './send.js';
 
 /**
@@ -121,6 +122,7 @@ export async function confirmBooking(
       staffName: staff?.name ?? 'our team',
       startsAt: booking.startsAt,
       timezone: business.timezone,
+      pageUrl: await mePageUrl(businessId, booking.clientId),
     }),
     scheduledFor: new Date(),
   });
@@ -136,6 +138,27 @@ export async function confirmBooking(
   );
 
   return { ok: true, changed: Boolean(updated), delivery };
+}
+
+/**
+ * The magic link for this customer's own page — milestone 3.3's delivery.
+ *
+ * Every confirmation carries it, so this is where the token is minted: the first
+ * booking creates it, and each later confirmation repeats the same URL.
+ *
+ * A failure here returns null and the confirmation goes out without the link.
+ * That ordering is the point — the confirmation is what the customer is owed,
+ * and losing it because a convenience page could not be addressed would trade
+ * something transactional for something optional.
+ */
+async function mePageUrl(businessId: string, clientId: string): Promise<string | null> {
+  try {
+    const token = await meTokenFor(businessId, clientId);
+    return token ? `${env.WEB_URL}/me/${token}` : null;
+  } catch (err) {
+    logger.warn({ err, businessId }, 'could not address the customer page');
+    return null;
+  }
 }
 
 function isTerminal(status: string | undefined): boolean {

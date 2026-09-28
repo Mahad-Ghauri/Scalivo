@@ -100,17 +100,33 @@ export const confirmation = (details: {
   `${formatPrice(details.priceMinor)}\n\n` +
   `Reply YES to confirm or NO to pick another time.`;
 
+/**
+ * `pageUrl` is the customer's own page (3.3), and it is on EVERY confirmation
+ * rather than only the first — deliberately.
+ *
+ * The token behind it never expires (me/token.ts), which means there is no
+ * re-issue flow and a customer who deletes the message has lost the link for
+ * good. Repeating it is therefore the recovery mechanism: the most recent
+ * confirmation always carries a working URL. The alternative — an unprompted
+ * "here is your link" message — is exactly the cold outbound that risks the
+ * number (NOTES.md).
+ *
+ * Null when the page could not be addressed. The confirmation is transactional
+ * and must never be lost because a convenience link could not be minted.
+ */
 export const booked = (details: {
   businessName: string;
   serviceName: string;
   staffName: string;
   startsAt: Date;
   timezone: string;
+  pageUrl?: string | null;
 }) =>
   `You're booked ✅\n\n` +
   `${details.serviceName} with ${details.staffName}\n` +
   `${formatLocal(details.startsAt, details.timezone)}\n\n` +
-  `See you at ${details.businessName}. Reply CANCEL or RESCHEDULE any time.`;
+  `See you at ${details.businessName}. Reply CANCEL or RESCHEDULE any time.` +
+  (details.pageUrl ? `\n\nYour appointments: ${details.pageUrl}` : '');
 
 /**
  * The deposit ask, sent INSTEAD of "you're booked".

@@ -68,39 +68,49 @@ export type WebBookingResult =
       reason: 'hold_expired' | 'invalid_slot' | 'outside_hours' | 'too_soon' | 'beyond_horizon' | 'no_staff' | 'invalid_phone';
     };
 
-export async function bookFromWeb(
+/**
+ * `WebBookingResult` without the one failure that only an anonymous caller can
+ * have — a phone number cannot be invalid when nobody typed one.
+ *
+ * Spelled out rather than `Exclude`d: the failure member carries its reasons as
+ * a union on one field, so `Exclude` matches no member and silently removes
+ * nothing. It would have compiled and narrowed the type not at all.
+ */
+export type ClientBookingResult =
+  | { ok: true; receipt: PublicBookingReceipt }
+  | { ok: false; reason: 'slot_taken'; alternatives: PublicSlot[] }
+  | {
+      ok: false;
+      reason: 'hold_expired' | 'invalid_slot' | 'outside_hours' | 'too_soon' | 'beyond_horizon' | 'no_staff';
+    };
+
+/**
+ * Book for a customer who is already known — the shared half of every booking
+ * made through a browser.
+ *
+ * Split out for milestone 3.3: the customer's own page books as the person whose
+ * token opened it, so it needs everything below and none of the phone-number
+ * handling above. Sharing the code rather than copying it is what stops the two
+ * drifting — in particular, the rebook cannot quietly lose the confirmation
+ * send, the deposit routing, or `source: 'web'`.
+ */
+export async function bookAsClient(
   deps: SendDeps,
   businessId: string,
   input: {
+    clientId: string;
     serviceId: string;
     staffId: string;
     startsAt: Date;
     holdToken: string;
-    name: string;
-    phone: string;
     channel?: GrowChannel | undefined;
   },
-): Promise<WebBookingResult> {
-  /**
-   * A phone number is required on the web, unlike a walk-in. It is the only
-   * way this customer is ever reached — the confirmation, the reminder, and the
-   * CANCEL they reply with all go over WhatsApp — and it is what matches them
-   * to the history they already have from booking by message.
-   *
-   * It is NOT verified. Anyone can type anyone's number, and the booking then
-   * lands on that person's profile and messages them. An OTP over WhatsApp is
-   * the fix; until then the rate limit on the route is what bounds the damage.
-   */
-  if (!normalisePhone(input.phone)) return { ok: false, reason: 'invalid_phone' };
-
-  const clientId = await findOrCreateClient({ phone: input.phone, name: input.name, via: 'web' });
-  if (!clientId) return { ok: false, reason: 'invalid_phone' };
-
+): Promise<ClientBookingResult> {
   const result = await createBooking(deps.redis, {
     businessId,
     serviceId: input.serviceId,
     staffId: input.staffId,
-    clientId,
+    clientId: input.clientId,
     startsAt: input.startsAt,
     holdToken: input.holdToken,
     source: 'web',
@@ -147,6 +157,37 @@ export async function bookFromWeb(
       depositToken: confirmed?.ok && confirmed.awaitingDeposit ? await depositTokenOf(result.booking.id) : null,
     },
   };
+}
+
+export async function bookFromWeb(
+  deps: SendDeps,
+  businessId: string,
+  input: {
+    serviceId: string;
+    staffId: string;
+    startsAt: Date;
+    holdToken: string;
+    name: string;
+    phone: string;
+    channel?: GrowChannel | undefined;
+  },
+): Promise<WebBookingResult> {
+  /**
+   * A phone number is required on the web, unlike a walk-in. It is the only
+   * way this customer is ever reached — the confirmation, the reminder, and the
+   * CANCEL they reply with all go over WhatsApp — and it is what matches them
+   * to the history they already have from booking by message.
+   *
+   * It is NOT verified. Anyone can type anyone's number, and the booking then
+   * lands on that person's profile and messages them. An OTP over WhatsApp is
+   * the fix; until then the rate limit on the route is what bounds the damage.
+   */
+  if (!normalisePhone(input.phone)) return { ok: false, reason: 'invalid_phone' };
+
+  const clientId = await findOrCreateClient({ phone: input.phone, name: input.name, via: 'web' });
+  if (!clientId) return { ok: false, reason: 'invalid_phone' };
+
+  return bookAsClient(deps, businessId, { ...input, clientId });
 }
 
 /** Read back rather than put on the shared Booking contract, which the owner app also receives. */

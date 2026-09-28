@@ -52,6 +52,19 @@ const clientProfileSchema = new Schema(
     notes: { type: String, default: '' },
 
     /**
+     * The credential for this customer's own page (3.3) — `/me/<meToken>`.
+     *
+     * On the PROFILE rather than the Client, which is the whole security model:
+     * a token is a key to one relationship, so the link a salon sent can only
+     * ever open that salon's page. Putting it on the person would make one
+     * leaked URL a key to every business they have ever booked.
+     *
+     * Absent until something needs it (me/token.ts mints it lazily), so no
+     * migration and no token minted for a profile nobody ever messages.
+     */
+    meToken: { type: String, default: null },
+
+    /**
      * STOP, scoped to THIS business.
      *
      * Per-business because a customer silencing one salon's offers has not
@@ -114,5 +127,18 @@ clientProfileSchema.index({ businessId: 1, clientId: 1 }, { unique: true });
 
 /** The CRM list: a business's customers, most recently active first. */
 clientProfileSchema.index({ businessId: 1, lastBookingAt: -1 });
+
+/**
+ * The lookup the customer's page does on every load, and the guard against two
+ * profiles sharing a token.
+ *
+ * Partial rather than sparse, for the reason spelled out on `Client.phone`:
+ * `default: null` means the key is always present, and a sparse index would
+ * index every null and collide on the second profile without a token.
+ */
+clientProfileSchema.index(
+  { meToken: 1 },
+  { unique: true, partialFilterExpression: { meToken: { $type: 'string' } } },
+);
 
 export const ClientProfile = model('ClientProfile', clientProfileSchema);

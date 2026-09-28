@@ -16,3 +16,4 @@ export * from './types/grow.js';
 export * from './types/retention.js';
 export * from './types/agent.js';
 export * from './types/evaluation.js';
+export * from './types/me.js';
