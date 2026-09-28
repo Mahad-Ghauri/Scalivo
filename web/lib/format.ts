@@ -19,3 +19,45 @@ export function formatDuration(minutes: number): string {
   const rest = minutes % 60;
   return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
 }
+
+/**
+ * An instant in the BUSINESS's zone — never the reader's.
+ *
+ * A customer checking their appointment from abroad must still see the time the
+ * salon will be expecting them, and a phone whose clock is in another country is
+ * the case that makes a naive `toLocaleString()` say 11 AM for a 4 PM booking.
+ * Every time the customer's page prints goes through here.
+ *
+ * 12-hour throughout: "3:31" on its own reads as the afternoon at night.
+ */
+export function formatWhen(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(iso));
+}
+
+/** Just the clock part, for a list where the day is already the heading. */
+export function formatClock(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(iso));
+}
+
+/** "3 October 2026" — a past visit, where the hour is noise. */
+export function formatDay(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(iso));
+}
