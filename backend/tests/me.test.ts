@@ -126,6 +126,8 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
 
   const at = (hhmm: string) => wallClockToUtc(`${date}T${hhmm}`, TZ);
 
+  /** Responses read loosely — the shapes are what these tests assert, not what they assume. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Loose = Omit<Response, 'json'> & { json(): Promise<any> };
   const get = (path: string) => fetch(`${base}${path}`) as Promise<Loose>;
   const post = (path: string, body: unknown) =>

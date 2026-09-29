@@ -10,7 +10,6 @@ import {
   type PublicHold,
 } from '@scalivo/shared';
 import { env } from '../config/env.js';
-import { logger } from '../lib/logger.js';
 import { fieldErrors, param } from '../http/params.js';
 import { TOO_MANY, rateLimit, safely } from '../http/guards.js';
 import { createMeRouter } from '../me/routes.js';

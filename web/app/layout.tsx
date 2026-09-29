@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 
+import { SiteChrome } from '@/components/SiteChrome';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SITE_URL } from '@/lib/site';
 
@@ -39,7 +40,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={jakarta.variable}>
       <body className="min-h-screen antialiased">
         {children}
-        <SiteFooter />
+        <SiteChrome>
+          <SiteFooter />
+        </SiteChrome>
       </body>
     </html>
   );
