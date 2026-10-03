@@ -8,6 +8,8 @@ import {
   type SendResult,
   type SessionStatus,
 } from '@scalivo/shared';
+import { logger } from '../lib/logger.js';
+import type { SessionKeyStore } from './session-keys.js';
 
 /**
  * OpenWA v0.14.6.
@@ -43,10 +45,34 @@ interface Envelope {
 export class OpenWAProvider implements MessagingProvider {
   readonly name = 'openwa';
 
+  /**
+   * Scoped keys already resolved this process, so the common path — every send
+   * and every status poll — costs no extra query.
+   *
+   * Safe to hold: a key is immutable once minted, and a revoked one stops
+   * working at the gateway rather than silently succeeding. A restart re-reads
+   * from the store, which is where the durable copy lives.
+   */
+  private readonly scopedKeys = new Map<string, string>();
+
+  /** Sessions whose minting failed, so one broken session does not retry forever. */
+  private readonly unscopable = new Set<string>();
+
   constructor(
     private readonly baseUrl: string,
+    /**
+     * The ADMIN key. After 4.2 this is used for two things only: creating
+     * sessions, and minting the per-business keys that do everything else.
+     */
     private readonly apiKey: string,
     private readonly webhookSecret: string,
+    /**
+     * Where per-business keys live. Optional, and its absence is the old
+     * behaviour — every call on the admin key. Left optional so the Meta
+     * provider, the tests and any future transport are not forced to model a
+     * concept that is OpenWA's.
+     */
+    private readonly keys?: SessionKeyStore,
   ) {}
 
   /**
@@ -61,12 +87,19 @@ export class OpenWAProvider implements MessagingProvider {
     const res = await this.request<{ messageId: string; timestamp: number }>(
       `/api/sessions/${sessionId}/messages/send-text`,
       { method: 'POST', body: JSON.stringify({ chatId: toChatId(to), text }) },
+      REQUEST_TIMEOUT_MS,
+      sessionId,
     );
     return { providerMessageId: res.messageId, acceptedAt: new Date(res.timestamp * 1000) };
   }
 
   async getSessionStatus(sessionId: string): Promise<SessionStatus> {
-    const res = await this.request<{ status: string }>(`/api/sessions/${sessionId}`);
+    const res = await this.request<{ status: string }>(
+      `/api/sessions/${sessionId}`,
+      {},
+      REQUEST_TIMEOUT_MS,
+      sessionId,
+    );
     return toSessionStatus(res.status);
   }
 
@@ -103,7 +136,7 @@ export class OpenWAProvider implements MessagingProvider {
           'session.disconnected',
         ],
       }),
-    });
+    }, REQUEST_TIMEOUT_MS, sessionId);
   }
 
   /**
@@ -122,11 +155,17 @@ export class OpenWAProvider implements MessagingProvider {
       // messaging gateway", so the timeout has to clear a cold Chromium start
       // with room to spare rather than sit near the measurement.
       START_TIMEOUT_MS,
+      sessionId,
     );
     const status = toSessionStatus(started.status);
     if (status !== SESSION_STATUS.QR_READY) return { status };
 
-    const qr = await this.request<{ qrCode?: string }>(`/api/sessions/${sessionId}/qr`);
+    const qr = await this.request<{ qrCode?: string }>(
+      `/api/sessions/${sessionId}/qr`,
+      {},
+      REQUEST_TIMEOUT_MS,
+      sessionId,
+    );
     return qr.qrCode ? { status, qrCode: qr.qrCode } : { status };
   }
 
@@ -138,7 +177,12 @@ export class OpenWAProvider implements MessagingProvider {
    */
   async getSessionPhone(sessionId: string): Promise<string | null> {
     try {
-      const res = await this.request<{ phone?: string }>(`/api/sessions/${sessionId}`);
+      const res = await this.request<{ phone?: string }>(
+        `/api/sessions/${sessionId}`,
+        {},
+        REQUEST_TIMEOUT_MS,
+        sessionId,
+      );
       return res.phone ? res.phone.replace(/\D/g, '') : null;
     } catch {
       return null;
@@ -155,6 +199,9 @@ export class OpenWAProvider implements MessagingProvider {
     try {
       const res = await this.request<{ phone?: string }>(
         `/api/sessions/${sessionId}/contacts/${encodeURIComponent(contactLid)}/phone`,
+        {},
+        REQUEST_TIMEOUT_MS,
+        sessionId,
       );
       return res.phone ?? null;
     } catch {
@@ -237,15 +284,94 @@ export class OpenWAProvider implements MessagingProvider {
     }
   }
 
+  /**
+   * The key this session's calls should carry — its own if it has one, the
+   * admin key if it cannot have one.
+   *
+   * Minted lazily rather than at provisioning time, and that is deliberate: it
+   * means businesses onboarded BEFORE 4.2 — the Uxelerate tenant among them —
+   * pick up a scoped key on their next gateway call, with no migration to run
+   * and no step for anyone to remember.
+   *
+   * Every failure falls back to the admin key. A business must not lose its
+   * WhatsApp because a hardening measure could not complete; the alternative is
+   * an outage during somebody's Saturday in exchange for a defence that is only
+   * one layer.
+   */
+  private async keyFor(sessionId: string): Promise<string> {
+    if (!this.keys || this.unscopable.has(sessionId)) return this.apiKey;
+
+    const cached = this.scopedKeys.get(sessionId);
+    if (cached) return cached;
+
+    try {
+      const stored = await this.keys.get(sessionId);
+      if (stored) {
+        this.scopedKeys.set(sessionId, stored);
+        return stored;
+      }
+
+      const minted = await this.mintScopedKey(sessionId);
+      await this.keys.put(sessionId, minted);
+      this.scopedKeys.set(sessionId, minted);
+      logger.info({ sessionId }, 'minted a session-scoped gateway key');
+      return minted;
+    } catch (err) {
+      /**
+       * Most likely the configured key is not an ADMIN one, since key creation
+       * is admin-only. Said once per session rather than per call, and loudly:
+       * silently running the whole platform on one key is exactly the state 4.2
+       * exists to end, so it must not become a quiet default again.
+       */
+      this.unscopable.add(sessionId);
+      logger.warn(
+        { err, sessionId },
+        'could not scope a gateway key to this session — falling back to the shared key',
+      );
+      return this.apiKey;
+    }
+  }
+
+  /**
+   * `POST /api/auth/api-keys` with `allowedSessions`, on the admin key.
+   *
+   * `operator` rather than `admin`: a business's key needs to send and read its
+   * own session, never to manage keys. An admin key scoped to one session could
+   * still mint itself a wider one.
+   *
+   * The full key comes back exactly once, at creation — there is no endpoint
+   * that reads it again — so a failure to store it strands the key rather than
+   * losing access. Measured, not assumed: open-wa/NOTES.md FINDING #8.
+   */
+  private async mintScopedKey(sessionId: string): Promise<string> {
+    const created = await this.request<{ apiKey?: string }>('/api/auth/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: `scalivo-session-${sessionId}`,
+        role: 'operator',
+        allowedSessions: [sessionId],
+      }),
+    });
+
+    if (!created.apiKey) throw new Error('gateway created a key but returned no secret');
+    return created.apiKey;
+  }
+
+  /**
+   * `sessionId` picks the credential. Omitting it means the admin key, which is
+   * correct for the two calls that are not about one session — creating a
+   * session, and minting a key for one.
+   */
   private async request<T>(
     path: string,
     init: RequestInit = {},
     timeoutMs = REQUEST_TIMEOUT_MS,
+    sessionId?: string,
   ): Promise<T> {
     const res = await fetch(new URL(path, this.baseUrl), {
       ...init,
       headers: {
-        'X-API-Key': this.apiKey,
+        'X-API-Key': sessionId ? await this.keyFor(sessionId) : this.apiKey,
         'Content-Type': 'application/json',
         ...init.headers,
       },

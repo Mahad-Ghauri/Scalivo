@@ -1,6 +1,7 @@
 import type { MessagingProvider } from '@scalivo/shared';
 import { env } from '../config/env.js';
 import { OpenWAProvider } from './OpenWAProvider.js';
+import { businessSessionKeys } from './session-keys.js';
 import { MetaCloudProvider } from './MetaCloudProvider.js';
 
 /**
@@ -14,7 +15,14 @@ import { MetaCloudProvider } from './MetaCloudProvider.js';
 export function createMessagingProvider(): MessagingProvider {
   switch (env.MESSAGING_PROVIDER) {
     case 'openwa':
-      return new OpenWAProvider(env.OPENWA_BASE_URL, env.OPENWA_API_KEY, env.OPENWA_WEBHOOK_SECRET);
+      return new OpenWAProvider(
+        env.OPENWA_BASE_URL,
+        env.OPENWA_API_KEY,
+        env.OPENWA_WEBHOOK_SECRET,
+        // 4.2: per-business keys, so the configured key stops being the one in
+        // daily use for every tenant. See messaging/session-keys.ts.
+        businessSessionKeys,
+      );
     case 'meta':
       // A frozen stub object rather than a class — nothing to construct.
       return MetaCloudProvider;
