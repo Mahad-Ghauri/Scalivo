@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { connectAll, healthCheck, redis } from './config/db.js';
 import { createMessagingProvider, createWebhookRouter } from './messaging/index.js';
 import { redisDedupe } from './messaging/webhook.js';
+import { securityHeaders } from './http/headers.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createCatalogRouter } from './catalog/routes.js';
@@ -32,6 +33,9 @@ import { createPaymentProvider, usePaymentProvider } from './payments/registry.j
 
 export function createApp(): Express {
   const app = express();
+  // First, so a response written by any route below already carries them —
+  // including the ones that answer before reaching a handler.
+  app.use(securityHeaders);
   usePaymentProvider(createPaymentProvider());
   const provider = createMessagingProvider();
 
@@ -108,7 +112,7 @@ export function createApp(): Express {
     });
   }
 
-  app.use('/auth', createAuthRouter());
+  app.use('/auth', createAuthRouter(redis));
   app.use('/businesses', createBusinessRouter(provider));
   // Also under /businesses — every one of these scopes by :businessId, so
   // requireTenant guards the catalogue, availability and booking exactly as it

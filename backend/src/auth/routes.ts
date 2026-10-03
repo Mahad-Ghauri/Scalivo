@@ -1,11 +1,14 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import express, { type Router } from 'express';
 import { z } from 'zod';
+import type { Redis } from 'ioredis';
 import type { UserRole } from '@scalivo/shared';
 import { User } from '../models/User.js';
 import { Business } from '../models/Business.js';
 import { signToken } from './jwt.js';
 import { requireAuth, getAuth } from './middleware.js';
+import { rateLimit } from '../http/guards.js';
 import { logger } from '../lib/logger.js';
 
 const credentials = z.object({
@@ -34,6 +37,22 @@ const deviceToken = z.object({
 export const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
 
 /**
+ * A real bcrypt hash of a value nobody knows, compared against when the email
+ * matches no account.
+ *
+ * Without it, `/login` answers a nonexistent email in microseconds and a real
+ * email with a wrong password in however long bcrypt takes — tens of
+ * milliseconds, far above network jitter and trivially measurable. The identical
+ * 401 body below would still be a perfect account oracle. Comparing against this
+ * makes both paths do the same work, which is what the body's promise actually
+ * requires.
+ *
+ * Generated at module load from random bytes rather than hard-coded, so this is
+ * not a password anybody could ever supply.
+ */
+const ABSENT_USER_HASH = bcrypt.hashSync(crypto.randomUUID(), 10);
+
+/**
  * A URL-safe stem from the business name, with a numeric suffix when taken.
  *
  * The loop is bounded because an unbounded one is a denial-of-service against
@@ -48,6 +67,12 @@ export const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
 const RESERVED_SLUGS = new Set([
   'pay', 'search', 'login', 'register', 'signup', 'dashboard', 'api', 'admin',
   'robots.txt', 'sitemap.xml', 'business', 'businesses',
+  // 'me' is the customer's own page (3.3). It does not collide at the path
+  // level — that page is always /me/<token> — but a business living at /me
+  // while its customers' pages live under /me/ is a trap nobody needs.
+  'me',
+  // Reserved for the same reason before anything claims them.
+  'icons', 'sw.js', 'manifest.webmanifest',
 ]);
 
 async function uniqueSlug(name: string): Promise<string> {
@@ -66,10 +91,28 @@ async function uniqueSlug(name: string): Promise<string> {
   throw new Error('could not allocate a slug');
 }
 
-export function createAuthRouter(): Router {
+export function createAuthRouter(redis: Redis): Router {
   const router = express.Router();
 
-  router.post('/login', express.json(), async (req, res) => {
+  /**
+   * Brute-force ceiling on the two unauthenticated endpoints here (4.2).
+   *
+   * Every rate limiter in this codebase used to sit on the public booking
+   * surface, and none on the endpoint that guards owner accounts — so the
+   * password check was the only thing standing between a wordlist and a tenant.
+   * bcrypt at cost 10 slows an attacker down; it does not stop one, and it makes
+   * an unlimited login endpoint a CPU exhaustion vector besides.
+   *
+   * Per IP, which is the same coarse bucket the public limiter uses and carries
+   * the same caveat about `trust proxy` — see http/guards.ts. Per-account
+   * lockout is deliberately NOT used: it lets anyone lock an owner out of their
+   * own business by guessing at their email, which turns a nuisance into an
+   * outage on a Saturday.
+   */
+  const loginLimit = rateLimit(redis, 'login', 20, 15 * 60);
+  const registerLimit = rateLimit(redis, 'register', 5, 60 * 60);
+
+  router.post('/login', loginLimit, express.json(), async (req, res) => {
     const parsed = credentials.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'email and password required' });
@@ -78,10 +121,18 @@ export function createAuthRouter(): Router {
 
     const user = await User.findOne({ email: parsed.data.email.toLowerCase() });
 
-    // Same response whether the email is unknown or the password is wrong —
-    // otherwise this endpoint enumerates which owners have accounts.
-    const ok = user && (await bcrypt.compare(parsed.data.password, user.passwordHash));
+    /**
+     * Same response AND the same work whether the email is unknown or the
+     * password is wrong — otherwise this endpoint enumerates which owners have
+     * accounts. The identical body was already here; the identical work was not,
+     * and a response that returns in 1 ms for a stranger and 60 ms for a real
+     * owner answers the question just as clearly.
+     */
+    const ok = await bcrypt.compare(parsed.data.password, user?.passwordHash ?? ABSENT_USER_HASH);
     if (!user || !ok) {
+      // The attempted email, deliberately: knowing WHICH account is being
+      // hammered is the whole value of this line. It is the one piece of
+      // personal data in the general log, and docs/data-handling.md says so.
       logger.warn({ email: parsed.data.email }, 'failed login');
       res.status(401).json({ error: 'invalid credentials' });
       return;
@@ -106,7 +157,7 @@ export function createAuthRouter(): Router {
    * business is the user insert, so it compensates by deleting what it just
    * created. Booking writes are the ones that genuinely need atomicity.
    */
-  router.post('/register', express.json(), async (req, res) => {
+  router.post('/register', registerLimit, express.json(), async (req, res) => {
     const parsed = registration.safeParse(req.body);
     if (!parsed.success) {
       // Field-keyed so the app can underline the offending input rather than

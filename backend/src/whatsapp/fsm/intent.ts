@@ -321,7 +321,20 @@ export function readIntentJson(reply: string): RawIntent | null {
   try {
     parsed = JSON.parse(reply.slice(start, end + 1)) as Record<string, unknown>;
   } catch {
-    logger.warn({ reply }, 'gemini returned something that is not JSON — falling back to the menu');
+    /**
+     * The reply itself is NOT logged (4.2 review).
+     *
+     * A model asked to classify a sentence and answering in prose tends to
+     * answer in the customer's own words, so printing it puts a fragment of a
+     * real conversation into the general log — exactly what the logger's `*.body`
+     * redaction exists to keep out. The length is what actually distinguishes
+     * the failures worth telling apart: a truncation from a refusal from an
+     * empty response.
+     */
+    logger.warn(
+      { replyLength: reply.length },
+      'gemini returned something that is not JSON — falling back to the menu',
+    );
     return null;
   }
 

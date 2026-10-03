@@ -37,10 +37,34 @@ const valid = {
 
 const servers: ReturnType<express.Express['listen']>[] = [];
 
+/**
+ * Just enough Redis for the rate limiter the auth router now takes (4.2).
+ *
+ * In-memory rather than a real connection, because every model here is mocked
+ * and this suite is deliberately infrastructure-free — adding a container
+ * dependency to test slug allocation would be paying for the wrong thing.
+ *
+ * A fresh counter per server, so registrations in one test never spend another
+ * test's budget. Passing `undefined` instead would also have compiled at the
+ * call site and "worked", because the limiter fails open on a Redis error —
+ * which is precisely the way a rate limit disappears without anybody noticing.
+ */
+const stubRedis = () => {
+  const counts = new Map<string, number>();
+  return {
+    incr: async (key: string) => {
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      return next;
+    },
+    expire: async () => 1,
+  } as unknown as import('ioredis').Redis;
+};
+
 async function post(body: unknown) {
   const { createAuthRouter } = await import('../src/auth/routes.js');
   const app = express();
-  app.use('/auth', createAuthRouter());
+  app.use('/auth', createAuthRouter(stubRedis()));
 
   const server = app.listen(0);
   servers.push(server);
