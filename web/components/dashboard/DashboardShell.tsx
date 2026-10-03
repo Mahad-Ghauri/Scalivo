@@ -24,6 +24,9 @@ const ROUTES = [
   { name: 'Staff', href: '/staff' },
   { name: 'Grow', href: '/grow' },
   { name: 'Analytics', href: '/analytics' },
+  // Next to Settings rather than buried in it: this is where an owner goes when
+  // bookings have stopped arriving, and it must be findable in a hurry.
+  { name: 'WhatsApp', href: '/whatsapp' },
   { name: 'Settings', href: '/settings' },
 ];
 

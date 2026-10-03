@@ -65,8 +65,8 @@ export default function LoginPage() {
 
           <p className="mt-8 text-center text-[15px] font-medium text-muted">
             Don&apos;t have an account?{' '}
-            <Link href="mailto:hello@scalivo.app" className="text-ink hover:underline underline-offset-4 decoration-line">
-              Contact us
+            <Link href="/register" className="text-ink hover:underline underline-offset-4 decoration-line">
+              Create one
             </Link>
           </p>
         </div>

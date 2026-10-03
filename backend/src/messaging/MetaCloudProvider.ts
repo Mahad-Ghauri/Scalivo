@@ -56,6 +56,11 @@ export const MetaCloudProvider: MessagingProvider = {
   // a UI that assumes scanning.
   startSession: stub('startSession'),
 
+  // Cloud API has no QR at all — a number is claimed through Meta's own console,
+  // not by scanning. Null rather than a throw: "there is no code to show" is the
+  // honest answer for this provider, not a failure.
+  getSessionQr: async () => null,
+
   getSessionPhone: stub('getSessionPhone'),
 
   // Cloud API delivers real phone numbers inbound, so this becomes a no-op

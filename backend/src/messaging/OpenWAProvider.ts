@@ -170,6 +170,29 @@ export class OpenWAProvider implements MessagingProvider {
   }
 
   /**
+   * Whatever QR the session is offering right now.
+   *
+   * `GET /api/sessions/:id/qr` — the same call startSession makes after it
+   * starts one, exposed on its own so a session that is ALREADY waiting to be
+   * scanned can still be shown. Swallows failures into null: a session that is
+   * connected, stopped, or still booting has no QR, and that is an answer
+   * rather than an error.
+   */
+  async getSessionQr(sessionId: string): Promise<string | null> {
+    try {
+      const res = await this.request<{ qrCode?: string }>(
+        `/api/sessions/${sessionId}/qr`,
+        {},
+        REQUEST_TIMEOUT_MS,
+        sessionId,
+      );
+      return res.qrCode ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The linked number, for the "message us here" link an owner puts on a poster.
    *
    * Swallows failures into null: not knowing the number is a cosmetic gap on one

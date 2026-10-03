@@ -22,7 +22,14 @@ const PROVISION_MESSAGE: Record<ProvisionFailure, string> = {
   not_found: 'not found',
   already_linked: 'a WhatsApp number is already connected',
   session_taken: 'that session belongs to another business',
-  gateway_unreachable: 'could not reach the messaging gateway',
+  /**
+   * Deliberately names both possibilities. The provisioning path collapses
+   * every gateway failure into this one reason, so the message cannot claim
+   * "unreachable" — a wrong API key produces exactly this, with the gateway
+   * answering perfectly well. Saying so is what stops the next person checking
+   * their network for an hour. The precise cause is in the logs.
+   */
+  gateway_unreachable: 'the messaging gateway did not accept this — it is unreachable, or our credentials are wrong',
   webhook_rejected: 'the gateway would not accept our webhook address',
 };
 
@@ -407,16 +414,82 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
       // did not need a scan, which is a success, not a failure.
       res.json({ status: result.status, qrCode: result.qrCode ?? null });
     } catch (err) {
+      /**
+       * A session that is ALREADY waiting to be scanned refuses to start again,
+       * and that refusal is not a failure — it means the thing the owner asked
+       * for is already true. Found on the Uxelerate tenant: the gateway was
+       * rotating a fresh QR every 20 seconds while this handler turned the 400
+       * into "could not reach the messaging gateway" and the owner sat looking
+       * at an error with a working code behind it.
+       *
+       * So: ask for the current QR before deciding anything went wrong.
+       */
+      const qrCode = await provider.getSessionQr(sessionId).catch(() => null);
+      if (qrCode) {
+        logger.info(
+          { businessId: String(business._id) },
+          'session was already offering a QR — serving that instead of failing',
+        );
+        res.json({ status: SESSION_STATUS.QR_READY, qrCode });
+        return;
+      }
+
       await Business.updateOne(
         { _id: business._id },
         { $set: { 'whatsapp.intent': SESSION_INTENT.STOPPED } },
       );
       logger.error({ err, businessId: String(business._id) }, 'link failed');
-      res.status(502).json({ error: 'could not reach the messaging gateway' });
+      res.status(502).json({ error: gatewayMessage(err) });
     }
   });
 
+  /**
+   * The QR the session is offering right now.
+   *
+   * Polled by the dashboard while a scan is outstanding. It exists because a QR
+   * expires every ~20 seconds and the gateway simply issues a new one — so a
+   * code captured once at link time is stale almost immediately, and the only
+   * correct thing to show is whatever is live at the moment of asking.
+   */
+  router.get('/:businessId/whatsapp/qr', requireAuth, requireTenant(), async (req, res) => {
+    const business = await Business.findById(req.params.businessId);
+    const sessionId = business?.whatsapp?.sessionId;
+    if (!sessionId) {
+      res.status(404).json({ error: 'no whatsapp session provisioned for this business' });
+      return;
+    }
+
+    res.json({ qrCode: await provider.getSessionQr(sessionId) });
+  });
+
   return router;
+}
+
+/**
+ * What actually went wrong, in the owner's terms.
+ *
+ * Everything used to say "could not reach the messaging gateway", including a
+ * wrong API key and a refusal from a gateway that was answering perfectly well.
+ * That one sentence sent two separate investigations down the wrong path in a
+ * single afternoon — and an owner reading it would check their internet while
+ * the real problem sat in a config file.
+ */
+function gatewayMessage(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+
+  if (text.includes('failed: 401') || text.includes('failed: 403')) {
+    return 'the messaging gateway rejected our credentials — check OPENWA_API_KEY';
+  }
+  if (text.includes('failed: 404')) {
+    return 'the gateway does not know this session — it may need to be created again';
+  }
+  if (/failed: 5\d\d/.test(text)) {
+    return 'the messaging gateway is up but could not complete this — try again shortly';
+  }
+  if (text.includes('failed: 4')) {
+    return 'the messaging gateway refused this request';
+  }
+  return 'could not reach the messaging gateway';
 }
 
 /**

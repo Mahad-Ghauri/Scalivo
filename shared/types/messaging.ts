@@ -142,6 +142,18 @@ export interface MessagingProvider {
   startSession(sessionId: string): Promise<{ status: SessionStatus; qrCode?: string }>;
 
   /**
+   * The QR this session is currently offering, or null.
+   *
+   * Separate from startSession because a session waiting to be scanned is
+   * already started, and asking it to start again is refused. Found the hard
+   * way on the Uxelerate tenant: the gateway was rotating a fresh QR every 20
+   * seconds while the owner's screen showed an error, because the only way to
+   * SEE a QR was as the return value of the call that creates one. A code
+   * nobody can look at is the same as no code.
+   */
+  getSessionQr(sessionId: string): Promise<string | null>;
+
+  /**
    * The number this session is linked to, E.164 without '+', or null.
    *
    * Only for showing the owner which number customers should message. NEVER a

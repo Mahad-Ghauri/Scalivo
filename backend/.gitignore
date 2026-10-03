@@ -1,0 +1,4 @@
+
+# Uxelerate tenant overrides — carries the Atlas connection string
+.env.uxelerate
+.env.backup-before-uxelerate
