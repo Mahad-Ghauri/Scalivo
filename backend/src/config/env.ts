@@ -80,8 +80,15 @@ const schema = z.object({
    */
   GEMINI_API_KEY: z.string().optional(),
 
-  /** Flash rather than Pro: the task is a one-paragraph rewrite on a deadline. */
-  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+  /**
+   * Flash rather than Pro: the task is a one-paragraph rewrite on a deadline.
+   *
+   * The default is a moving target — Google retires model ids and answers a
+   * retired one with a 404, which `generate()` swallows into a null. That reads
+   * as "no key configured" and degrades silently to the templates, so a stale
+   * default here looks exactly like the feature being switched off.
+   */
+  GEMINI_MODEL: z.string().default('gemini-3.8-flash'),
 
   /** JazzCash merchant portal → Integration. Sandbox values until a live account exists. */
   JAZZCASH_MERCHANT_ID: z.string().optional(),
