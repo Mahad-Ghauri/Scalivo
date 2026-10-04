@@ -33,6 +33,7 @@ class _QrScreenState extends State<QrScreen> {
   Uint8List? _qr;
   String? _failure;
   Timer? _poll;
+  int _generation = 0;
 
   @override
   void initState() {
@@ -42,11 +43,15 @@ class _QrScreenState extends State<QrScreen> {
 
   @override
   void dispose() {
+    _generation++;
     _poll?.cancel();
     super.dispose();
   }
 
   Future<void> _requestQr() async {
+    if (!mounted) return;
+    final generation = ++_generation;
+    _poll?.cancel();
     final auth = context.read<AuthController>();
     final business = auth.business;
     if (business == null) {
@@ -60,15 +65,20 @@ class _QrScreenState extends State<QrScreen> {
     });
 
     try {
-      _show(await auth.api.linkWhatsApp(business.id));
+      final result = await auth.api.linkWhatsApp(business.id);
+      if (!mounted || generation != _generation) return;
+      _show(result);
     } on ApiException catch (err) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         // A 409 here means precisely one thing — no session exists yet — and
         // that is a state the owner can act on themselves, not a dead end.
         _stage = err.kind == ApiErrorKind.conflict ? _Stage.noSession : _Stage.failed;
         _failure = err.message;
       });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      _fail();
     }
   }
 
@@ -79,6 +89,9 @@ class _QrScreenState extends State<QrScreen> {
   /// roughly two per instance — and a screen that provisions merely by being
   /// looked at would spend that on every accidental visit.
   Future<void> _provision() async {
+    if (!mounted || _stage == _Stage.requesting) return;
+    final generation = ++_generation;
+    _poll?.cancel();
     final auth = context.read<AuthController>();
     final business = auth.business;
     if (business == null) return;
@@ -89,9 +102,11 @@ class _QrScreenState extends State<QrScreen> {
     });
 
     try {
-      _show(await auth.api.provisionWhatsApp(business.id));
+      final result = await auth.api.provisionWhatsApp(business.id);
+      if (!mounted || generation != _generation) return;
+      _show(result);
     } on ApiException catch (err) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       // `already_linked` — someone provisioned from another device between this
       // screen opening and the tap. Nothing is wrong and the QR is one call
       // away, so fetch it rather than reporting a conflict the owner cannot act on.
@@ -103,6 +118,9 @@ class _QrScreenState extends State<QrScreen> {
         _stage = _Stage.failed;
         _failure = err.message;
       });
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      _fail();
     }
   }
 
@@ -110,39 +128,104 @@ class _QrScreenState extends State<QrScreen> {
   /// apart would mean one of them mishandling the no-QR case below.
   void _show(LinkResult result) {
     if (!mounted) return;
+    const statuses = {
+      'created', 'initializing', 'qr_ready', 'authenticating',
+      'ready', 'disconnected', 'action_required', 'failed',
+    };
+    if (!statuses.contains(result.status) || result.status == 'failed') {
+      _fail();
+      return;
+    }
 
     // No QR and a ready status is success, not an empty response: a session
     // whose credentials survived comes back with nothing to scan (spike
     // proof #9 — restart recovery took ~7s and emitted zero QR events).
+    final qr = result.qrCode == null ? null : _decodeDataUrl(result.qrCode!);
+    if (result.status != 'ready' && result.qrCode != null && qr == null) {
+      _fail();
+      return;
+    }
     setState(() {
-      _qr = result.qrCode == null ? null : _decodeDataUrl(result.qrCode!);
-      _stage = result.qrCode == null && result.status == 'ready'
-          ? _Stage.live
-          : _Stage.awaitingScan;
+      _qr = result.status == 'ready' ? null : qr;
+      _stage = result.status == 'ready' ? _Stage.live : _Stage.awaitingScan;
     });
-    _startPolling();
+    if (_stage == _Stage.awaitingScan) _startPolling();
   }
 
   /// Polls rather than waiting for a push, because the scan happens on a
   /// different phone — nothing on this device knows it worked.
   void _startPolling() {
     _poll?.cancel();
-    _poll = Timer.periodic(const Duration(seconds: 3), (_) async {
-      final auth = context.read<AuthController>();
-      await auth.refreshSession();
-      if (!mounted) return;
-      if (auth.health == SessionHealth.live) {
-        _poll?.cancel();
-        setState(() => _stage = _Stage.live);
+    final generation = _generation;
+    _poll = Timer(const Duration(seconds: 3), () => _refreshQr(generation));
+  }
+
+  Future<void> _refreshQr(int generation) async {
+    if (!mounted || generation != _generation) return;
+    final auth = context.read<AuthController>();
+    final business = auth.business;
+    if (business == null) {
+      _fail();
+      return;
+    }
+    try {
+      final current = await auth.api.whatsappState(business.id, business);
+      if (!mounted || generation != _generation) return;
+      if (current.whatsappStatus == 'failed') {
+        _fail();
+        return;
       }
+      if (current.health == SessionHealth.live) {
+        setState(() {
+          _qr = null;
+          _stage = _Stage.live;
+        });
+        await auth.refreshSession();
+        return;
+      }
+      final code = await auth.api.whatsappQr(business.id);
+      if (!mounted || generation != _generation) return;
+      final qr = code == null ? null : _decodeDataUrl(code);
+      if (code != null && qr == null) {
+        _fail();
+        return;
+      }
+      setState(() => _qr = qr);
+      // Schedule only after both calls finish: slow requests cannot overlap.
+      _startPolling();
+    } on Object {
+      if (!mounted || generation != _generation) return;
+      _fail();
+    }
+  }
+
+  void _fail() {
+    _poll?.cancel();
+    setState(() {
+      _qr = null;
+      _stage = _Stage.failed;
+      _failure = 'Could not refresh the connection. Try again.';
     });
   }
 
   static Uint8List? _decodeDataUrl(String value) {
-    final comma = value.indexOf(',');
-    final payload = comma >= 0 ? value.substring(comma + 1) : value;
+    const prefix = 'data:image/png;base64,';
+    if (value.length > 175000 || !value.startsWith(prefix)) return null;
+    final payload = value.substring(prefix.length);
+    if (!RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(payload)) return null;
     try {
-      return base64Decode(payload);
+      final bytes = base64Decode(payload);
+      const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+      if (bytes.length < 33) return null;
+      for (var i = 0; i < signature.length; i++) {
+        if (bytes[i] != signature[i]) return null;
+      }
+      final header = ByteData.sublistView(bytes);
+      if (header.getUint32(8) != 13 || header.getUint32(12) != 0x49484452) return null;
+      final width = header.getUint32(16);
+      final height = header.getUint32(20);
+      if (width < 1 || height < 1 || width > 1024 || height > 1024) return null;
+      return bytes;
     } on FormatException {
       return null;
     }
@@ -217,7 +300,17 @@ class _QrScreenState extends State<QrScreen> {
                 border: Border.all(color: Sc.hairline, width: 1.5),
               ),
               child: _qr != null
-                  ? Image.memory(_qr!, width: 184, height: 184, filterQuality: FilterQuality.none)
+                  ? Image.memory(
+                      _qr!,
+                      width: 184,
+                      height: 184,
+                      filterQuality: FilterQuality.none,
+                      errorBuilder: (_, error, stackTrace) => const SizedBox(
+                        width: 184,
+                        height: 184,
+                        child: Center(child: Text('Could not display code. Try again.')),
+                      ),
+                    )
                   : const SizedBox(
                       width: 184,
                       height: 184,

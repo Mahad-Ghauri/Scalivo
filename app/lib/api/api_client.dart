@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 // foundation rather than dart:io: `Platform` does not exist on the web, and
@@ -101,7 +102,8 @@ class ApiClient {
       _send('POST', '/auth/device', body: {'fcmToken': fcmToken});
 
   Future<LinkResult> linkWhatsApp(String businessId) async =>
-      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/link'));
+      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/link',
+          maxResponseBytes: 180000));
 
   /// Creates the messaging session this business does not have yet.
   ///
@@ -110,10 +112,38 @@ class ApiClient {
   /// session on the gateway and registers our webhook, so it stays an explicit
   /// action rather than something a screen does on open.
   Future<LinkResult> provisionWhatsApp(String businessId) async =>
-      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/session'));
+      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/session',
+          maxResponseBytes: 180000));
+
+  /// Read the rotating code without restarting the session that offers it.
+  Future<String?> whatsappQr(String businessId) async {
+    if (!RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(businessId)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid business');
+    }
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/whatsapp/qr',
+      maxResponseBytes: 180000,
+    );
+    final qr = json['qrCode'];
+    if (!json.containsKey('qrCode') ||
+        (qr != null && (qr is! String || qr.length > 175000))) {
+      throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+    }
+    return qr as String?;
+  }
 
   Future<BusinessSummary> whatsappState(String businessId, BusinessSummary current) async {
-    final json = await _send('GET', '/businesses/$businessId/whatsapp');
+    final json = await _send('GET', '/businesses/$businessId/whatsapp', maxResponseBytes: 4096);
+    const statuses = {
+      null, 'created', 'initializing', 'qr_ready', 'authenticating',
+      'ready', 'disconnected', 'action_required', 'failed',
+    };
+    const intents = {null, 'linking', 'live', 'stopped'};
+    if (!json.containsKey('status') || !json.containsKey('intent') ||
+        !statuses.contains(json['status']) || !intents.contains(json['intent'])) {
+      throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+    }
     return BusinessSummary(
       id: current.id,
       name: current.name,
@@ -386,6 +416,7 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     Map<String, String>? query,
+    int? maxResponseBytes,
   }) async {
     // Built through Uri rather than string concatenation: a customer search for
     // "R&B" or a name with a space would otherwise truncate the query silently.
@@ -403,12 +434,41 @@ class ApiClient {
     }
 
     http.Response response;
+    StreamIterator<List<int>>? responseChunks;
+    var timedOut = false;
     try {
-      response = await http.Response.fromStream(await _client.send(request).timeout(_timeout));
+      response = await (() async {
+        final streamed = await _client.send(request);
+        if (timedOut) {
+          // Headers can arrive after timeout; release that late body too.
+          await streamed.stream.listen(null).cancel();
+          throw TimeoutException('Request timed out');
+        }
+        if (maxResponseBytes == null) return http.Response.fromStream(streamed);
+        final chunks = StreamIterator(streamed.stream);
+        responseChunks = chunks;
+        final bytes = <int>[];
+        while (await chunks.moveNext()) {
+          final chunk = chunks.current;
+          if (bytes.length + chunk.length > maxResponseBytes) {
+            throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+          }
+          bytes.addAll(chunk);
+        }
+        return http.Response.bytes(bytes, streamed.statusCode, headers: streamed.headers);
+      })().timeout(_timeout, onTimeout: () {
+        timedOut = true;
+        throw TimeoutException('Request timed out');
+      });
+    } on ApiException {
+      rethrow;
     } on Object {
       // Any transport failure reads the same to an owner standing in a salon
       // with bad wifi, and the design has one banner for it.
       throw const ApiException(ApiErrorKind.network, 'No internet connection');
+    } finally {
+      // A timed-out or oversized QR response must release its body stream.
+      await responseChunks?.cancel();
     }
 
     if (response.statusCode == 204 || response.body.isEmpty) {
@@ -424,9 +484,15 @@ class ApiClient {
     }
 
     if (response.statusCode >= 400) {
-      final fields = (json['fields'] as Map<String, dynamic>? ?? const {})
+      final rawFields = json['fields'];
+      final serverMessage = json['error'];
+      if ((rawFields != null && rawFields is! Map<String, dynamic>) ||
+          (serverMessage != null && serverMessage is! String)) {
+        throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+      }
+      final fields = (rawFields as Map<String, dynamic>? ?? const {})
           .map((k, v) => MapEntry(k, v.toString()));
-      throw _errorFor(response.statusCode, fields, json['error'] as String?);
+      throw _errorFor(response.statusCode, fields, serverMessage as String?);
     }
 
     return json;
