@@ -19,6 +19,7 @@ import type {
   BusinessCard,
   FacetOption,
   FeaturedReview,
+  IndexableBusiness,
   MarketplaceBusiness,
 } from '@scalivo/shared';
 import { MOCK_BUSINESSES } from './mock-businesses';
@@ -60,8 +61,8 @@ interface MarketplaceSource {
   getBusinessBySlug(slug: string): Promise<MarketplaceBusiness | null>;
   listCategories(): Promise<FacetOption[]>;
   listCities(): Promise<FacetOption[]>;
-  /** Every indexable slug, for sitemap.ts. */
-  listBusinessSlugs(): Promise<string[]>;
+  /** Every indexable slug and when its page last changed — sitemap.ts, and the static params. */
+  listBusinessSlugs(): Promise<IndexableBusiness[]>;
   /** Recent published reviews across every business, newest first. */
   listFeaturedReviews(limit: number): Promise<FeaturedReview[]>;
 }
@@ -99,7 +100,7 @@ export const LIVE_BOOKING = SOURCE === 'http';
  *   GET /public/businesses?q=&category=&city=       → BusinessCard[]
  *   GET /public/businesses/:slug                    → MarketplaceBusiness | 404
  *   GET /public/facets                              → { categories, cities }
- *   GET /public/businesses/slugs                    → string[]
+ *   GET /public/businesses/slugs                    → IndexableBusiness[]
  *   GET /public/reviews?limit=                      → FeaturedReview[]
  *
  * A separate `/public` router rather than the tenant-scoped `/businesses` ones,
@@ -150,7 +151,7 @@ const httpSource: MarketplaceSource = {
 
   listCities: async () => (await getJson<{ cities: FacetOption[] }>('/public/facets')).cities,
 
-  listBusinessSlugs: () => getJson<string[]>('/public/businesses/slugs'),
+  listBusinessSlugs: () => getJson<IndexableBusiness[]>('/public/businesses/slugs'),
 
   listFeaturedReviews: (limit) => getJson<FeaturedReview[]>('/public/reviews', { limit: String(limit) }),
 };
@@ -167,6 +168,9 @@ const httpSource: MarketplaceSource = {
  * a filter that only exists in the client is not a filter.
  */
 const published = () => MOCK_BUSINESSES.filter((business) => business.published);
+
+/** Stand-in date for a fixture with no reviews. Fixed, so a rebuild is not a change. */
+const FIXTURE_EPOCH = '2026-01-01T00:00:00.000Z';
 
 function toCard(business: MarketplaceBusiness): BusinessCard {
   const prices = business.services.map((service) => service.priceMinor);
@@ -258,7 +262,18 @@ const mockSource: MarketplaceSource = {
 
   listCategories: async () => facets((business) => business.category),
   listCities: async () => facets((business) => business.city),
-  listBusinessSlugs: async () => published().map((business) => business.slug),
+  /**
+   * Dated by the newest review, because that is the only timestamp a fixture
+   * has. It is not a real modification date and nothing is pretending it is —
+   * the fixtures exist to develop the site with no backend, and a sitemap built
+   * from them is never the one that gets crawled.
+   */
+  listBusinessSlugs: async () =>
+    published().map((business) => ({
+      slug: business.slug,
+      updatedAt:
+        business.reviews.map((review) => review.createdAt).sort().at(-1) ?? FIXTURE_EPOCH,
+    })),
 
   listFeaturedReviews: async (limit) =>
     published()

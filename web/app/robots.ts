@@ -17,7 +17,21 @@ export default function robots(): MetadataRoute.Robots {
        * Note what this does NOT do: robots.txt is a request, not access control.
        * The credential is the token's entropy, never this line.
        */
-      disallow: ['/me/', '/pay/'],
+      disallow: [
+        '/me/',
+        '/pay/',
+        /**
+         * The owner's side of the product. None of it can rank — the dashboard
+         * redirects a signed-out visitor, and sign-in pages are noindex — so
+         * every fetch here is crawl budget spent on nothing. On a site whose
+         * value is its profile pages being found, that matters.
+         */
+        '/dashboard/',
+        '/login',
+        '/register',
+        /** Proxy routes to the backend. JSON, never a landing page. */
+        '/api/',
+      ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
   };

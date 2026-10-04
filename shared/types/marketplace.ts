@@ -36,6 +36,19 @@ export interface FeaturedReview extends PublicReview {
 }
 
 /**
+ * One row of the sitemap: a published profile and when its page last changed.
+ *
+ * `updatedAt` is an ISO string rather than a Date because it crosses HTTP, and
+ * it is the newest write across everything the page renders — the business, its
+ * services, its staff and its published reviews — not just the business
+ * document. See listSlugs() in backend/src/public/profiles.ts for why.
+ */
+export interface IndexableBusiness {
+  slug: string;
+  updatedAt: string;
+}
+
+/**
  * A service as a customer sees it. `bufferMinutes` and `active` are dropped:
  * turnaround time and retirement state are the owner's business.
  */

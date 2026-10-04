@@ -38,6 +38,34 @@ export function LocalBusinessJsonLd({ business }: { business: MarketplaceBusines
     ...(prices.length > 0
       ? { priceRange: `${formatPrice(Math.min(...prices))}–${formatPrice(Math.max(...prices))}` }
       : {}),
+    /**
+     * The services themselves, each as a priced Offer.
+     *
+     * `priceRange` above is a single string and tells a search engine nothing
+     * about WHAT costs that much. This is what can put "Hydrafacial · Rs 8,000"
+     * under the result — which for a salon is most of the query. Minor units are
+     * converted here because schema.org wants a decimal amount, and the currency
+     * is named explicitly rather than inferred from the formatting.
+     */
+    ...(business.services.length > 0
+      ? {
+          hasOfferCatalog: {
+            '@type': 'OfferCatalog',
+            name: `Services at ${business.name}`,
+            itemListElement: business.services.map((service) => ({
+              '@type': 'Offer',
+              // Duration is deliberately absent: schema.org has no property for
+              // "this service takes 45 minutes" that search engines consume, and
+              // inventing one adds weight to the payload for no benefit.
+              itemOffered: { '@type': 'Service', name: service.name },
+              ...(service.priceMinor > 0
+                ? { price: (service.priceMinor / 100).toFixed(2), priceCurrency: 'PKR' }
+                : {}),
+              availability: 'https://schema.org/InStock',
+            })),
+          },
+        }
+      : {}),
     openingHoursSpecification: business.hours.map((entry) => ({
       '@type': 'OpeningHoursSpecification',
       dayOfWeek: dayName(entry.dayOfWeek),

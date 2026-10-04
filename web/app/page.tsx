@@ -5,6 +5,7 @@ import { Carousel, Slide } from '@/components/Carousel';
 import { EmptyResults } from '@/components/EmptyResults';
 import { FilterPills, Pill } from '@/components/FilterPills';
 import { ArrowRight, ChatIcon, CheckIcon } from '@/components/Icons';
+import { WebSiteJsonLd } from '@/components/JsonLd';
 import { ReviewCard } from '@/components/ReviewCard';
 import { SearchBar } from '@/components/SearchBar';
 import { SiteHeader } from '@/components/SiteHeader';
@@ -48,6 +49,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   return (
     <main>
+      <WebSiteJsonLd />
       {/* Hero */}
       <div className="hero-wash">
         <SiteHeader transparent />

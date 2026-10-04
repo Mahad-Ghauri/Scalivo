@@ -6,6 +6,7 @@ import { BookingFlow } from '@/components/BookingFlow';
 import { Carousel, Slide } from '@/components/Carousel';
 import { CheckIcon, ChatIcon, PinIcon, Star, Stars } from '@/components/Icons';
 import { FunnelBeacon } from '@/components/FunnelBeacon';
+import { BreadcrumbJsonLd } from '@/components/JsonLd';
 import { LocalBusinessJsonLd } from '@/components/LocalBusinessJsonLd';
 import { ClockLine, OpeningHours, OpenStatus } from '@/components/OpeningHours';
 import { HideWhileBooking } from '@/components/HideWhileBooking';
@@ -28,7 +29,7 @@ import {
 type Params = Promise<{ business: string }>;
 
 export async function generateStaticParams() {
-  return (await listBusinessSlugs()).map((business) => ({ business }));
+  return (await listBusinessSlugs()).map(({ slug }) => ({ business: slug }));
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
@@ -97,6 +98,17 @@ export default async function BusinessPage({ params }: { params: Params }) {
       {/* Clears the pinned mobile bar so it never covers the footer. */}
       <main className="mx-auto max-w-[1440px] px-5 pb-28 md:px-8 md:pb-0">
         <LocalBusinessJsonLd business={business} />
+        <BreadcrumbJsonLd
+          trail={[
+            { name: 'Scalivo', path: '/' },
+            // The city crumb only appears when there is a real filtered page
+            // behind it. A crumb that leads nowhere is worse than a shorter trail.
+            ...(business.city
+              ? [{ name: business.city, path: `/search?city=${encodeURIComponent(business.city)}` }]
+              : []),
+            { name: business.name, path: `/${business.slug}` },
+          ]}
+        />
         {/* Only against the real API — fixture slugs exist nowhere to count against. */}
         {LIVE_BOOKING ? <FunnelBeacon slug={business.slug} /> : null}
 
@@ -132,9 +144,15 @@ export default async function BusinessPage({ params }: { params: Params }) {
         {/* Photo grid: one large, two stacked */}
         {photos.length > 0 ? (
           <div className="mt-6 grid gap-2 md:grid-cols-3 md:grid-rows-2">
+            {/* The LCP on this page, and the only image above the fold on a
+                phone. Marked high so the browser fetches it ahead of the
+                stylesheet-discovered images below — it loads eagerly either way,
+                but priority is what decides the order under a slow connection,
+                which is the connection this page is written for. */}
             <img
               src={photos[0]}
               alt={photoAlt(photos[0]!)}
+              fetchPriority="high"
               className="aspect-[4/3] h-full w-full rounded-lg object-cover md:col-span-2 md:row-span-2 md:aspect-auto md:max-h-[480px]"
             />
             {photos.slice(1, 3).map((url, index) => (
