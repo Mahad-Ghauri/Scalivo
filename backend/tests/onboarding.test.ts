@@ -61,6 +61,9 @@ class FakeProvider implements MessagingProvider {
       ? { status: this.status, qrCode: 'data:image/png;base64,xxx' }
       : { status: this.status };
   }
+  async getSessionQr() {
+    return null;
+  }
   async getSessionPhone() {
     return '923209263011';
   }

@@ -44,6 +44,9 @@ class FakeProvider implements MessagingProvider {
   async startSession() {
     return { status: this.status };
   }
+  async getSessionQr() {
+    return null;
+  }
   async provisionSession() {
     return { sessionId: SESSION_ID, status: this.status };
   }

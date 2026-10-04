@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Scalivo">
+  <!--
+    The site favicon (4.3). Next serves any app/icon.* as the tab icon, so this
+    file is the whole configuration — no <link> tag anywhere.
+
+    A separate, simpler drawing from public/icons/app-icon.svg rather than a
+    scaled copy. That one is a calendar page meant to read as "my appointments"
+    on a phone home screen at 192px. At 16px a calendar is four grey smudges, so
+    this is a solid brand tile with a single white mark — the only thing that
+    survives a browser tab.
+
+    Filled shapes only, no gradients and no strokes: a favicon gets rasterised by
+    whatever the browser or OS happens to use, and both are the first things a
+    naive renderer drops.
+  -->
+  <rect width="32" height="32" rx="7" fill="#6950f3" />
+  <path d="M12 9h8a1 1 0 0 1 0 4h-5v2h4a4 4 0 0 1 0 8h-7a1 1 0 0 1 0-4h6a1 1 0 0 0 0-2h-4a4 4 0 0 1 0-8z" fill="#ffffff" />
+</svg>

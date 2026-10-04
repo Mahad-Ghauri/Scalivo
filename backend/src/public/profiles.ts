@@ -3,6 +3,7 @@ import {
   type BusinessCard,
   type FacetOption,
   type FeaturedReview,
+  type IndexableBusiness,
   type MarketplaceBusiness,
   type PublicReview,
   type PublicService,
@@ -282,9 +283,55 @@ export async function publishedBusiness(slug: string): Promise<{ id: string; tim
   return business ? { id: String(business._id), timezone: business.timezone } : null;
 }
 
-export async function listSlugs(): Promise<string[]> {
-  const businesses = await Business.find(PUBLISHED).select('slug').sort({ slug: 1 });
-  return businesses.map((b) => b.slug);
+/**
+ * Every indexable slug, with the date its profile page last actually changed.
+ *
+ * The date is for the sitemap (4.3), and it is computed rather than taken from
+ * `Business.updatedAt` alone — which only moves when the business DOCUMENT is
+ * written. Adding a service, hiring a staff member or publishing a review all
+ * change what the page renders and none of them touches that field, so the
+ * simple version would tell a crawler nothing had changed on exactly the days
+ * something had.
+ *
+ * It is worth the three extra reads because a `lastmod` that is wrong is worse
+ * than one that is absent: a crawler that learns the dates here do not predict
+ * change stops using them, and that is not a signal you get back.
+ *
+ * The grouped aggregations are one round trip each over published businesses
+ * only — this is a sitemap, fetched rarely, not a page render.
+ */
+export async function listSlugs(): Promise<IndexableBusiness[]> {
+  const businesses = await Business.find(PUBLISHED).select('slug updatedAt').sort({ slug: 1 });
+  const ids = businesses.map((b) => String(b._id));
+
+  /** The newest write in a collection, per business. */
+  const latestBy = async (
+    model: typeof Service | typeof Staff | typeof Review,
+    match: Record<string, unknown> = {},
+  ): Promise<Map<string, Date>> => {
+    const rows = await model.aggregate<{ _id: string; at: Date }>([
+      { $match: { businessId: { $in: ids }, ...match } },
+      { $group: { _id: '$businessId', at: { $max: '$updatedAt' } } },
+    ]);
+    return new Map(rows.map((row) => [String(row._id), row.at]));
+  };
+
+  const [services, staff, reviews] = await Promise.all([
+    latestBy(Service),
+    latestBy(Staff),
+    // Only the reviews a stranger can see. An unpublished one changes nothing
+    // on the page, so dating the page by it would be a lie to the crawler.
+    latestBy(Review, PUBLIC_REVIEW),
+  ]);
+
+  return businesses.map((business) => {
+    const id = String(business._id);
+    const dates = [business.updatedAt, services.get(id), staff.get(id), reviews.get(id)].filter(
+      (date): date is Date => date instanceof Date,
+    );
+    const newest = dates.reduce((a, b) => (b > a ? b : a), new Date(0));
+    return { slug: business.slug, updatedAt: newest.toISOString() };
+  });
 }
 
 const titleCase = (value: string) =>

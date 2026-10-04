@@ -59,6 +59,9 @@ class FakeProvider implements MessagingProvider {
   async startSession() {
     return { status: SESSION_STATUS.READY };
   }
+  async getSessionQr() {
+    return null;
+  }
   async provisionSession() {
     return { sessionId: 'fake', status: SESSION_STATUS.READY };
   }
@@ -255,7 +258,11 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
 
     it('404s an unpublished business everywhere', async () => {
       expect((await get('/businesses/public-test-hidden')).status).toBe(404);
-      expect(await (await get('/businesses/slugs')).json()).not.toContain('public-test-hidden');
+      // Mapped to slugs first: the endpoint returns {slug, updatedAt} rows, and
+      // `not.toContain` against a string would pass on ANY array of objects —
+      // including one that leaked the hidden business.
+      const slugs = await (await get('/businesses/slugs')).json();
+      expect(slugs.map((row: { slug: string }) => row.slug)).not.toContain('public-test-hidden');
 
       const list = await (await get('/businesses?q=clinic')).json();
       expect(list.map((b: { slug: string }) => b.slug)).not.toContain('public-test-hidden');
