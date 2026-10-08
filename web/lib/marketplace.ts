@@ -116,6 +116,7 @@ async function getJson<T>(path: string, params?: Record<string, string | undefin
 
   const response = await fetch(url, {
     headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(15000),
     // Public pages are cacheable and largely static between edits. Revalidating
     // rather than rendering per-request is what keeps them fast on mobile data.
     next: { revalidate: 300 },

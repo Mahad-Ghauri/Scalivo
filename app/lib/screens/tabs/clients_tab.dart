@@ -183,9 +183,27 @@ class _ClientsTabState extends State<ClientsTab> {
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 110),
-        itemCount: controller.clients.length,
+        itemCount: controller.clients.length + 1,
         separatorBuilder: (_, _) => const Divider(height: 1, color: Sc.divider),
-        itemBuilder: (context, index) => _ClientRowTile(row: controller.clients[index]),
+        itemBuilder: (context, index) {
+          if (index < controller.clients.length) {
+            return _ClientRowTile(row: controller.clients[index]);
+          }
+          if (controller.hasMore) {
+            return TextButton(
+              onPressed: controller.loading ? null : controller.loadMore,
+              child: Text(
+                controller.loading ? 'Loading…' : 'Load more clients',
+              ),
+            );
+          }
+          return controller.clients.length < controller.total
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('Search or choose a tag to narrow the results.'),
+                )
+              : const SizedBox.shrink();
+        },
       ),
     );
   }

@@ -8,6 +8,34 @@
 /// (`_utc` in models.dart), so nothing below ever calls toLocal itself.
 library;
 
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
+bool _zonesLoaded = false;
+
+tz.Location _location(String timezone) {
+  if (!_zonesLoaded) {
+    tzdata.initializeTimeZones();
+    _zonesLoaded = true;
+  }
+  return tz.getLocation(timezone);
+}
+
+DateTime businessTime(DateTime instant, {String timezone = 'Asia/Karachi'}) =>
+    tz.TZDateTime.from(instant, _location(timezone));
+
+DateTime businessDate(DateTime wallTime, {String timezone = 'Asia/Karachi'}) =>
+    tz.TZDateTime(
+      _location(timezone),
+      wallTime.year,
+      wallTime.month,
+      wallTime.day,
+      wallTime.hour,
+      wallTime.minute,
+      wallTime.second,
+      wallTime.millisecond,
+    );
+
 const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _daysLong = [
   'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
@@ -27,9 +55,12 @@ DateTime parseIsoDate(String date) {
 }
 
 /// Midnight today, in the phone's zone. The anchor every date jump starts from.
-DateTime startOfToday() {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day);
+DateTime startOfToday({String timezone = 'Asia/Karachi'}) {
+  final now = businessTime(DateTime.now(), timezone: timezone);
+  return businessDate(
+    DateTime(now.year, now.month, now.day),
+    timezone: timezone,
+  );
 }
 
 bool isSameDay(DateTime a, DateTime b) =>
@@ -51,8 +82,10 @@ String dayLabelLong(DateTime d) => '${_daysLong[d.weekday - 1]} ${d.day} ${_mont
 /// 'Today', 'Tomorrow', 'Yesterday', or the date. Used anywhere a bare date
 /// would make the owner count days in their head.
 String relativeDay(DateTime d) {
-  final today = startOfToday();
-  final diff = DateTime(d.year, d.month, d.day).difference(today).inDays;
+  final today = startOfToday(
+    timezone: d is tz.TZDateTime ? d.location.name : 'Asia/Karachi',
+  );
+  final diff = DateTime.utc(d.year, d.month, d.day).difference(DateTime.utc(today.year, today.month, today.day)).inDays;
   return switch (diff) {
     0 => 'Today',
     1 => 'Tomorrow',
@@ -100,7 +133,14 @@ String leadLabel(int minutes) {
 /// 'never', '3 days ago', '2 months ago'. The CRM's at-a-glance recency.
 String agoLabel(DateTime? when) {
   if (when == null) return 'never';
-  final days = startOfToday().difference(DateTime(when.year, when.month, when.day)).inDays;
+  final today = startOfToday(
+    timezone: when is tz.TZDateTime ? when.location.name : 'Asia/Karachi',
+  );
+  final days = DateTime.utc(
+    today.year,
+    today.month,
+    today.day,
+  ).difference(DateTime.utc(when.year, when.month, when.day)).inDays;
   if (days <= 0) return 'today';
   if (days == 1) return 'yesterday';
   if (days < 30) return '$days days ago';

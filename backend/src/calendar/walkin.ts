@@ -113,7 +113,12 @@ export async function createWalkIn(
    * number simply has no address, and confirmBooking records that as skipped
    * rather than failing the booking.
    */
-  await confirmBooking(deps, request.businessId, result.booking.id);
+  const confirmed = await confirmBooking(deps, request.businessId, result.booking.id).catch(
+    (err) => {
+      logger.error({ err, bookingId: result.booking.id }, 'could not confirm walk-in');
+      return null;
+    },
+  );
 
   logger.info(
     { bookingId: result.booking.id, businessId: request.businessId, clientId },
@@ -122,7 +127,7 @@ export async function createWalkIn(
 
   return {
     ...result,
-    booking: { ...result.booking, status: BOOKING_STATUS.CONFIRMED },
+    booking: { ...result.booking, ...(confirmed?.ok ? { status: BOOKING_STATUS.CONFIRMED } : {}) },
     clientId,
   };
 }

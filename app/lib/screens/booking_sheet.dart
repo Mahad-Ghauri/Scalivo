@@ -12,10 +12,7 @@ import '../theme.dart';
 /// decision about something already on screen — pushing a route would lose the
 /// day the owner was looking at and make "mark the 11am done" a four-tap job.
 ///
-/// The destructive actions confirm; the constructive ones do not. Completing the
-/// wrong appointment is one tap to undo by completing the right one, but
-/// cancelling frees the slot and messages the customer, and there is no undo for
-/// a message that has already been read.
+/// Terminal actions confirm because they change history and cannot be undone.
 Future<void> showBookingSheet(
   BuildContext context, {
   required CalendarController controller,
@@ -99,7 +96,11 @@ class _BookingSheetState extends State<_BookingSheet> {
                       icon: Icons.check_rounded,
                       label: 'Completed',
                       tone: Sc.teal,
-                      onTap: () => _run(() => widget.controller.complete(entry)),
+                      onTap: () => _confirmThen(
+                        title: 'Mark this visit complete?',
+                        message: 'This updates the customer’s visit history and cannot be undone.',
+                        confirmLabel: 'MARK COMPLETE',
+                        action: () => widget.controller.complete(entry)),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -142,7 +143,7 @@ class _BookingSheetState extends State<_BookingSheet> {
                       onTap: () => _confirmThen(
                         title: 'Cancel this appointment?',
                         message: 'The slot is freed for someone else and the '
-                            'customer is told. This cannot be undone.',
+                            'we will try to notify the customer. This cannot be undone.',
                         confirmLabel: 'CANCEL BOOKING',
                         danger: true,
                         action: () => widget.controller.cancel(entry),

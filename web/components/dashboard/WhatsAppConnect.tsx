@@ -66,16 +66,23 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
 
   const call = useCallback(
     async <T,>(path: string, init?: RequestInit): Promise<T | null> => {
-      const res = await fetch(`/api/business/${businessId}${path}`, {
-        ...init,
-        headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError((body as ApiError).error ?? 'Could not reach the server.');
+      try {
+        const res = await fetch(`/api/business/${businessId}${path}`, {
+          ...init,
+          signal: AbortSignal.timeout(15000),
+          headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError((body as ApiError).error ?? 'Could not reach the server.');
+          return null;
+        }
+        return body as T;
+      } catch {
+        setError('Could not reach the server. Try again.');
+        setQr(null);
         return null;
       }
-      return body as T;
     },
     [businessId],
   );
@@ -93,7 +100,7 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
 
     setSessionId(result.sessionId);
     setStatus(result.status);
-    if (result.qrCode) setQr(result.qrCode);
+    setQr(result.qrCode ?? null);
   };
 
   /** An existing session that has dropped: restart it and show whatever it needs. */
@@ -107,7 +114,7 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
     if (!result) return;
 
     setStatus(result.status);
-    if (result.qrCode) setQr(result.qrCode);
+    setQr(result.qrCode ?? null);
   };
 
   /**
@@ -124,10 +131,16 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
     if (!watching) return;
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
       const current = await call<{ status: SessionStatus }>('/whatsapp');
-      if (cancelled || !current) return;
+      if (cancelled) return;
+      if (!current) {
+        setQr(null);
+        timer = setTimeout(() => void tick(), POLL_MS);
+        return;
+      }
       setStatus(current.status);
 
       if (current.status === SESSION_STATUS.READY) {
@@ -140,17 +153,15 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
       // and removes every reason for a scannable QR to go unseen.
       const live = await call<{ qrCode: string | null }>('/whatsapp/qr');
       if (cancelled) return;
-      if (live?.qrCode) {
-        setQr(live.qrCode);
-        setError(null);
-      }
+      setQr(live?.qrCode ?? null);
+      if (live?.qrCode) setError(null);
+      timer = setTimeout(() => void tick(), POLL_MS);
     };
 
     void tick();
-    const timer = setInterval(() => void tick(), POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [watching, call]);
 

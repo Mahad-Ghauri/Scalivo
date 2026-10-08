@@ -43,6 +43,7 @@ async function call<T>(
   try {
     const response = await fetch(`${API_BASE}/public/me/${encodeURIComponent(token)}${path}`, {
       ...init,
+      signal: AbortSignal.timeout(15000),
       cache: 'no-store',
       headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
     });
@@ -119,6 +120,7 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
 
     const hold = await call<PublicHold>(token, '/holds', {
       method: 'POST',
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({ serviceId: usual.serviceId, staffId: slot.staffId, startsAt: slot.startsAt }),
     });
     if (!hold.ok) {
@@ -130,6 +132,7 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
 
     const receipt = await call<PublicBookingReceipt>(token, '/bookings', {
       method: 'POST',
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
         serviceId: usual.serviceId,
         staffId: hold.data.staffId,
@@ -199,8 +202,8 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
       <h2 className="text-[18px] font-bold tracking-[-0.02em]">Book it again</h2>
       <p className="mt-1 text-[15px] text-muted">
         {usual.serviceName}
-        {usual.staffName ? ` with ${usual.staffName}` : ''} · {formatDuration(usual.durationMinutes)} ·{' '}
-        {formatPrice(usual.priceMinor)}
+        {usual.staffName ? ` with ${usual.staffName}` : ''} · {' '}
+        {formatDuration(usual.durationMinutes)} · {formatPrice(usual.priceMinor)}
       </p>
 
       {/* Horizontally scrolling day strip: seven taps' worth of choice on a phone. */}

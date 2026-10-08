@@ -15,16 +15,16 @@ import { CLIENT_TAG, type ClientTag } from '@scalivo/shared';
  */
 
 /** Five visits is a habit rather than a coincidence. */
-const VIP_VISITS = 5;
+export const VIP_VISITS = 5;
 
 /** PKR 50,000 lifetime, in paisa. A package buyer is a VIP on visit one. */
-const VIP_SPEND_MINOR = 50_000 * 100;
+export const VIP_SPEND_MINOR = 50_000 * 100;
 
 /** Still new until they have come back once. */
-const NEW_MAX_VISITS = 1;
+export const NEW_MAX_VISITS = 1;
 
 /** Beyond this, "at risk" is wishful thinking whatever their usual cadence. */
-const LAPSED_DAYS = 90;
+export const LAPSED_DAYS = 90;
 
 /**
  * How far past their OWN usual gap counts as slipping.
@@ -34,12 +34,12 @@ const LAPSED_DAYS = 90;
  * and an annual-checkup client at 60 days is early. 1.5x is late enough that a
  * holiday does not trigger it and early enough to be worth a nudge.
  */
-const AT_RISK_GAP_MULTIPLIER = 1.5;
+export const AT_RISK_GAP_MULTIPLIER = 1.5;
 
 /** Below this, a "usual gap" is one interval and not yet a pattern. */
-const MIN_VISITS_FOR_CADENCE = 3;
+export const MIN_VISITS_FOR_CADENCE = 3;
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 
 export interface TaggableProfile {
   totalVisits: number;

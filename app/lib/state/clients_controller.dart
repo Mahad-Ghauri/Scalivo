@@ -8,8 +8,7 @@ import '../api/models.dart';
 /// The customer list.
 ///
 /// Search is debounced rather than fired per keystroke. The backend's search
-/// runs a regex over the global Client collection before it can narrow to this
-/// business — that is the tenancy-safe order, and it is not free — so typing
+/// searches inside this business, but it is still work — so typing
 /// "Sana" should cost one query, not four.
 class ClientsController extends ChangeNotifier {
   // ignore_for_file: prefer_initializing_formals
@@ -25,6 +24,8 @@ class ClientsController extends ChangeNotifier {
   List<ClientRow> clients = const [];
   int total = 0;
   bool loading = false;
+  int _loadVersion = 0;
+  bool _disposed = false;
   ApiException? error;
 
   String query = '';
@@ -34,28 +35,46 @@ class ClientsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    ++_loadVersion;
     _pending?.cancel();
     super.dispose();
   }
 
-  Future<void> load() async {
+  bool get hasMore => clients.length < total && clients.length < 1000;
+
+  Future<void> load() => _loadPage();
+
+  Future<void> loadMore() async {
+    if (loading || !hasMore) return;
+    await _loadPage(append: true);
+  }
+
+  Future<void> _loadPage({bool append = false}) async {
+    final version = ++_loadVersion;
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      final page = await _api.clients(_businessId, q: query, tag: tag);
-      clients = page.clients;
+      final page = await _api.clients(_businessId, q: query, tag: tag,
+        skip: append ? clients.length : 0,
+      );
+      if (_disposed || version != _loadVersion) return;
+      clients = append ? [...clients, ...page.clients] : page.clients;
       total = page.total;
     } on ApiException catch (err) {
-      error = err;
+      if (!_disposed && version == _loadVersion) error = err;
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!_disposed && version == _loadVersion) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 
   void search(String value) {
+    ++_loadVersion;
     query = value.trim();
     _pending?.cancel();
     _pending = Timer(_debounce, load);

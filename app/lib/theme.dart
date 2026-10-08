@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens, lifted verbatim from the Scalivo canvas.
-///
-/// Every value here exists in the mockups. Nothing is rounded to a grid and
-/// nothing is invented — if a screen needs a colour that is not on this list,
-/// the design needs the decision, not the code.
+/// Shared Scalivo design tokens. Action and text colours meet normal-text contrast.
 abstract final class Sc {
   // Teal — the brand ground. Flat: no stripes, no gradient.
   static const teal900 = Color(0xFF154D46); // scaffold + hero
-  static const teal = Color(0xFF6FB3AA); // primary action
+  static const teal = Color(0xFF397F75); // primary action
   static const tealDisabled = Color(0xFF9CCDC6);
   static const tealSoft = Color(0xFFEAF4F2); // soft fill on white
   static const tealSurface = Color(0xFFF6FAF9);
@@ -18,9 +14,9 @@ abstract final class Sc {
   // Text on white.
   static const ink = Color(0xFF12211F);
   static const inkMuted = Color(0xFF4B5B59);
-  static const slate = Color(0xFF7B8A89); // field labels
-  static const slateLight = Color(0xFF9AA8A7);
-  static const slateFaint = Color(0xFFB6C0BF);
+  static const slate = Color(0xFF526563); // field labels
+  static const slateLight = Color(0xFF627573);
+  static const slateFaint = Color(0xFF627573);
 
   // Text on teal. Lifted along with the ground — the same muted tones that read
   // fine on #0D302E lose contrast against the lighter #154D46.

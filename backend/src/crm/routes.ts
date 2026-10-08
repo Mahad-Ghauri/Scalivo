@@ -1,5 +1,5 @@
 import express, { type Router } from 'express';
-import mongoose from 'mongoose';
+import mongoose, { type PipelineStage } from 'mongoose';
 import { z } from 'zod';
 import { BOOKING_STATUS, CLIENT_IMPORT_MAX_ROWS } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
@@ -12,7 +12,15 @@ import { Staff } from '../models/Staff.js';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { loadProfile, recomputeProfile, toTaggable } from './profile.js';
-import { averageGapDays, computeTags, nextExpectedVisitAt } from './tags.js';
+import { averageGapDays, computeTags, nextExpectedVisitAt,
+  VIP_VISITS,
+  VIP_SPEND_MINOR,
+  NEW_MAX_VISITS,
+  LAPSED_DAYS,
+  AT_RISK_GAP_MULTIPLIER,
+  MIN_VISITS_FOR_CADENCE,
+  DAY_MS,
+} from './tags.js';
 import { param } from '../http/params.js';
 
 /**
@@ -29,10 +37,10 @@ const PAGE_SIZE = 50;
 
 const listQuery = z.object({
   /** Matches a name or a phone number. */
-  q: z.string().trim().min(1).optional(),
+  q: z.string().trim().min(1).max(128).optional(),
   tag: z.enum(['new', 'vip', 'at_risk', 'lapsed']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(PAGE_SIZE),
-  skip: z.coerce.number().int().min(0).default(0),
+  skip: z.coerce.number().int().min(0).max(100000).default(0),
 });
 
 const notesBody = z.object({ notes: z.string().max(5000) });
@@ -50,10 +58,8 @@ export function createCrmRouter(): Router {
   /**
    * The customer list.
    *
-   * Tags are computed per row rather than queried, so filtering by tag filters
-   * the page in memory. That is a real limit and an honest one at pilot scale —
-   * making it a database query would mean storing tags, and a stored LAPSED is
-   * wrong the day after it is written.
+   * Tags are derived before pagination, using the same thresholds as computeTags.
+   * Search starts inside the tenant, so other businesses cannot exhaust matches.
    */
   router.get('/:businessId/clients', ...guard, async (req, res) => {
     const parsed = listQuery.safeParse(req.query);
@@ -65,31 +71,123 @@ export function createCrmRouter(): Router {
     const businessId = param(req, 'businessId');
     const { q, tag, limit, skip } = parsed.data;
 
-    // A text search has to go through Client (that is where names and phones
-    // live), so it runs first and narrows the profile query — never the other
-    // way round, which would read every profile and then filter.
-    let clientFilter: Record<string, unknown> | null = null;
+    const now = new Date();
+    const stages: PipelineStage[] = [
+      { $match: { businessId } },
+      { $project: { clientId: 1, totalVisits: 1, lifetimeSpendMinor: 1, firstVisitAt: 1, lastVisitAt: 1, lastBookingAt: 1 } },
+    ];
+    if (tag === 'new') stages.push({ $match: { totalVisits: { $lte: NEW_MAX_VISITS } } });
+    if (tag === 'vip')
+      stages.push({
+        $match: {
+          $or: [
+            { totalVisits: { $gte: VIP_VISITS } },
+            { lifetimeSpendMinor: { $gte: VIP_SPEND_MINOR } },
+          ],
+        },
+      });
+    if (tag === 'lapsed' || tag === 'at_risk') {
+      const cutoff = new Date(now.getTime() - LAPSED_DAYS * DAY_MS);
+      stages.push({
+        $match: { lastVisitAt: tag === 'lapsed' ? { $ne: null, $lte: cutoff } : { $gt: cutoff } },
+      });
+      if (tag === 'at_risk')
+        stages.push({
+          $match: {
+            $expr: {
+              $and: [
+                { $gte: ['$totalVisits', MIN_VISITS_FOR_CADENCE] },
+                { $ne: ['$firstVisitAt', null] },
+                { $gt: ['$lastVisitAt', '$firstVisitAt'] },
+                {
+                  $gte: [
+                    { $subtract: [now, '$lastVisitAt'] },
+                    {
+                      $multiply: [
+                        AT_RISK_GAP_MULTIPLIER,
+                        {
+                          $divide: [
+                            { $subtract: ['$lastVisitAt', '$firstVisitAt'] },
+                            { $max: [1, { $subtract: ['$totalVisits', 1] }] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+      stages.push(
+        {
+          $lookup: {
+            from: Booking.collection.name,
+            let: { clientId: '$clientId' },
+            pipeline: [
+              {
+                $match: {
+                  businessId,
+                  startsAt: { $gte: now },
+                  status: { $nin: [BOOKING_STATUS.CANCELLED, BOOKING_STATUS.NO_SHOW] },
+                  $expr: { $eq: ['$clientId', '$$clientId'] },
+                },
+              },
+              { $limit: 1 },
+              { $project: { _id: 1 } },
+            ],
+            as: 'upcoming',
+          },
+        },
+        { $match: { upcoming: { $size: 0 } } },
+      );
+    }
     if (q) {
       const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const matches = await Client.find({
-        $or: [{ displayName: new RegExp(escaped, 'i') }, { phone: new RegExp(escaped) }],
-      })
-        .select('_id')
-        .limit(500);
-
-      if (matches.length === 0) {
-        res.json({ clients: [], total: 0 });
-        return;
-      }
-      clientFilter = { clientId: { $in: matches.map((c) => String(c._id)) } };
+      stages.push(
+        {
+          $lookup: {
+            from: Client.collection.name,
+            let: {
+              id: { $convert: { input: '$clientId', to: 'objectId', onError: null, onNull: null } },
+            },
+            pipeline: [
+              { $match: { $expr: { $eq: ['$_id', '$$id'] } } },
+              { $project: { displayName: 1, phone: 1 } },
+            ],
+            as: 'person',
+          },
+        },
+        {
+          $match: {
+        $or: [{ 'person.displayName': new RegExp(escaped, 'i') }, { 'person.phone': new RegExp(escaped) }],
+      },
+        },
+      );
     }
-
-    const filter = { businessId, ...(clientFilter ?? {}) };
-
-    const [profiles, total] = await Promise.all([
-      ClientProfile.find(filter).sort({ lastBookingAt: -1 }).skip(skip).limit(limit),
-      ClientProfile.countDocuments(filter),
-    ]);
+    stages.push({
+      $facet: {
+        page: [
+          { $sort: { lastBookingAt: -1, _id: 1 } },
+          { $skip: skip },
+          { $limit: limit },
+          { $project: { _id: 1 } },
+        ],
+        count: [{ $count: 'total' }],
+      },
+    });
+    const [result] = await ClientProfile.aggregate<{
+      page: { _id: mongoose.Types.ObjectId }[];
+      count: { total: number }[];
+    }>(stages);
+    const ids = result?.page.map((p) => p._id) ?? [];
+    const total = result?.count[0]?.total ?? 0;
+    const found = await ClientProfile.find({ businessId, _id: { $in: ids } });
+    const byProfileId = new Map(found.map((p) => [String(p._id), p]));
+    const profiles = ids.flatMap((id) => {
+      const profile = byProfileId.get(String(id));
+      return profile ? [profile] : [];
+    });
 
     const clients = await Client.find({
       _id: { $in: profiles.map((p) => p.clientId) },
@@ -101,7 +199,7 @@ export function createCrmRouter(): Router {
     const upcoming = await Booking.distinct('clientId', {
       businessId,
       clientId: { $in: profiles.map((p) => p.clientId) },
-      startsAt: { $gte: new Date() },
+      startsAt: { $gte: now },
       status: { $nin: [BOOKING_STATUS.CANCELLED, BOOKING_STATUS.NO_SHOW] },
     });
     const booked = new Set(upcoming);
@@ -115,7 +213,7 @@ export function createCrmRouter(): Router {
         clientId: p.clientId,
         displayName: client?.displayName ?? null,
         phone: client?.phone ?? null,
-        tags: computeTags(taggable, { hasUpcomingBooking: booked.has(p.clientId) }),
+        tags: computeTags(taggable, { hasUpcomingBooking: booked.has(p.clientId), now }),
         totalVisits: p.totalVisits,
         lifetimeSpendMinor: p.lifetimeSpendMinor,
         lastVisitAt: taggable.lastVisitAt,
@@ -126,10 +224,8 @@ export function createCrmRouter(): Router {
     });
 
     res.json({
-      clients: tag ? rows.filter((r) => r.tags.includes(tag)) : rows,
+      clients: rows,
       total,
-      // Named so the app does not present a filtered page as a filtered total.
-      ...(tag ? { filteredWithinPage: true } : {}),
     });
   });
 

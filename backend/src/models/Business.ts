@@ -52,7 +52,7 @@ const businessSchema = new Schema(
       reconnectAttempts: { type: Number, default: 0 },
 
       /** One scoped OpenWA key per business, never the shared admin key. */
-      apiKeyRef: { type: String, default: null },
+      apiKeyRef: { type: String, default: null, select: false },
 
       /**
        * The linked number, E.164 without '+', cached from the gateway.

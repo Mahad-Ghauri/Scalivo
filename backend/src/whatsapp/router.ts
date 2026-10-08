@@ -24,12 +24,11 @@ import * as copy from './messages.js';
 /**
  * The interceptor chain, in the order docs/fsm-design.md §2 specifies.
  *
- *   verify → ack → dedupe → identity → lock → global → pending → FSM
+ *   verify → persist → dedupe → identity → lock → global → pending → FSM
  *
- * Stages 0 and 1 (HMAC verification, ack-first, idempotency-key dedupe) already
+ * Stages 0 and 1 (HMAC verification, durable acceptance, dedupe) already
  * live in messaging/webhook.ts, which is why this starts at identity. The
- * ordering there matters as much as it does here: acking before processing
- * means a slow booking write never triggers a retry.
+ * ordering there matters: acknowledgement follows durable enqueueing.
  *
  * The rule this file exists to enforce is that **state is consulted last**. Every
  * stage above the FSM handles input whose meaning does not depend on where the
@@ -89,8 +88,7 @@ export async function handleInboundMessage(
   // SELECTING_SLOT, both pick, both hold.
   const release = await acquireConversationLock(deps.redis, businessId, clientId);
   if (!release) {
-    logger.info({ businessId, clientId }, 'dropped a message that raced its predecessor');
-    return;
+    throw new Error('conversation is busy; retry this turn');
   }
 
   try {

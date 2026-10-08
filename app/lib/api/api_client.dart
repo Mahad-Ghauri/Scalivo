@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import '../format.dart';
 
 enum ApiErrorKind { network, unauthorized, validation, conflict, server }
 
@@ -66,8 +67,19 @@ class ApiClient {
 
   /// Set by AuthController on login and on restore; cleared on logout.
   String? token;
+  String businessTimezone = 'Asia/Karachi';
+  void Function()? onUnauthorized;
 
   static const _timeout = Duration(seconds: 15);
+
+  String _businessInstant(DateTime value) {
+    if (value.isUtc) return value.toIso8601String();
+    final local = businessDate(value, timezone: businessTimezone);
+    if (local.hour != value.hour || local.minute != value.minute || local.day != value.day) {
+      throw const ApiException(ApiErrorKind.validation, 'That time does not exist in the business timezone. Pick another time.');
+    }
+    return local.toUtc().toIso8601String();
+  }
 
   Future<AuthResult> login(String email, String password) async {
     final json = await _send('POST', '/auth/login', body: {
@@ -100,6 +112,9 @@ class ApiClient {
 
   Future<void> registerDevice(String fcmToken) =>
       _send('POST', '/auth/device', body: {'fcmToken': fcmToken});
+
+  Future<void> unregisterDevice(String fcmToken) =>
+      _send('DELETE', '/auth/device', body: {'fcmToken': fcmToken});
 
   Future<LinkResult> linkWhatsApp(String businessId) async =>
       LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/link',
@@ -148,6 +163,7 @@ class ApiClient {
       id: current.id,
       name: current.name,
       category: current.category,
+      timezone: current.timezone,
       whatsappStatus: json['status'] as String?,
       whatsappIntent: json['intent'] as String?,
     );
@@ -187,7 +203,7 @@ class ApiClient {
       _send('POST', '/businesses/$businessId/walk-ins', body: {
         'serviceId': serviceId,
         'staffId': staffId,
-        'startsAt': startsAt.toUtc().toIso8601String(),
+        'startsAt': _businessInstant(startsAt),
         if (name != null && name.isNotEmpty) 'name': name,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
         'clientId': ?clientId,
@@ -202,7 +218,7 @@ class ApiClient {
   }) async =>
       RescheduleOutcome.fromJson(
         await _send('POST', '/businesses/$businessId/bookings/$bookingId/reschedule', body: {
-          'startsAt': startsAt.toUtc().toIso8601String(),
+          'startsAt': _businessInstant(startsAt),
           'staffId': ?staffId,
           'override': override,
         }),
@@ -328,8 +344,8 @@ class ApiClient {
       BlockResult.fromJson(
         await _send('POST', '/businesses/$businessId/blocked-time', body: {
           'staffId': staffId,
-          'startsAt': startsAt.toUtc().toIso8601String(),
-          'endsAt': endsAt.toUtc().toIso8601String(),
+          'startsAt': _businessInstant(startsAt),
+          'endsAt': _businessInstant(endsAt),
           if (reason != null && reason.isNotEmpty) 'reason': reason,
         }),
       );
@@ -356,7 +372,7 @@ class ApiClient {
     return (
       clients: (json['clients'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
-          .map(ClientRow.fromJson)
+          .map((row) => ClientRow.fromJson(row, timezone: businessTimezone))
           .toList(growable: false),
       total: json['total'] as int? ?? 0,
     );
@@ -365,6 +381,7 @@ class ApiClient {
   Future<ClientProfileDetail> clientProfile(String businessId, String clientId) async =>
       ClientProfileDetail.fromJson(
         await _send('GET', '/businesses/$businessId/clients/$clientId'),
+    timezone: businessTimezone,
       );
 
   Future<void> saveNotes(String businessId, String clientId, String notes) =>
@@ -421,8 +438,9 @@ class ApiClient {
     // Built through Uri rather than string concatenation: a customer search for
     // "R&B" or a name with a space would otherwise truncate the query silently.
     final uri = Uri.parse('$baseUrl$path').replace(
-      queryParameters: (query == null || query.isEmpty) ? null : query,
-    );
+      queryParameters: (query == null || query.isEmpty) ? null : query);
+
+    final sentToken = token;
 
     final request = http.Request(method, uri)
       ..headers['Accept'] = 'application/json';
@@ -471,6 +489,21 @@ class ApiClient {
       await responseChunks?.cancel();
     }
 
+    if (response.statusCode == 401 &&
+        (path == '/auth/login' || path == '/auth/register')) {
+      throw const ApiException(
+        ApiErrorKind.unauthorized,
+        'Wrong email or password',
+      );
+    }
+    if (response.statusCode == 401 &&
+        sentToken != null &&
+        sentToken == token &&
+        path != '/auth/login' &&
+        path != '/auth/register') {
+      onUnauthorized?.call();
+    }
+
     if (response.statusCode == 204 || response.body.isEmpty) {
       if (response.statusCode >= 400) throw _errorFor(response.statusCode, const {});
       return const {};
@@ -500,7 +533,9 @@ class ApiClient {
 
   ApiException _errorFor(int status, Map<String, String> fields, [String? serverMessage]) {
     return switch (status) {
-      401 => const ApiException(ApiErrorKind.unauthorized, 'Wrong email or password'),
+      401 => const ApiException(ApiErrorKind.unauthorized,
+        'Your session expired. Please sign in again.',
+      ),
       // The server's message is safe to show here: 400 and 409 are both
       // validation outcomes phrased for a person, not internal detail.
       400 => ApiException(

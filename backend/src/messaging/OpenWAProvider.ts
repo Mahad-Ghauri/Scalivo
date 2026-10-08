@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { z } from 'zod';
 import {
   ACK_STATUS,
   SESSION_STATUS,
@@ -33,14 +34,33 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const START_TIMEOUT_MS = 60_000;
 
 /** The webhook envelope every delivery is wrapped in. */
-interface Envelope {
-  event: string;
-  timestamp: string;
-  sessionId: string;
-  idempotencyKey: string;
-  deliveryId: string;
-  data: Record<string, unknown>;
-}
+const envelopeSchema = z.object({
+  event: z.string().min(1).max(100),
+  timestamp: z.string().datetime({ offset: true }),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[\w-]+$/),
+  data: z.record(z.unknown()),
+});
+
+const inboundSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    from: z.string().min(1).max(512),
+    body: z.string().max(8192).nullish(),
+    type: z.string().max(64).optional(),
+    timestamp: z.number().int().min(0).max(4102444800).optional(),
+    senderPhone: z.string().max(32).nullish(),
+    fromMe: z.boolean().optional(),
+    isGroup: z.boolean().optional(),
+    hasMedia: z.boolean().optional(),
+    contact: z
+      .object({ name: z.string().max(120).nullish(), pushName: z.string().max(120).nullish() })
+      .nullish(),
+  })
+  .passthrough();
 
 export class OpenWAProvider implements MessagingProvider {
   readonly name = 'openwa';
@@ -243,12 +263,13 @@ export class OpenWAProvider implements MessagingProvider {
       throw new InvalidSignatureError();
     }
 
-    const envelope = JSON.parse(rawBody.toString('utf8')) as Envelope;
+    const envelope = envelopeSchema.parse(JSON.parse(rawBody.toString('utf8')));
     const { event, sessionId, data } = envelope;
     const occurredAt = new Date(envelope.timestamp);
 
     switch (event) {
       case 'message.received': {
+        inboundSchema.parse(data);
         // `from` is an @lid, never a phone number. See FINDING #1.
         const contactLid = str(data.from) ?? str(data.chatId) ?? '';
         const contact = (data.contact ?? {}) as { name?: string; pushName?: string };
@@ -263,7 +284,8 @@ export class OpenWAProvider implements MessagingProvider {
               body: str(data.body) ?? '',
               type: str(data.type) ?? 'unknown',
               // OpenWA sends epoch SECONDS here, unlike the envelope's ISO string.
-              receivedAt: new Date(Number(data.timestamp ?? 0) * 1000),
+              receivedAt:
+                data.timestamp == null ? occurredAt : new Date(Number(data.timestamp) * 1000),
               fromMe: Boolean(data.fromMe),
               isGroup: Boolean(data.isGroup),
               displayName: contact.name ?? contact.pushName ?? null,

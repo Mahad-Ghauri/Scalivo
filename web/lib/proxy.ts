@@ -29,6 +29,7 @@ export async function forward(
     const res = await fetch(new URL(path, API_BASE), {
       method: init.method,
       cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',

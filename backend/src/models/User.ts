@@ -30,4 +30,9 @@ const userSchema = new Schema(
   { timestamps: true },
 );
 
+userSchema.index(
+  { fcmTokens: 1 },
+  { unique: true, partialFilterExpression: { 'fcmTokens.0': { $exists: true } } },
+);
+
 export const User = model('User', userSchema);

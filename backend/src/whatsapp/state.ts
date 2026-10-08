@@ -16,7 +16,7 @@ const CONVERSATION_TTL_SECONDS = 30 * 60;
  * Short, because it only spans one message's processing. A lock that outlived a
  * crash would freeze the customer out of their own conversation until it expired.
  */
-const LOCK_TTL_SECONDS = 10;
+const LOCK_TTL_SECONDS = 120;
 
 const conversationKey = (businessId: string, clientId: string) =>
   `conv:${businessId}:${clientId}`;
@@ -71,10 +71,7 @@ export async function clearConversation(
  * SELECTING_SLOT, both pick a slot, both try to hold. SPEC §1.4 asks for this
  * and does not say where it goes — it goes here, around the whole turn.
  *
- * Returns null when someone else holds it. The caller drops the message rather
- * than queueing: a customer who double-taps send meant to send once, and
- * processing the second copy after the first would answer a question they have
- * already moved past.
+ * Returns null when another turn holds it; the inbound worker retries the turn.
  */
 export async function acquireConversationLock(
   redis: Redis,
@@ -87,7 +84,23 @@ export async function acquireConversationLock(
   const ok = await redis.set(key, token, 'EX', LOCK_TTL_SECONDS, 'NX');
   if (ok !== 'OK') return null;
 
+  const renewal = setInterval(() => {
+    void redis
+      .eval(
+        `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0`,
+        1,
+        key,
+        token,
+        LOCK_TTL_SECONDS,
+      )
+      .catch(() => {
+        /* The turn retains its existing lease on transient failure. */
+      });
+  }, 30000);
+  renewal.unref();
+
   return async () => {
+    clearInterval(renewal);
     // Release only our own lock: ours may have expired and been re-acquired,
     // and a blind DEL would then unlock someone else's turn mid-write.
     await redis.eval(

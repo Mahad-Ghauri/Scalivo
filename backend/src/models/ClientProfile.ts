@@ -126,7 +126,8 @@ const clientProfileSchema = new Schema(
 clientProfileSchema.index({ businessId: 1, clientId: 1 }, { unique: true });
 
 /** The CRM list: a business's customers, most recently active first. */
-clientProfileSchema.index({ businessId: 1, lastBookingAt: -1 });
+clientProfileSchema.index({ businessId: 1, lastBookingAt: -1, _id: 1 });
+clientProfileSchema.index({ businessId: 1, lastVisitAt: 1 });
 
 /**
  * The lookup the customer's page does on every load, and the guard against two

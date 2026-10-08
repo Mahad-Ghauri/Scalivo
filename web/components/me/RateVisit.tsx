@@ -43,6 +43,7 @@ export function RateVisit({ token, pending, timezone }: Props) {
     try {
       const response = await fetch(`${API_BASE}/public/me/${encodeURIComponent(token)}/reviews`, {
         method: 'POST',
+        signal: AbortSignal.timeout(15000),
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({
           bookingId: pending.bookingId,

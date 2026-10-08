@@ -22,7 +22,9 @@ class CalendarController extends ChangeNotifier {
   // ignore_for_file: prefer_initializing_formals
   CalendarController({required ApiClient api, required String businessId})
       : _api = api,
-        _businessId = businessId;
+        _businessId = businessId {
+    selectedDay = startOfToday(timezone: api.businessTimezone);
+  }
 
   final ApiClient _api;
   final String _businessId;
@@ -34,6 +36,8 @@ class CalendarController extends ChangeNotifier {
 
   CalendarView? view;
   bool loading = false;
+  int _loadVersion = 0;
+  bool _disposed = false;
   ApiException? error;
 
   /// The catalogue, loaded once — the walk-in sheet needs both lists and they
@@ -64,11 +68,19 @@ class CalendarController extends ChangeNotifier {
 
   List<CalendarBlock> get blocks => day?.blocks ?? const [];
 
+  @override
+  void dispose() {
+    _disposed = true;
+    ++_loadVersion;
+    super.dispose();
+  }
+
   /// What the owner is owed today: everything not yet completed, missed or
   /// called off. The number the Today header leads with.
   int get openCount => entries.where((e) => !e.isTerminal).length;
 
   Future<void> load({bool quiet = false}) async {
+    final version = ++_loadVersion;
     if (!quiet) {
       loading = true;
       error = null;
@@ -77,18 +89,22 @@ class CalendarController extends ChangeNotifier {
 
     final date = isoDate(selectedDay);
     try {
-      view = await _api.calendar(
+      final loaded = await _api.calendar(
         _businessId,
         from: date,
         to: date,
         staffId: staffFilter,
       );
+      if (_disposed || version != _loadVersion) return;
+      view = loaded;
       error = null;
     } on ApiException catch (err) {
-      error = err;
+      if (!_disposed && version == _loadVersion) error = err;
     } finally {
+      if (!_disposed && version == _loadVersion) {
       loading = false;
       notifyListeners();
+      }
     }
   }
 

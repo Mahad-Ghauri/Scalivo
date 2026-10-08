@@ -45,6 +45,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<{ ok: true; da
   try {
     const response = await fetch(`${API_BASE}/public/businesses/${path}`, {
       ...init,
+      signal: AbortSignal.timeout(15000),
       headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
     });
     if (response.status === 204) return { ok: true, data: undefined as T };
@@ -80,6 +81,8 @@ const dayParts = (date: string) => {
 };
 
 export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, services, staff }: Props) {
+  const slotsVersion = useRef(0);
+  const holdVersion = useRef(0);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   const [serviceId, setServiceId] = useState<string | null>(null);
@@ -153,10 +156,12 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
   );
 
   const loadSlots = useCallback(async () => {
+    const version = ++slotsVersion.current;
     if (!serviceId || !date) return;
     setLoadingSlots(true);
     const params = new URLSearchParams({ serviceId, date, staffId });
     const result = await call<{ slots: PublicSlot[] }>(`${slug}/availability?${params}`);
+    if (version !== slotsVersion.current) return;
     setLoadingSlots(false);
     if (result.ok) {
       setSlots(result.data.slots);
@@ -169,15 +174,28 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
   useEffect(() => {
     setSlots(null);
     void loadSlots();
+    return () => {
+      ++slotsVersion.current;
+    };
   }, [loadSlots]);
 
   /* Changing what is being booked lets go of any time already held. */
   const holdRef = useRef<{ hold: PublicHold | null; serviceId: string | null }>({ hold: null, serviceId: null });
   holdRef.current = { hold, serviceId };
   const dropHold = useCallback(() => {
+    ++holdVersion.current;
+    ++slotsVersion.current;
     release(holdRef.current.hold, holdRef.current.serviceId);
     setHold(null);
   }, [release]);
+
+  useEffect(
+    () => () => {
+      ++holdVersion.current;
+      release(holdRef.current.hold, holdRef.current.serviceId);
+    },
+    [release],
+  );
 
   /* The countdown. When it hits zero the server has already let go. */
   useEffect(() => {
@@ -198,6 +216,7 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
 
   function chooseService(id: string) {
     if (id === serviceId) return;
+    if (submitting) return;
     dropHold();
     setNotice(null);
     setServiceId(id);
@@ -207,12 +226,14 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
   }
 
   function chooseStaff(id: string) {
+    if (submitting) return;
     dropHold();
     setNotice(null);
     setStaffId(id);
   }
 
   function chooseDate(next: string) {
+    if (submitting) return;
     dropHold();
     setNotice(null);
     setDate(next);
@@ -224,6 +245,8 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
     setNotice(null);
     setHolding(slot.startsAt);
 
+    const version = ++holdVersion.current;
+
     const result = await call<PublicHold>(`${slug}/holds`, {
       method: 'POST',
       // Ask for the person availability offered, not "anyone": that is the
@@ -231,6 +254,10 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
       body: JSON.stringify({ serviceId, staffId: slot.staffId, startsAt: slot.startsAt }),
     });
     setHolding(null);
+    if (version !== holdVersion.current) {
+      if (result.ok) release(result.data, serviceId);
+      return;
+    }
 
     if (result.ok) {
       setHold(result.data);
@@ -448,8 +475,9 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
             <Step number={qualified.length > 1 ? 4 : 3} title="Your details">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface px-4 py-3 text-[15px]">
                 <span>
-                  <span className="font-semibold">{service.name}</span> with {staffName(hold.staffId)},{' '}
-                  {date ? dayParts(date).long : ''} at {timeLabel.format(new Date(hold.startsAt))}
+                  <span className="font-semibold">{service.name}</span> with {' '}
+                  {staffName(hold.staffId)}, {date ? dayParts(date).long : ''} at{' '}
+                  {timeLabel.format(new Date(hold.startsAt))}
                 </span>
                 <span className="text-[14px] text-muted" aria-live="off">
                   Held for {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
@@ -505,7 +533,8 @@ export function BookingFlow({ slug, businessName, timezone, bookingHorizonDays, 
   );
 }
 
-function Step({ number, title, children }: { number: number; title: string; children: React.ReactNode }) {
+function Step({ number, title, children }: { number: number; title: string; children: React.ReactNode;
+}) {
   return (
     <fieldset className="min-w-0">
       <legend className="mb-4 flex items-center gap-3 text-[18px] font-bold tracking-[-0.01em]">
@@ -517,7 +546,8 @@ function Step({ number, title, children }: { number: number; title: string; chil
   );
 }
 
-function Chip({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
+function Chip({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -532,7 +562,8 @@ function Chip({ selected, onClick, children }: { selected: boolean; onClick: () 
   );
 }
 
-function DateStrip({ dates, selected, onSelect }: { dates: string[]; selected: string | null; onSelect: (date: string) => void }) {
+function DateStrip({ dates, selected, onSelect }: { dates: string[]; selected: string | null; onSelect: (date: string) => void;
+}) {
   const track = useRef<HTMLUListElement>(null);
   const scroll = (direction: 1 | -1) => track.current?.scrollBy({ left: direction * 240, behavior: 'smooth' });
 

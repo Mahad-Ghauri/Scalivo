@@ -187,7 +187,7 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
       const SnackBar(
         behavior: SnackBarBehavior.floating,
         backgroundColor: Sc.teal900,
-        content: Text('Booked. The slot is held and the customer has been messaged.'),
+        content: Text('Booked. The slot is reserved.'),
       ),
     );
   }

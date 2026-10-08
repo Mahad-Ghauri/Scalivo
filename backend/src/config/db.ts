@@ -4,13 +4,30 @@ import { Pool } from 'pg';
 import { env } from './env.js';
 import { logger } from '../lib/logger.js';
 
-export const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true });
+mongoose.set('maxTimeMS', 10000);
 
-export const postgres = new Pool({ connectionString: env.POSTGRES_URL });
+export const redis = new Redis(env.REDIS_URL, {
+  maxRetriesPerRequest: 2,
+  connectTimeout: 5000,
+  commandTimeout: 10000,
+  lazyConnect: true,
+});
+
+export const postgres = new Pool({
+  connectionString: env.POSTGRES_URL,
+  connectionTimeoutMillis: 5000,
+  query_timeout: 10000,
+  statement_timeout: 10000,
+  max: 10,
+});
 
 export async function connectAll(): Promise<void> {
   await Promise.all([
-    mongoose.connect(env.MONGO_URI),
+    mongoose.connect(env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 15000,
+      maxPoolSize: 20,
+    }),
     redis.connect(),
     postgres.query('SELECT 1'),
   ]);
@@ -53,7 +70,11 @@ export async function healthCheck(): Promise<HealthReport> {
 
   checks.mongo = await probe(async () => `replicaSet=${await assertReplicaSet()}`);
 
-  checks.redis = await probe(async () => (await redis.ping()) as string);
+  checks.redis = await probe(async () => {
+    const failed = await redis.llen('webhook:failed');
+    if (failed > 0) throw new Error(`${failed} inbound deliveries require operator replay`);
+    return await redis.ping();
+  });
   checks.postgres = await probe(async () => {
     await postgres.query('SELECT 1');
     return 'ok';

@@ -2,6 +2,8 @@
 /// screens render, and every field here is one the backend actually sends.
 library;
 
+import '../format.dart';
+
 class AuthResult {
   const AuthResult({required this.token, required this.role});
 
@@ -21,11 +23,13 @@ class BusinessSummary {
     required this.category,
     required this.whatsappStatus,
     required this.whatsappIntent,
+    this.timezone = 'Asia/Karachi',
   });
 
   final String id;
   final String name;
   final String category;
+  final String timezone;
   final String? whatsappStatus;
   final String? whatsappIntent;
 
@@ -35,6 +39,7 @@ class BusinessSummary {
       id: json['id'] as String,
       name: json['name'] as String? ?? 'Your business',
       category: json['category'] as String? ?? '',
+      timezone: json['timezone'] as String? ?? 'Asia/Karachi',
       whatsappStatus: wa['status'] as String?,
       whatsappIntent: wa['intent'] as String?,
     );
@@ -44,10 +49,16 @@ class BusinessSummary {
 }
 
 class Me {
-  const Me({required this.name, required this.email, required this.businesses});
+  const Me({
+    required this.name,
+    required this.email,
+    required this.businesses,
+    this.role = 'owner',
+  });
 
   final String? name;
   final String email;
+  final String role;
   final List<BusinessSummary> businesses;
 
   /// Phase 1 owners have exactly one business. Multi-business owners are a
@@ -60,6 +71,7 @@ class Me {
     return Me(
       name: user['name'] as String?,
       email: user['email'] as String? ?? '',
+      role: user['role'] as String? ?? 'owner',
       businesses: list
           .whereType<Map<String, dynamic>>()
           .map(BusinessSummary.fromJson)
@@ -116,17 +128,13 @@ SessionHealth sessionHealthOf(String? status, String? intent) {
 // ---------------------------------------------------------------------------
 // The calendar, the CRM and settings — Phase 1.6 to 1.8, at the UI layer.
 //
-// Every `startsAt` the backend sends is UTC, and every one of them is parsed
-// with `.toLocal()`. That is correct only because an owner's phone is in the
-// business's timezone, which is true of a single-city pilot and will stop being
-// true the moment someone opens the app abroad. The honest fix is to convert
-// through `CalendarView.timezone`, which is why the field is carried here even
-// though nothing reads it yet.
+// Instants are displayed in the business zone, independently of the device.
 // ---------------------------------------------------------------------------
 
-DateTime _utc(Object? value) => DateTime.parse(value! as String).toLocal();
-DateTime? _utcOrNull(Object? value) =>
-    value == null ? null : DateTime.parse(value as String).toLocal();
+DateTime _utc(Object? value, String timezone) =>
+    businessTime(DateTime.parse(value! as String), timezone: timezone);
+DateTime? _utcOrNull(Object? value, String timezone) =>
+    value == null ? null : _utc(value, timezone);
 
 /// A booking as the calendar draws it: names resolved, no id lookups needed.
 class CalendarEntry {
@@ -170,7 +178,9 @@ class CalendarEntry {
   bool get isTerminal =>
       status == 'completed' || status == 'no_show' || status == 'cancelled';
 
-  factory CalendarEntry.fromJson(Map<String, dynamic> json) => CalendarEntry(
+  factory CalendarEntry.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) => CalendarEntry(
         id: json['id'] as String,
         staffId: json['staffId'] as String,
         staffName: json['staffName'] as String? ?? 'Staff',
@@ -179,8 +189,8 @@ class CalendarEntry {
         clientPhone: json['clientPhone'] as String?,
         serviceId: json['serviceId'] as String,
         serviceName: json['serviceName'] as String? ?? 'Service',
-        startsAt: _utc(json['startsAt']),
-        endsAt: _utc(json['endsAt']),
+        startsAt: _utc(json['startsAt'], timezone),
+        endsAt: _utc(json['endsAt'], timezone),
         durationMinutes: json['durationMinutes'] as int? ?? 0,
         status: json['status'] as String? ?? 'pending',
         priceMinor: json['priceMinor'] as int? ?? 0,
@@ -204,11 +214,13 @@ class CalendarBlock {
   final DateTime endsAt;
   final String? reason;
 
-  factory CalendarBlock.fromJson(Map<String, dynamic> json) => CalendarBlock(
+  factory CalendarBlock.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) => CalendarBlock(
         id: json['id'] as String,
         staffId: json['staffId'] as String?,
-        startsAt: _utc(json['startsAt']),
-        endsAt: _utc(json['endsAt']),
+        startsAt: _utc(json['startsAt'], timezone),
+        endsAt: _utc(json['endsAt'], timezone),
         reason: json['reason'] as String?,
       );
 }
@@ -223,15 +235,17 @@ class CalendarDay {
   final List<CalendarEntry> entries;
   final List<CalendarBlock> blocks;
 
-  factory CalendarDay.fromJson(Map<String, dynamic> json) => CalendarDay(
+  factory CalendarDay.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) => CalendarDay(
         date: json['date'] as String,
         entries: (json['entries'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>()
-            .map(CalendarEntry.fromJson)
+            .map((row) => CalendarEntry.fromJson(row, timezone: timezone))
             .toList(growable: false),
         blocks: (json['blocks'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>()
-            .map(CalendarBlock.fromJson)
+            .map((row) => CalendarBlock.fromJson(row, timezone: timezone))
             .toList(growable: false),
       );
 }
@@ -253,7 +267,12 @@ class CalendarView {
             .toList(growable: false),
         days: (json['days'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>()
-            .map(CalendarDay.fromJson)
+            .map(
+              (row) => CalendarDay.fromJson(
+                row,
+                timezone: json['timezone'] as String? ?? 'Asia/Karachi',
+              ),
+            )
             .toList(growable: false),
       );
 
@@ -344,14 +363,16 @@ class ClientRow {
   final int lifetimeSpendMinor;
   final DateTime? lastVisitAt;
 
-  factory ClientRow.fromJson(Map<String, dynamic> json) => ClientRow(
+  factory ClientRow.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) => ClientRow(
         clientId: json['clientId'] as String,
         displayName: json['displayName'] as String?,
         phone: json['phone'] as String?,
         tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
         totalVisits: json['totalVisits'] as int? ?? 0,
         lifetimeSpendMinor: json['lifetimeSpendMinor'] as int? ?? 0,
-        lastVisitAt: _utcOrNull(json['lastVisitAt']),
+        lastVisitAt: _utcOrNull(json['lastVisitAt'], timezone),
       );
 }
 
@@ -375,9 +396,11 @@ class VisitRow {
   final String staffName;
   final String source;
 
-  factory VisitRow.fromJson(Map<String, dynamic> json) => VisitRow(
+  factory VisitRow.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) => VisitRow(
         id: json['id'] as String,
-        startsAt: _utc(json['startsAt']),
+        startsAt: _utc(json['startsAt'], timezone),
         status: json['status'] as String? ?? 'pending',
         priceMinor: json['priceMinor'] as int? ?? 0,
         serviceName: json['serviceName'] as String? ?? 'Service',
@@ -419,7 +442,9 @@ class ClientProfileDetail {
   final bool marketingOptOut;
   final List<VisitRow> history;
 
-  factory ClientProfileDetail.fromJson(Map<String, dynamic> json) {
+  factory ClientProfileDetail.fromJson(Map<String, dynamic> json, {
+    String timezone = 'Asia/Karachi',
+  }) {
     final p = json['profile'] as Map<String, dynamic>? ?? const {};
     return ClientProfileDetail(
       clientId: p['clientId'] as String? ?? '',
@@ -431,13 +456,13 @@ class ClientProfileDetail {
       cancellations: p['cancellations'] as int? ?? 0,
       lifetimeSpendMinor: p['lifetimeSpendMinor'] as int? ?? 0,
       averageGapDays: p['averageGapDays'] as num?,
-      lastVisitAt: _utcOrNull(p['lastVisitAt']),
-      nextExpectedVisitAt: _utcOrNull(p['nextExpectedVisitAt']),
+      lastVisitAt: _utcOrNull(p['lastVisitAt'], timezone),
+      nextExpectedVisitAt: _utcOrNull(p['nextExpectedVisitAt'], timezone),
       notes: p['notes'] as String? ?? '',
       marketingOptOut: p['marketingOptOut'] as bool? ?? false,
       history: (json['history'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
-          .map(VisitRow.fromJson)
+          .map((row) => VisitRow.fromJson(row, timezone: timezone))
           .toList(growable: false),
     );
   }

@@ -60,6 +60,7 @@ class _Root extends StatefulWidget {
 }
 
 class _RootState extends State<_Root> {
+  late final AuthController _auth;
   @override
   void initState() {
     super.initState();
@@ -70,17 +71,35 @@ class _RootState extends State<_Root> {
     // A Session Health notification must open the QR screen directly. Landing
     // on Home and making a worried owner hunt for the fix wastes the minutes
     // the alert bought.
+    _auth = context.read<AuthController>();
+    _auth.addListener(_authChanged);
     push.onNotificationTap((route) {
       // Only '/qr' has a screen to open. A briefing's route ('/briefings') falls
       // through deliberately: the notification body IS the whole briefing, so a
       // tap that does nothing costs the owner nothing, and the archive lives on
       // the web dashboard. A Flutter screen for it belongs with the rest of the
       // app's build-out, not wedged into the agent.
-      if (route != '/qr') return;
+      if (!mounted ||
+          context.read<AuthController>().status != AuthStatus.signedIn ||
+          route != '/qr') {
+        return;
+      }
       navigatorKey.currentState?.push(
         MaterialPageRoute<void>(builder: (_) => const QrScreen()),
       );
     });
+  }
+
+  void _authChanged() {
+    if (context.read<AuthController>().status == AuthStatus.signedOut) {
+      navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    }
+  }
+
+  @override
+  void dispose() {
+    _auth.removeListener(_authChanged);
+    super.dispose();
   }
 
   @override
@@ -88,7 +107,11 @@ class _RootState extends State<_Root> {
     final status = context.select<AuthController, AuthStatus>((a) => a.status);
 
     return switch (status) {
-      AuthStatus.unknown => const SplashScreen(),
+      AuthStatus.unknown => SplashScreen(
+        error: context.watch<AuthController>().error?.message,
+        onRetry: context.read<AuthController>().restore,
+        onSignOut: context.read<AuthController>().logout,
+      ),
       AuthStatus.signedOut => const LoginScreen(),
       AuthStatus.signedIn => const HomeScreen(),
     };

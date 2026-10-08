@@ -1,3 +1,4 @@
+import { notifyClient } from '../calendar/notify.js';
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import type { Redis } from 'ioredis';
@@ -126,10 +127,10 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         res.json({ bookings: [], total: 0, limit, skip });
         return;
       }
-      clientFilter = { clientId: { $in: matches.map(c => String(c._id)) } };
+      clientFilter = { clientId: { $in: matches.map((c) => String(c._id)) } };
     }
 
-    const filter: Record<string, any> = {
+    const filter: Record<string, unknown> & { startsAt?: { $gte?: Date; $lt?: Date } } = {
       businessId,
       ...(clientFilter ?? {}),
     };
@@ -169,16 +170,16 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     }
 
     const [clients, services, staffs] = await Promise.all([
-      Client.find({ _id: { $in: [...new Set(bookings.map(b => b.clientId))] } }),
-      Service.find({ businessId, _id: { $in: [...new Set(bookings.map(b => b.serviceId))] } }),
-      Staff.find({ businessId, _id: { $in: [...new Set(bookings.map(b => b.staffId))] } }),
+      Client.find({ _id: { $in: [...new Set(bookings.map((b) => b.clientId))] } }),
+      Service.find({ businessId, _id: { $in: [...new Set(bookings.map((b) => b.serviceId))] } }),
+      Staff.find({ businessId, _id: { $in: [...new Set(bookings.map((b) => b.staffId))] } }),
     ]);
 
-    const clientMap = new Map(clients.map(c => [String(c._id), c]));
-    const serviceMap = new Map(services.map(s => [String(s._id), s]));
-    const staffMap = new Map(staffs.map(s => [String(s._id), s]));
+    const clientMap = new Map(clients.map((c) => [String(c._id), c]));
+    const serviceMap = new Map(services.map((s) => [String(s._id), s]));
+    const staffMap = new Map(staffs.map((s) => [String(s._id), s]));
 
-    const dtos = bookings.map(b => {
+    const dtos = bookings.map((b) => {
       const c = clientMap.get(b.clientId);
       const s = serviceMap.get(b.serviceId);
       const st = staffMap.get(b.staffId);
@@ -372,6 +373,21 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
           });
         return;
       }
+      try {
+        const booking = await Booking.findOne({
+          _id: param(req, 'bookingId'),
+          businessId: param(req, 'businessId'),
+        }).select('clientId');
+        if (booking)
+          await notifyClient(
+            { redis, provider },
+            param(req, 'businessId'),
+            booking.clientId,
+            'Your appointment has been cancelled. Please contact the business if you need another time.',
+          );
+      } catch (err) {
+        logger.error({ err, bookingId: param(req, 'bookingId') }, 'could not notify cancellation');
+      }
       res.status(204).end();
     },
   );
@@ -406,7 +422,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         return;
       }
 
-      const TERMINAL: typeof booking.status[] = [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW, BOOKING_STATUS.CANCELLED];
+      const TERMINAL: (typeof booking.status)[] = [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW, BOOKING_STATUS.CANCELLED];
       if (TERMINAL.includes(booking.status)) {
         res.status(409).json({ error: 'already marked', reason: 'already_terminal' });
         return;

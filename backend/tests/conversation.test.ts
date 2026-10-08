@@ -499,12 +499,14 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
 
       // Both pick service 1. Without the lock both would read SELECTING_SERVICE
       // and both would advance it.
-      await Promise.all([
+      const results = await Promise.allSettled([
         handleInboundMessage({ redis, provider }, inbound('1')),
         handleInboundMessage({ redis, provider }, inbound('1')),
       ]);
 
-      // Exactly one advanced the conversation; the other was dropped.
+      // Exactly one advances; the loser signals a retry to the durable worker.
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
       const state = (await conversation())?.state;
       expect([CONVERSATION_STATE.SELECTING_STAFF, CONVERSATION_STATE.SELECTING_DATE]).toContain(
         state,

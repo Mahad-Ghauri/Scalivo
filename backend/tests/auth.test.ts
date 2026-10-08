@@ -45,6 +45,12 @@ describe('tenant scoping', () => {
     expect(() => assertTenantAccess(admin, BIZ_B)).not.toThrow();
   });
 
+  it('refuses staff owner-level access even in their tenant', () => {
+    expect(() =>
+      assertTenantAccess({ userId: 'staff', role: 'staff', businessIds: [BIZ_A] }, BIZ_A),
+    ).toThrow(TenantAccessError);
+  });
+
   it('refuses a token carrying no businesses at all', () => {
     const orphan = { userId: 'u2', role: 'staff' as const, businessIds: [] };
     expect(() => assertTenantAccess(orphan, BIZ_A)).toThrow(TenantAccessError);

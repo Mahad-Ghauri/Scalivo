@@ -87,9 +87,15 @@ class _WalkInSheetState extends State<_WalkInSheet> {
   /// An off-grid start is refused by the server — occupancy rows would land on
   /// points a genuinely overlapping booking never touches — so offering 14:07
   /// would be offering a time that cannot be booked.
-  static DateTime _nextQuarterHour() {
-    final now = DateTime.now();
-    final rounded = DateTime(now.year, now.month, now.day, now.hour, (now.minute ~/ 15) * 15);
+  DateTime _nextQuarterHour() {
+    final now = businessTime(
+      DateTime.now(),
+      timezone: widget.controller.view?.timezone ?? 'Asia/Karachi',
+    );
+    final rounded = businessDate(
+      DateTime(now.year, now.month, now.day, now.hour, (now.minute ~/ 15) * 15),
+      timezone: widget.controller.view?.timezone ?? 'Asia/Karachi',
+    );
     return rounded.isBefore(now) ? rounded.add(const Duration(minutes: 15)) : rounded;
   }
 

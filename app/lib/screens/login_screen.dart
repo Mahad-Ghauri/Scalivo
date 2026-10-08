@@ -261,9 +261,9 @@ class _LoginScreenState extends State<LoginScreen> {
           'Reset your password',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Sc.ink),
         ),
-        content: const Text(
-          'Self-service reset is not available yet. Contact Scalivo support and '
-          'we will reset it for you.',
+        content: const SelectableText(
+          'Email hello@scalivo.app for password recovery. '
+          'Include your business name and account email.',
           style: TextStyle(fontSize: 14, color: Sc.inkMuted, height: 1.5),
         ),
         actions: [

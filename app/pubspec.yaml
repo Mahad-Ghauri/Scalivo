@@ -14,6 +14,8 @@ dependencies:
   # Deliberately small. Routing is plain named routes with a navigator key —
   # go_router buys nothing at five screens, and the FCM deep link is three lines
   # either way. The QR arrives as a PNG data URL, so no QR renderer is needed.
+  # Already resolved through notifications; Dart has no IANA timezone support.
+  timezone: ^0.10.1
   http: ^1.2.2
   provider: ^6.1.2
   flutter_secure_storage: ^9.2.2

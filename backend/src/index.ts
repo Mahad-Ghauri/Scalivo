@@ -1,8 +1,8 @@
-import express, { type Express } from 'express';
+import { enqueueInbound, startInboundWorker } from './messaging/inbound-queue.js';
+import express, { type Express, type ErrorRequestHandler } from 'express';
 import { env } from './config/env.js';
 import { connectAll, healthCheck, redis } from './config/db.js';
 import { createMessagingProvider, createWebhookRouter } from './messaging/index.js';
-import { redisDedupe } from './messaging/webhook.js';
 import { securityHeaders } from './http/headers.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
@@ -46,9 +46,16 @@ export function createApp(): Express {
     '/webhooks',
     createWebhookRouter({
       provider,
-      dedupe: redisDedupe(redis),
-      onEvent: async (event) => {
-        logger.info({ kind: event.kind, ...event.payload }, 'inbound provider event');
+      accept: (events) => enqueueInbound(redis, events),
+    }),
+  );
+
+  // Start once per application; verified inbound deliveries survive worker failures.
+  startInboundWorker(redis, handleProviderEvent);
+
+  async function handleProviderEvent(event: import('@scalivo/shared').ProviderEvent,
+  ): Promise<void> {
+        logger.info({ kind: event.kind, sessionId: event.payload.sessionId }, 'inbound provider event');
 
         // Identity resolution now happens inside the router, as interceptor
         // stage 2 — it has to run after dedupe and before the conversation
@@ -78,9 +85,7 @@ export function createApp(): Express {
         if (event.kind === 'session-status') {
           await handleSessionStatus({ redis, provider }, event.payload);
         }
-      },
-    }),
-  );
+      }
 
   // Lets the Flutter app run in a browser during development.
   //
@@ -142,6 +147,15 @@ export function createApp(): Express {
     res.status(report.ok ? 200 : 503).json(report);
   });
 
+  const errors: ErrorRequestHandler = (err: unknown, _req, res, next) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    logger.error({ err }, 'request failed');
+    res.status(500).json({ error: 'Something went wrong. Try again.' });
+  };
+  app.use(errors);
   return app;
 }
 

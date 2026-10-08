@@ -60,7 +60,8 @@ Future<void> _onBackgroundMessage(RemoteMessage message) async {
 /// in "a token" and "a route was tapped" and never imports firebase_messaging.
 class PushService {
   static final _local = FlutterLocalNotificationsPlugin();
-  static bool _initialised = false;
+  static Future<void>? _initialising;
+  static const _timeout = Duration(seconds: 10);
 
   /// Held statically so a tap on a FOREGROUND notification routes the same way
   /// as a tap on a system one. Those take different paths — FCM delivers the
@@ -70,12 +71,37 @@ class PushService {
 
   /// Idempotent: [ensureChannels] and [token] are both called on paths that can
   /// run more than once (app start, every login, token rotation).
-  Future<void> _init() async {
-    if (_initialised) return;
-    _initialised = true;
+  Future<void> _init() => _initialising ??= _initialise();
 
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+  Future<void> _initialise() async {
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+    } catch (_) {
+      _initialising = null;
+      rethrow;
+    }
+  }
+
+  Future<StreamSubscription<String>?> watchToken(
+    void Function(String) handler,
+  ) async {
+    try {
+      await _init().timeout(_timeout);
+      return FirebaseMessaging.instance.onTokenRefresh.listen(handler);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Stop this device receiving notifications for the signed-out account.
+  Future<void> deleteToken() async {
+    try {
+      await _init().timeout(_timeout);
+      await FirebaseMessaging.instance.deleteToken().timeout(_timeout);
+    } catch (_) {
+      debugPrint('[push] could not revoke device token');
+    }
   }
 
   /// The FCM registration token for this device, or null if push is unavailable.
@@ -85,7 +111,7 @@ class PushService {
   /// what it gets and the backend simply has one fewer device to reach.
   Future<String?> token() async {
     try {
-      await _init();
+      await _init().timeout(_timeout);
 
       // Android 13+ and iOS both require an explicit grant. Asking here — on
       // login, once the owner has committed to the app — beats asking on first
@@ -96,11 +122,11 @@ class PushService {
         return null;
       }
 
-      return await FirebaseMessaging.instance.getToken();
+      return await FirebaseMessaging.instance.getToken().timeout(_timeout);
     } catch (err) {
       // Never let push break login. An owner who cannot sign in because
       // notifications failed is a far worse outcome than a missed alert.
-      debugPrint('[push] could not get a token: $err');
+      debugPrint('[push] could not get a token');
       return null;
     }
   }
@@ -111,7 +137,7 @@ class PushService {
 
     unawaited(() async {
       try {
-        await _init();
+        await _init().timeout(_timeout);
 
         // A tap while the app was merely backgrounded.
         FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -130,7 +156,7 @@ class PushService {
         // there is nothing to tap unless we draw it ourselves.
         FirebaseMessaging.onMessage.listen(_showForeground);
       } catch (err) {
-        debugPrint('[push] could not attach notification handlers: $err');
+        debugPrint('[push] could not attach notification handlers');
       }
     }());
   }
@@ -140,7 +166,7 @@ class PushService {
   /// default channel is one the owner can mute along with everything else.
   Future<void> ensureChannels() async {
     try {
-      await _init();
+      await _init().timeout(_timeout);
 
       await _local.initialize(
         const InitializationSettings(
@@ -187,7 +213,7 @@ class PushService {
         ),
       );
     } catch (err) {
-      debugPrint('[push] could not create channels: $err');
+      debugPrint('[push] could not create channels');
     }
   }
 

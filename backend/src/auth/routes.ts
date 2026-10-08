@@ -31,7 +31,9 @@ const registration = z.object({
 });
 
 const deviceToken = z.object({
-  fcmToken: z.string().min(1),
+  fcmToken: z.string().min(1)
+    .max(4096)
+    .regex(/^[A-Za-z0-9:_-]+$/),
 });
 
 export const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
@@ -259,7 +261,41 @@ export function createAuthRouter(redis: Redis): Router {
     }
 
     const auth = getAuth(res);
-    await User.updateOne({ _id: auth.userId }, { $addToSet: { fcmTokens: parsed.data.fcmToken } });
+    // A device changes hands: its notifications must belong only to the current account.
+    await User.updateMany(
+      { _id: { $ne: auth.userId }, fcmTokens: parsed.data.fcmToken },
+      { $pull: { fcmTokens: parsed.data.fcmToken } },
+    );
+    try {
+      await User.updateOne({ _id: auth.userId }, [
+        {
+          $set: {
+            fcmTokens: {
+              $slice: [
+                { $setUnion: [{ $ifNull: ['$fcmTokens', []] }, [parsed.data.fcmToken]] },
+                -10,
+              ],
+            },
+          },
+        },
+      ]);
+    } catch (err) {
+      logger.error({ err, userId: auth.userId }, 'could not register device');
+      res.status(409).json({ error: 'could not register device; try again' });
+      return;
+    }
+    res.status(204).end();
+  });
+
+  router.delete('/device', requireAuth, express.json(), async (req, res) => {
+    const parsed = deviceToken.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid device token' });
+      return;
+    }
+    await User.updateOne(
+      { _id: getAuth(res).userId },
+      { $pull: { fcmTokens: parsed.data.fcmToken } });
     res.status(204).end();
   });
 

@@ -45,7 +45,9 @@ export class TenantAccessError extends Error {
  */
 export function assertTenantAccess(auth: AuthToken, businessId: string): void {
   if (auth.role === 'admin') return;
-  if (!auth.businessIds.includes(businessId)) throw new TenantAccessError();
+  // Staff login accounts have no assignment to a Staff record yet. Fail closed
+  // on owner endpoints until a separately scoped staff API exists.
+  if (auth.role !== 'owner' || !auth.businessIds.includes(businessId)) throw new TenantAccessError();
 }
 
 /** Route-level guard: 404s before the handler runs, so no query is ever issued. */

@@ -8,7 +8,11 @@ import '../widgets/sheet_scaffold.dart';
 /// Purely visual — the decision about where to go next belongs to
 /// AuthController, and this screen deliberately knows nothing about it.
 class SplashScreen extends StatelessWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, this.error, this.onRetry, this.onSignOut});
+
+  final String? error;
+  final VoidCallback? onRetry;
+  final VoidCallback? onSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -39,13 +43,37 @@ class SplashScreen extends StatelessWidget {
               ],
             ),
           ),
-          const Positioned(
+          Positioned(
             left: 0,
             right: 0,
             bottom: 56,
             child: Column(
               children: [
-                SizedBox(
+                if (error != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onRetry,
+                    child: const Text(
+                      'TRY AGAIN',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onSignOut,
+                    child: const Text(
+                      'SIGN OUT',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ] else
+                  const SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
@@ -54,8 +82,8 @@ class SplashScreen extends StatelessWidget {
                     backgroundColor: Color(0x38FFFFFF),
                   ),
                 ),
-                SizedBox(height: 16),
-                Text(
+                const SizedBox(height: 16),
+                const Text(
                   'FOR BUSINESS OWNERS',
                   style: TextStyle(
                     fontSize: 11.5,
@@ -71,5 +99,5 @@ class SplashScreen extends StatelessWidget {
       ),
     );
   }
-}
 
+}

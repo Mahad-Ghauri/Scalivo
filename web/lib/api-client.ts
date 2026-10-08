@@ -45,6 +45,9 @@ export async function fetchApi<T>(
 
   const response = await fetch(url, {
     ...options,
+    signal: options?.signal
+      ? AbortSignal.any([options.signal, AbortSignal.timeout(15000)])
+      : AbortSignal.timeout(15000),
     headers,
   });
 

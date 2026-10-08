@@ -4,7 +4,7 @@ import express from 'express';
 import type { ProviderEvent } from '@scalivo/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { InvalidSignatureError, OpenWAProvider, verifySignature } from '../src/messaging/OpenWAProvider.js';
-import { createWebhookRouter, type DedupeStore } from '../src/messaging/webhook.js';
+import { createWebhookRouter } from '../src/messaging/webhook.js';
 
 const SECRET = 'test-webhook-secret-value';
 const SESSION = '83444661-0542-4064-8fa4-06d129a7e30c';
@@ -167,7 +167,7 @@ describe('the webhook route', () => {
   async function post(
     body: Buffer,
     headers: Record<string, string>,
-    dedupe: DedupeStore,
+    accept: (events: ProviderEvent[]) => Promise<void>,
     seen: ProviderEvent[],
   ) {
     const app = express();
@@ -175,8 +175,10 @@ describe('the webhook route', () => {
       '/webhooks',
       createWebhookRouter({
         provider,
-        dedupe,
-        onEvent: async (e) => void seen.push(e),
+        accept: async (events) => {
+          await accept(events);
+          seen.push(...events);
+        },
       }),
     );
     const server = app.listen(0);
@@ -194,7 +196,7 @@ describe('the webhook route', () => {
     });
   }
 
-  const alwaysNew: DedupeStore = { isFirstDelivery: async () => true };
+  const alwaysNew = async () => {};
 
   it('acks 200 and dispatches a valid delivery', async () => {
     const { raw, headers } = delivery('message.received', INBOUND);
@@ -203,7 +205,6 @@ describe('the webhook route', () => {
     const res = await post(raw, { 'X-OpenWA-Signature': headers['x-openwa-signature'] }, alwaysNew, seen);
 
     expect(res.status).toBe(200);
-    await vi_tick();
     expect(seen).toHaveLength(1);
   });
 
@@ -214,34 +215,33 @@ describe('the webhook route', () => {
     const res = await post(raw, { 'X-OpenWA-Signature': 'sha256=wrong' }, alwaysNew, seen);
 
     expect(res.status).toBe(401);
-    await vi_tick();
     expect(seen).toHaveLength(0);
   });
 
-  it('processes a retried delivery only once', async () => {
-    // At-least-once delivery: the same idempotency key arrives again with a
-    // fresh deliveryId. Without this, one customer message advances the FSM twice.
+  it('returns a retryable error when durable acceptance fails', async () => {
     const { raw, headers } = delivery('message.received', INBOUND);
-    const keys = new Set<string>();
-    const dedupe: DedupeStore = {
-      isFirstDelivery: async (key) => (keys.has(key) ? false : (keys.add(key), true)),
-    };
     const seen: ProviderEvent[] = [];
-    const sent = {
-      'X-OpenWA-Signature': headers['x-openwa-signature'] as string,
-      'X-OpenWA-Idempotency-Key': 'msg_session_abc',
-    };
+    const res = await post(
+      raw,
+      headers,
+      async () => {
+        throw new Error('private storage failure');
+      },
+      seen,
+    );
+    expect(res.status).toBe(503);
+    expect(seen).toEqual([]);
+    expect(await res.json()).toEqual({ error: 'temporarily unavailable' });
+  });
 
-    await post(raw, sent, dedupe, seen);
-    await vi_tick();
-    await post(raw, { ...sent, 'X-OpenWA-Delivery-Id': 'dlv_a_different_one' }, dedupe, seen);
-    await vi_tick();
+  it('refuses invalid types and oversized message text before enqueueing', async () => {
+    for (const invalid of [{ fromMe: 'false' }, { body: 'x'.repeat(8193) }]) {
+      const { raw, headers } = delivery('message.received', { ...INBOUND, ...invalid });
+    const seen: ProviderEvent[] = [];
+    const res = await post(raw, headers, alwaysNew, seen);
+      expect(res.status).toBe(400);
 
-    expect(seen).toHaveLength(1);
+    expect(seen).toEqual([]);
+    }
   });
 });
-
-/** The handler acks before dispatching, so give the async tail a turn to run. */
-function vi_tick() {
-  return new Promise((resolve) => setTimeout(resolve, 20));
-}

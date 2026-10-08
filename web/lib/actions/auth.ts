@@ -25,6 +25,9 @@ export async function loginAction(prevState: { error?: string } | undefined, for
       body: JSON.stringify(parsed.data),
     });
 
+    if (data.role === 'staff')
+      return { error: 'This dashboard is for business owners. Contact your owner for access.' };
+
     if (data.token) {
       await setSessionCookie(data.token);
     }
