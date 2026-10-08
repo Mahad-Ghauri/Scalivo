@@ -424,6 +424,25 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
        *
        * So: ask for the current QR before deciding anything went wrong.
        */
+      // OpenWA also refuses start() when the session is already connected.
+      // Confirm that state before treating the refusal as an outage.
+      const status = await provider.getSessionStatus(sessionId).catch(() => null);
+      if (status === SESSION_STATUS.READY) {
+        await Business.updateOne(
+          { _id: business._id },
+          {
+            $set: {
+              'whatsapp.status': SESSION_STATUS.READY,
+              'whatsapp.intent': SESSION_INTENT.LIVE,
+              'whatsapp.lastStatusChange': new Date(),
+            },
+          },
+        );
+        logger.info({ businessId: String(business._id) }, 'session is already connected');
+        res.json({ status: SESSION_STATUS.READY, qrCode: null });
+        return;
+      }
+
       const qrCode = await provider.getSessionQr(sessionId).catch(() => null);
       if (qrCode) {
         logger.info(

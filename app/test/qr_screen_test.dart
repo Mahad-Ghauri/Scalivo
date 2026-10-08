@@ -65,7 +65,7 @@ class FakeApi extends ApiClient {
   }
 }
 
-Future<void> openScreen(WidgetTester tester, FakeApi api) async {
+Future<AuthController> openScreen(WidgetTester tester, FakeApi api) async {
   final auth = AuthController(api: api)
     ..me = const Me(
       name: null,
@@ -88,6 +88,7 @@ Future<void> openScreen(WidgetTester tester, FakeApi api) async {
   );
   await tester.pump();
   await tester.pump();
+  return auth;
 }
 
 void main() {
@@ -139,11 +140,14 @@ void main() {
   });
 
   testWidgets('an already ready session never starts a polling timer', (tester) async {
-    final api = FakeApi()..link = const LinkResult(status: 'ready', qrCode: null);
-    await openScreen(tester, api);
+    final api = FakeApi()
+      ..ready = true
+      ..link = const LinkResult(status: 'ready', qrCode: null);
+    final auth = await openScreen(tester, api);
     await tester.pump(const Duration(seconds: 30));
     expect(find.text("You're live"), findsOneWidget);
-    expect(api.statusCalls, 0);
+    expect(api.statusCalls, 1);
+    expect(auth.health, SessionHealth.live);
     await tester.pumpWidget(const SizedBox());
   });
 

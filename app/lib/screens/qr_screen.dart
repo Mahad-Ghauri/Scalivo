@@ -149,7 +149,11 @@ class _QrScreenState extends State<QrScreen> {
       _qr = result.status == 'ready' ? null : qr;
       _stage = result.status == 'ready' ? _Stage.live : _Stage.awaitingScan;
     });
-    if (_stage == _Stage.awaitingScan) _startPolling();
+    if (_stage == _Stage.awaitingScan) {
+      _startPolling();
+    } else {
+      unawaited(context.read<AuthController>().refreshSession());
+    }
   }
 
   /// Polls rather than waiting for a push, because the scan happens on a

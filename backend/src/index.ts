@@ -100,7 +100,7 @@ export function createApp(): Express {
         // Without Vary, a cache could serve one origin's response to another.
         res.setHeader('Vary', 'Origin');
         res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         // Every authenticated call carries an Authorization header, which makes
         // it non-simple — so the browser preflights nearly all of them.
         if (req.method === 'OPTIONS') {
