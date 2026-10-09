@@ -648,6 +648,39 @@ describe.skipIf(!infraUp)('the ladder — where a sentence drops the customer', 
     expect(result.conversation?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
   });
 
+  it.each(['3:00 PM', '3pm', '15:00', '3 pm please', 'book at 3pm', '3pm works'])(
+    'accepts explicit time reply %s without an AI call', async (text) => {
+      const model = vi.spyOn(gemini, 'generate').mockResolvedValue(null);
+      const result = await advance(redis, { ...context({ state: CONVERSATION_STATE.SELECTING_SLOT,
+        serviceId: hydra, staffId: ayesha, date: day(), invalidCount: 0 }), text });
+      expect(model).not.toHaveBeenCalled();
+      expect(result.conversation?.state).toBe(CONVERSATION_STATE.CONFIRMING);
+      expect(localMinutes(new Date(result.conversation!.slotStart!), TZ)).toBe(900);
+      expect(result.confirms).toBeUndefined();
+    });
+
+  it('checks an unoffered explicit time locally and refuses it without AI', async () => {
+    const model = vi.spyOn(gemini, 'generate').mockResolvedValue(null);
+    const result = await advance(redis, { ...context({ state: CONVERSATION_STATE.SELECTING_SLOT,
+      serviceId: hydra, staffId: ayesha, date: day(), invalidCount: 0 }), text: '5:30 PM' });
+    expect(model).not.toHaveBeenCalled();
+    expect(result.replies.join('\n')).toContain('That exact time is not available');
+    expect(result.conversation?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
+    expect(result.conversation?.holdToken).toBeUndefined();
+  });
+
+  it('does not book when an offered time becomes occupied before the explicit reply', async () => {
+    const offered = await resumeFromIntent(redis, context(), intent({ serviceId: hydra, staffId: ayesha, date: day() }), vocabulary);
+    const target = offered.conversation!.options!.find((iso) => localMinutes(new Date(iso), TZ) === 900)!;
+    await SlotOccupancy.create({ businessId, staffId: ayesha, slotStart: new Date(target), bookingId: 'other-booking' });
+    const model = vi.spyOn(gemini, 'generate').mockResolvedValue(null);
+    const result = await advance(redis, { ...context(offered.conversation), text: '3:00 PM' });
+    expect(model).not.toHaveBeenCalled();
+    expect(result.replies.join('\n')).toContain('That exact time is not available');
+    expect(result.conversation?.holdToken).toBeUndefined();
+    expect(result.confirms).toBeUndefined();
+  });
+
   it.each(['neither', 'AM only', 'PM only', 'both'] as const)(
     'checks availability before clarifying 5:30 when %s interpretation is free', async (scenario) => {
       if (scenario !== 'neither') await Service.updateOne({ _id: hydra }, { $set: { durationMinutes: 30 } });

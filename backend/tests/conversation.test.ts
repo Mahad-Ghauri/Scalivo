@@ -575,10 +575,26 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       expect(await Booking.countDocuments({ businessId, clientId })).toBe(1);
     });
 
+    it('accepts the screenshot reply 3:00 PM without Gemini, then books only after YES', async () => {
+      await say('hi');
+      await say('1');
+      await say('1');
+      const dates = (await conversation())!.options!;
+      const tomorrow = DateTime.now().setZone(TZ).plus({ days: 1 }).toISODate()!;
+      expect(await say(String(dates.indexOf(tomorrow) + 1))).toContain('3:00 PM');
+      const model = vi.spyOn(gemini, 'generate').mockResolvedValue(null);
+      expect(await say('3:00 PM')).toContain('Please confirm');
+      expect(model).not.toHaveBeenCalled();
+      expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
+      expect(await say('yes')).toContain("You're booked");
+      const booking = await Booking.findOne({ businessId, clientId });
+      expect(DateTime.fromJSDate(booking!.startsAt, { zone: TZ }).toFormat('HH:mm')).toBe('15:00');
+    });
+
     it('cannot confirm an earlier time when the model misclassifies a new ambiguous time', async () => {
       await walkToConfirming();
       vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'off_topic' }));
-      await say('book at 5:30');
+      await say('book at 5:30 tomorrow');
       expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
       expect((await conversation())?.holdToken).toBeUndefined();
       expect(await say('yes')).not.toContain("You're booked");
@@ -590,12 +606,13 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
         await walkToConfirming();
         const original = await conversation();
         const message = reason === 'ambiguous' ? 'book at 5;30' : reason === 'invalid' ? 'book at 25:00'
-          : reason === 'unavailable' ? 'book at 5;30 pm' : 'book at 3pm';
+          : reason === 'unavailable' ? 'book at 5;30 pm' : 'book at 3pm tomorrow';
         vi.spyOn(gemini, 'generate').mockResolvedValue(reason === 'model unavailable' ? null
           : JSON.stringify({ action: 'booking', at: '15:00' }));
         const reply = await say(message);
         expect(reply).toContain(reason === 'ambiguous' ? 'Neither the AM nor PM time is available'
-          : reason === 'unavailable' ? 'That exact time is not available' : 'Please give one exact time');
+          : reason === 'unavailable' ? 'That exact time is not available'
+          : reason === 'model unavailable' ? 'I could not understand the full booking request' : 'Please give one exact time');
         const fresh = await conversation();
         expect(fresh?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
         expect(fresh?.holdToken).toBeUndefined();

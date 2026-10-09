@@ -377,3 +377,5 @@ export const ambiguousTimeOptions = (slots: Date[], timezone: string) =>
   `At that time, ${slots.length === 1 ? 'only this option is available' : 'these options are available'}:\n\n` +
   slots.map((slot) => `• ${formatLocal(slot, timezone, 'h:mm a')}`).join('\n') +
   '\n\nPlease specify the time with AM or PM. I have not booked anything.';
+
+export const bookingRequestNotUnderstood = 'I could not understand the full booking request. Please send the service and day again, or reply with just a time such as 3:00 PM. I have not booked anything.';

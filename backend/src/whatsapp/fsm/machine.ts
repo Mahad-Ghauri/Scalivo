@@ -540,6 +540,8 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
   if (clock.kind === 'exact' || clock.kind === 'ambiguous') {
     ctx = { ...ctx, conversation: await discardConfirmation(redis, ctx) };
   }
+  const timeReply = (clock.kind === 'exact' || clock.kind === 'ambiguous') &&
+    /^(?:(?:book(?: me)? (?:at )?|at ))?\d{1,2}(?:\s*[:.;]\s*\d{2})?\s*(?:am|pm)?(?:\s+(?:please|works|works for me))?[.!]?$/i.test(ctx.text.trim());
   const detail = hasBookingDetail(ctx.text, vocabulary);
   const greeting = !detail &&
     /^(hi|hey|hello|salam|assalam o alaikum|aoa)[!.\s]*$/i.test(ctx.text.trim());
@@ -550,11 +552,13 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
     ? { service: null, staff: null, day: null, window: null, at: null, action: 'greeting' as const }
     : availability
       ? { service: null, staff: null, day: null, window: null, at: null, action: 'availability' as const }
-      : await parseIntent(ctx.text, vocabulary, ctx.conversation) ??
+      : timeReply
+        ? { action: 'booking' as const, service: null, staff: null, day: null, window: null, at: null }
+        : await parseIntent(ctx.text, vocabulary, ctx.conversation) ??
         (clock.kind === 'ambiguous' ? { action: 'booking' as const, service: null, staff: null, day: null, window: null, at: null } : null);
   if (!raw) {
     if (clock.kind === 'exact') {
-      return { replies: [copy.clarifyTime], conversation: await discardConfirmation(redis, ctx) };
+      return { replies: [copy.bookingRequestNotUnderstood], conversation: await discardConfirmation(redis, ctx) };
     }
     return null;
   }
