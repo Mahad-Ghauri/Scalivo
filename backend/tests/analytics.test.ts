@@ -414,6 +414,8 @@ describe.skipIf(!infraUp)('analytics', () => {
 
     it('refuses a date that is not a date', async () => {
       expect((await get('from=march&to=2026-03-10')).status).toBe(400);
+      expect((await get('from=2026-02-30&to=2026-03-10')).status).toBe(400);
+      expect((await get('from=2026-03-10&to=2026-13-01')).status).toBe(400);
     });
   });
 });

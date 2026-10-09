@@ -64,7 +64,12 @@ describe('tenant scoping', () => {
  * the scope check, and the assertion that the model was never called proves the
  * refusal happened before the read, not after.
  */
-const findById = vi.fn(async () => ({ _id: BIZ_B, name: 'CrossFit Multan' }));
+const findById = vi.fn(async () => ({
+  _id: BIZ_B,
+  name: 'CrossFit Multan',
+  published: false,
+  toObject: () => ({ _id: BIZ_B, name: 'CrossFit Multan', published: false }),
+}));
 vi.mock('../src/models/Business.js', () => ({ Business: { findById: () => findById() } }));
 
 /**

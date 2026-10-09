@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'growth_models.dart';
 import '../format.dart';
 
 enum ApiErrorKind { network, unauthorized, validation, conflict, server }
@@ -425,6 +426,247 @@ class ApiClient {
         'bookingHorizonDays': ?bookingHorizonDays,
         if (reminders.isNotEmpty) 'reminders': reminders,
       }),
+    );
+  }
+
+  // Owner growth tools reuse this client's authentication, timeout and error handling.
+  Future<T> _growth<T>(
+    String businessId,
+    String method,
+    String suffix,
+    T Function(Map<String, dynamic>) parse, {
+    Map<String, String>? query,
+    Map<String, dynamic>? body,
+  }) async {
+    if (!RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(businessId)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid business');
+    }
+    try {
+      return parse(
+        await _send(
+          method,
+          '/businesses/$businessId$suffix',
+          query: query,
+          body: body,
+          maxResponseBytes: 1024 * 1024,
+        ),
+      );
+    } on FormatException {
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      );
+    } on TypeError {
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      );
+    }
+  }
+
+  Map<String, String> _reportRange(DateTime from, DateTime to) {
+    final start = DateTime.utc(from.year, from.month, from.day);
+    final end = DateTime.utc(to.year, to.month, to.day);
+    final days = end.difference(start).inDays;
+    if (days < 0 || days > 366) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Choose a range of up to one year',
+      );
+    }
+    return {'from': isoDate(from), 'to': isoDate(to)};
+  }
+
+  Future<AnalyticsReport> analytics(
+    String businessId,
+    DateTime from,
+    DateTime to, {
+    String granularity = 'day',
+  }) {
+    if (!['day', 'week', 'month'].contains(granularity)) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Invalid report period',
+      );
+    }
+    return _growth(
+      businessId,
+      'GET',
+      '/analytics',
+      AnalyticsReport.fromJson,
+      query: {..._reportRange(from, to), 'granularity': granularity},
+    );
+  }
+
+  Future<ReviewSummary> reviewSummary(String businessId) =>
+      _growth(businessId, 'GET', '/reviews/summary', ReviewSummary.fromJson);
+
+  Future<ReviewPage> reviews(
+    String businessId, {
+    String filter = 'all',
+    int skip = 0,
+  }) {
+    if (!['all', 'published', 'flagged'].contains(filter) ||
+        skip < 0 ||
+        skip > 10000) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid review page');
+    }
+    return _growth(
+      businessId,
+      'GET',
+      '/reviews',
+      ReviewPage.fromJson,
+      query: {'filter': filter, 'skip': '$skip', 'limit': '20'},
+    );
+  }
+
+  Future<NudgeReport> nudges(String businessId) => _growth(
+    businessId,
+    'GET',
+    '/retention/nudges',
+    NudgeReport.fromJson,
+    query: {'days': '30'},
+  );
+
+  Future<bool> setNudges(String businessId, bool enabled) => _growth(
+    businessId,
+    'PATCH',
+    '/retention/nudges',
+    (json) => wireBool(json['nudges']),
+    body: {'nudges': enabled},
+  );
+
+  String _audience(CampaignAudience audience) =>
+      audience == CampaignAudience.atRisk ? 'at_risk' : 'lapsed';
+
+  Future<AudiencePreview> campaignAudience(
+    String businessId,
+    CampaignAudience audience,
+  ) => _growth(
+    businessId,
+    'GET',
+    '/retention/audience',
+    AudiencePreview.fromJson,
+    query: {'audience': _audience(audience)},
+  );
+
+  Future<List<CampaignSummary>> campaigns(String businessId) => _growth(
+    businessId,
+    'GET',
+    '/retention/campaigns',
+    (json) => wireList(json['campaigns'], CampaignSummary.fromJson, 20),
+  );
+
+  Future<void> createCampaign(
+    String businessId,
+    CampaignAudience audience,
+    String message,
+  ) {
+    final text = message.trim();
+    if (text.length < 10 || text.length > 600) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Use a message of 10–600 characters',
+      );
+    }
+    return _growth(
+      businessId,
+      'POST',
+      '/retention/campaigns',
+      (_) {},
+      body: {'audience': _audience(audience), 'message': text},
+    );
+  }
+
+  Future<void> cancelCampaign(String businessId, String id) {
+    if (!RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid campaign');
+    }
+    return _growth(
+      businessId,
+      'POST',
+      '/retention/campaigns/$id/cancel',
+      (_) {},
+    );
+  }
+
+  Future<FunnelReport> funnel(String businessId, DateTime from, DateTime to) =>
+      _growth(
+        businessId,
+        'GET',
+        '/grow/funnel',
+        FunnelReport.fromJson,
+        query: _reportRange(from, to),
+      );
+
+  Future<BoostState> boost(String businessId) =>
+      _growth(businessId, 'GET', '/grow/boost', BoostState.fromJson);
+
+  Future<BoostState> setBoost(String businessId, bool enabled) => _growth(
+    businessId,
+    enabled ? 'POST' : 'DELETE',
+    '/grow/boost',
+    BoostState.fromJson,
+  );
+
+  Future<GrowthBusiness> growthBusiness(String businessId) =>
+      _growth(businessId, 'GET', '', GrowthBusiness.fromJson);
+
+  Future<String?> bookingInvite(String businessId) async {
+    try {
+      return await _growth(businessId, 'GET', '/invite', (json) {
+        final link = wireText(json['link'], max: 1000);
+        final uri = Uri.tryParse(link);
+        if (uri == null ||
+            uri.scheme != 'https' ||
+            uri.host != 'wa.me' ||
+            !RegExp(r'^/[0-9]{7,15}$').hasMatch(uri.path) ||
+            uri.userInfo.isNotEmpty ||
+            uri.hasPort) {
+          throw const FormatException('Invalid booking link');
+        }
+        return link;
+      });
+    } on ApiException catch (err) {
+      if (err.kind == ApiErrorKind.conflict) return null;
+      rethrow;
+    }
+  }
+
+  Future<ClientImportResult> importClients(
+    String businessId,
+    List<Map<String, String>> rows, {
+    required bool dryRun,
+  }) {
+    const fields = {
+      'phone',
+      'name',
+      'visits',
+      'spend',
+      'firstVisit',
+      'lastVisit',
+    };
+    if (rows.isEmpty ||
+        rows.length > 2000 ||
+        rows.any(
+          (row) =>
+              !row.containsKey('phone') ||
+              row.keys.any((key) => !fields.contains(key)) ||
+              row.values.any((value) => value.length > 2000),
+        ) ||
+        utf8.encode(jsonEncode(rows)).length > 1024 * 1024) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Choose a CSV with up to 2,000 customers and 1 MB of data',
+      );
+    }
+    return _growth(
+      businessId,
+      'POST',
+      '/clients/import',
+      ClientImportResult.fromJson,
+      query: {'dryRun': '$dryRun'},
+      body: {'rows': rows},
     );
   }
 

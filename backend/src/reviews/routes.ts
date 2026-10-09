@@ -29,7 +29,7 @@ const listQuery = z.object({
   /** 'flagged' is the working list: the low ratings, newest first. */
   filter: z.enum(['all', 'published', 'flagged']).default('all'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  skip: z.coerce.number().int().min(0).default(0),
+  skip: z.coerce.number().int().min(0).max(10000).default(0),
 });
 
 const FILTERS = {
@@ -69,7 +69,7 @@ export function createReviewRouter(): Router {
 
     const [reviews, total] = await Promise.all([
       Review.find({ businessId, ...FILTERS[filter] })
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit),
       Review.countDocuments({ businessId, ...FILTERS[filter] }),

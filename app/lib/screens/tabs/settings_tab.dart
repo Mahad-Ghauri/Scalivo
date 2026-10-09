@@ -10,6 +10,11 @@ import '../../theme.dart';
 import '../qr_screen.dart';
 import '../services_screen.dart';
 import '../staff_screen.dart';
+import '../analytics_screen.dart';
+import '../reviews_screen.dart';
+import '../grow_screen.dart';
+import '../client_import_screen.dart';
+import '../../state/clients_controller.dart';
 
 /// Settings, and specifically the reminder schedule.
 ///
@@ -112,6 +117,59 @@ class _SettingsTabState extends State<SettingsTab> {
           _whatsappCard(auth),
           const SizedBox(height: 24),
           _catalogueCard(),
+          const SizedBox(height: 24),
+          _card(
+            title: 'Your business',
+            child: Column(
+              children: [
+                _navRow(
+                  icon: Icons.insights_outlined,
+                  label: 'Analytics',
+                  detail: 'Revenue, appointments and trends',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AnalyticsScreen(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.star_outline_rounded,
+                  label: 'Reviews',
+                  detail: 'Customer feedback and private alerts',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ReviewsScreen(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.trending_up_rounded,
+                  label: 'Grow',
+                  detail: 'Booking links, retention and campaigns',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const GrowScreen()),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.upload_file_outlined,
+                  label: 'Import customers',
+                  detail: 'Preview and import a CSV spreadsheet',
+                  onTap: () async {
+                    final clients = context.read<ClientsController>();
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ClientImportScreen(),
+                      ),
+                    );
+                    if (mounted) clients.load();
+                  },
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
           _remindersCard(settings),
           const SizedBox(height: 24),

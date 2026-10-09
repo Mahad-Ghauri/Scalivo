@@ -11,13 +11,19 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Deliberately small. Routing is plain named routes with a navigator key —
-  # go_router buys nothing at five screens, and the FCM deep link is three lines
-  # either way. The QR arrives as a PNG data URL, so no QR renderer is needed.
+  # Navigation uses the existing Navigator and notification navigator key.
   # Already resolved through notifications; Dart has no IANA timezone support.
   timezone: ^0.10.1
   http: ^1.2.2
   provider: ^6.1.2
+  # Native CSV selection and quoted spreadsheet parsing.
+  file_selector: ^1.1.0
+  csv: ^6.0.0
+  # Customer booking posters and the platform share sheet.
+  qr_flutter: ^4.1.0
+  share_plus: ^12.0.2
+  # Already transitive through storage; used directly for one cached poster.
+  path_provider: ^2.1.5
   flutter_secure_storage: ^9.2.2
   firebase_core: ^4.14.0
   firebase_messaging: ^16.0.4
@@ -27,6 +33,7 @@ dependencies:
   flutter_local_notifications: ^19.4.2
 
 dev_dependencies:
+  file_selector_platform_interface: ^2.7.0
   flutter_test:
     sdk: flutter
 

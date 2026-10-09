@@ -106,6 +106,16 @@ describe.skipIf(!infraUp)('business settings', () => {
     ]);
   });
 
+  it('exposes the configured booking URL only after publication', async () => {
+    const get = () => fetch(`${serverUrl}/businesses/${businessId}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000),
+    });
+    expect((await (await get()).json() as { bookingUrl: string | null }).bookingUrl).toBeNull();
+    await Business.updateOne({ _id: businessId }, { $set: { published: true } });
+    const body = await (await get()).json() as { bookingUrl: string };
+    expect(new URL(body.bookingUrl).pathname).toBe('/settings-test');
+  });
+
   it('updates the profile without touching fields the form did not send', async () => {
     await Business.updateOne(
       { _id: businessId },

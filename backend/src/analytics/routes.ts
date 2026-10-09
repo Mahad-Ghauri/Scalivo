@@ -19,8 +19,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const reportQuery = z.object({
   /** Business-local, both inclusive. */
-  from: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
-  to: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
+  from: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD').refine((value) => DateTime.fromISO(value).isValid, 'invalid date'),
+  to: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD').refine((value) => DateTime.fromISO(value).isValid, 'invalid date'),
   granularity: z.enum(['day', 'week', 'month']).default('day'),
 });
 

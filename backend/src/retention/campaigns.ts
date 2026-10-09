@@ -7,6 +7,7 @@ import {
 import { Business } from '../models/Business.js';
 import { Campaign } from '../models/Campaign.js';
 import { Notification } from '../models/Notification.js';
+import { ClientProfile } from '../models/ClientProfile.js';
 import { logger } from '../lib/logger.js';
 import * as copy from '../whatsapp/messages.js';
 import { sendTracked, type SendDeps } from '../notifications/send.js';
@@ -224,8 +225,20 @@ export async function listCampaigns(businessId: string, limit = 20): Promise<Cam
   if (campaigns.length === 0) return [];
 
   const rows = await Notification.find({
+    businessId,
     campaignId: { $in: campaigns.map((c) => String(c._id)) },
   }).select('campaignId clientId status scheduledFor repliedAt rebookedBookingId');
+
+  // One opt-out read for the whole page instead of one query per campaign.
+  const optedOut = await ClientProfile.find({
+    businessId,
+    clientId: { $in: [...new Set(rows.map((row) => row.clientId))] },
+    marketingOptOut: true,
+    marketingOptOutAt: { $ne: null },
+  }).select('clientId marketingOptOutAt');
+  const optOuts = new Map(optedOut.flatMap((profile) =>
+    profile.marketingOptOutAt ? [[profile.clientId, profile.marketingOptOutAt] as const] : [],
+  ));
 
   const byCampaign = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -238,7 +251,7 @@ export async function listCampaigns(businessId: string, limit = 20): Promise<Cam
   return Promise.all(
     campaigns.map(async (campaign) => {
       const id = String(campaign._id);
-      const outcome = await outcomeOf(businessId, byCampaign.get(id) ?? []);
+      const outcome = await outcomeOf(businessId, byCampaign.get(id) ?? [], optOuts);
 
       return {
         id,

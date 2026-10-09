@@ -5,6 +5,7 @@ import { Business } from '../models/Business.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 import { setupChecklist } from '../onboarding/readiness.js';
 import { connectedPhone, provisionSession, type ProvisionFailure } from '../onboarding/provision.js';
 
@@ -153,7 +154,12 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    res.json(business);
+    res.json({
+      ...business.toObject(),
+      bookingUrl: business.published
+        ? new URL(`/${encodeURIComponent(business.slug)}`, env.WEB_URL).toString()
+        : null,
+    });
   });
 
   /**

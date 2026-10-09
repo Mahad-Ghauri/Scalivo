@@ -15,8 +15,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_FUNNEL_DAYS = 366;
 
 const funnelQuery = z.object({
-  from: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
-  to: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
+  from: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD').refine((value) => DateTime.fromISO(value).isValid, 'invalid date'),
+  to: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD').refine((value) => DateTime.fromISO(value).isValid, 'invalid date'),
 });
 
 export function createGrowRouter(): Router {

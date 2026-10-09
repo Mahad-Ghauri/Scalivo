@@ -30,7 +30,11 @@ const reviewSchema = new Schema(
   { timestamps: true },
 );
 
-reviewSchema.index({ businessId: 1, published: 1, createdAt: -1 });
+reviewSchema.index({ businessId: 1, published: 1, createdAt: -1, _id: -1 });
+reviewSchema.index({ businessId: 1, createdAt: -1, _id: -1 });
+reviewSchema.index({ businessId: 1, createdAt: -1, _id: -1 }, {
+  name: 'flagged_reviews', partialFilterExpression: { rating: { $lt: 4 } },
+});
 // One rating per appointment, however many times the request is answered.
 reviewSchema.index(
   { bookingId: 1 },

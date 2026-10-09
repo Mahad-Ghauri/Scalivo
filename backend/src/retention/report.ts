@@ -33,7 +33,11 @@ export interface OutcomeRow {
   rebookedBookingId?: string | null;
 }
 
-export async function outcomeOf(businessId: string, rows: OutcomeRow[]): Promise<CampaignOutcome> {
+export async function outcomeOf(
+  businessId: string,
+  rows: OutcomeRow[],
+  knownOptOuts?: ReadonlyMap<string, Date>,
+): Promise<CampaignOutcome> {
   const outcome: CampaignOutcome = {
     sends: rows.length,
     delivered: 0,
@@ -86,16 +90,17 @@ export async function outcomeOf(businessId: string, rows: OutcomeRow[]): Promise
    * again on every campaign after it, which would make the number useless in
    * exactly the direction that discourages using the feature honestly.
    */
-  const optedOut = await ClientProfile.find({
+  const optedOut = knownOptOuts ?? new Map((await ClientProfile.find({
     businessId,
     clientId: { $in: [...sentAt.keys()] },
     marketingOptOut: true,
     marketingOptOutAt: { $ne: null },
-  }).select('clientId marketingOptOutAt');
+  }).select('clientId marketingOptOutAt')).flatMap((profile) =>
+    profile.marketingOptOutAt ? [[profile.clientId, profile.marketingOptOutAt] as const] : [],
+  ));
 
-  for (const profile of optedOut) {
-    const at = profile.marketingOptOutAt;
-    const after = sentAt.get(profile.clientId);
+  for (const [clientId, after] of sentAt) {
+    const at = optedOut.get(clientId);
     if (at && after && at >= after) outcome.optedOut += 1;
   }
 
