@@ -238,12 +238,12 @@ class _QrScreenState extends State<QrScreen> {
   @override
   Widget build(BuildContext context) {
     return SheetScaffold(
-      heroHeight: 148,
-      overlap: 30,
+      heroHeight: 116 + MediaQuery.paddingOf(context).top + (MediaQuery.textScalerOf(context).scale(14) > 20 ? 48 : 0),
+      overlap: 0,
       hero: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
           child: Row(
             children: [
               Material(
@@ -253,27 +253,27 @@ class _QrScreenState extends State<QrScreen> {
                   onTap: () => Navigator.of(context).pop(),
                   customBorder: const CircleBorder(),
                   child: const SizedBox(
-                    width: 44,
-                    height: 44,
+                    width: 48,
+                    height: 48,
                     child: Icon(Icons.arrow_back_rounded, size: 20, color: Sc.teal900),
                   ),
                 ),
               ),
               const SizedBox(width: 14),
-              const Text(
+              const Expanded(child: Text(
                 'Connect WhatsApp',
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
                   color: Colors.white,
                   letterSpacing: -0.2,
                 ),
-              ),
+              )),
             ],
           ),
         ),
       ),
-      sheetPadding: const EdgeInsets.fromLTRB(26, 46, 26, 26),
+      sheetPadding: const EdgeInsets.fromLTRB(26, 28, 26, 26),
       sheet: switch (_stage) {
         _Stage.requesting => const _Centered(
             child: CircularProgressIndicator(color: Sc.teal),

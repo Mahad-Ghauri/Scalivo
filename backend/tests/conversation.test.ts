@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
+import { DateTime } from 'luxon';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as gemini from '../src/lib/gemini.js';
 import type { InboundMessage, MessagingProvider, SendResult } from '@scalivo/shared';
 import { BOOKING_STATUS, SESSION_STATUS } from '@scalivo/shared';
 import { Booking } from '../src/models/Booking.js';
@@ -31,6 +33,7 @@ import { infraReady } from './infra.js';
  */
 
 const TZ = 'Asia/Karachi';
+afterEach(() => vi.restoreAllMocks());
 const SESSION_ID = 'test-session-fsm';
 const LID = '1774039625903@lid';
 
@@ -248,6 +251,62 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     expect(reply).not.toContain('Welcome');
     expect(reply).toContain('Hydrafacial');
     expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SERVICE);
+  });
+
+  it('offers other times at confirmation without committing a booking', async () => {
+    await walkToConfirming();
+    const previous = await conversation();
+    const reply = await say('What other slots are available');
+    expect(reply).toContain('Available times:');
+    expect(reply).not.toContain("didn't catch");
+    expect(await conversation()).toMatchObject({
+      state: CONVERSATION_STATE.SELECTING_SLOT,
+      serviceId: previous?.serviceId,
+      date: previous?.date,
+      invalidCount: 0,
+    });
+    expect(await Booking.countDocuments({ businessId })).toBe(0);
+  });
+
+  it('keeps ambiguous confirmation replies unbooked without asking for menu numbers', async () => {
+    await walkToConfirming();
+    const reply = await say('maybe');
+    expect(reply).toContain('Reply YES to confirm or NO');
+    expect(reply).not.toContain('numbers above');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.CONFIRMING);
+    expect(await Booking.countDocuments({ businessId })).toBe(0);
+  });
+
+  it('handles a natural cancellation request and waits for explicit approval', async () => {
+    await walkToConfirming();
+    await say('yes please');
+    expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CONFIRMED })).toBe(1);
+    vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'cancel' }));
+    const reply = await say('I need to cancel my appointment');
+    expect(reply).toContain('Reply YES to cancel');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.CANCELLING);
+    expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CONFIRMED })).toBe(1);
+    await say('yes please');
+    expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CANCELLED })).toBe(1);
+  });
+
+  it('handles a natural rescheduling request and an ordinal appointment selection', async () => {
+    await walkToConfirming();
+    await say('YES');
+    vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'reschedule' }));
+    await say('can I move my appointment?');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_BOOKING);
+    await say('the first one');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_DATE);
+    expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CONFIRMED })).toBe(1);
+  });
+
+  it('uses the existing owner handoff for a natural policy question', async () => {
+    vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'help' }));
+    const reply = await say('what is the refund policy?');
+    expect(reply).toContain('someone');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.HELP);
+    expect(await Booking.countDocuments({ businessId })).toBe(0);
   });
 
   describe('global commands beat the FSM', () => {
@@ -492,6 +551,88 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       expect(await say('yes')).toContain('just went');
       expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
     });
+
+    it('books an offered 5:30 PM for a 30-minute service, then rejects a duplicate and 5:30 AM', async () => {
+      await Service.updateOne({ _id: hydrafacial }, { $set: { durationMinutes: 30 } });
+      vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'booking',
+        service: 'Hydrafacial', staff: 'Ayesha', day: 'tomorrow', at: '17:30' }));
+      await say('hi');
+      await say('1');
+      await say('1');
+      const dates = (await conversation())!.options!;
+      const tomorrow = DateTime.now().setZone(TZ).plus({ days: 1 }).toISODate()!;
+      const dateIndex = dates.indexOf(tomorrow) + 1;
+      expect(dateIndex).toBeGreaterThan(0);
+      expect(await say(String(dateIndex))).toContain('5:30 PM');
+      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 PM')).toContain('Please confirm');
+      expect(await say('yes')).toContain("You're booked");
+      const booked = await Booking.findOne({ businessId, clientId });
+      expect(DateTime.fromJSDate(booked!.startsAt, { zone: TZ }).toFormat('HH:mm')).toBe('17:30');
+      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 PM')).toContain('That exact time is not available');
+      expect(await say('yes')).not.toContain("You're booked");
+      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 AM')).toContain('That exact time is not available');
+      expect(await say('yes')).not.toContain("You're booked");
+      expect(await Booking.countDocuments({ businessId, clientId })).toBe(1);
+    });
+
+    it('cannot confirm an earlier time when the model misclassifies a new ambiguous time', async () => {
+      await walkToConfirming();
+      vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'off_topic' }));
+      await say('book at 5:30');
+      expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
+      expect((await conversation())?.holdToken).toBeUndefined();
+      expect(await say('yes')).not.toContain("You're booked");
+      expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
+    });
+
+    it.each(['ambiguous', 'invalid', 'unavailable', 'model unavailable'] as const)(
+      'does not book an earlier selection after a new %s time request', async (reason) => {
+        await walkToConfirming();
+        const original = await conversation();
+        const message = reason === 'ambiguous' ? 'book at 5;30' : reason === 'invalid' ? 'book at 25:00'
+          : reason === 'unavailable' ? 'book at 5;30 pm' : 'book at 3pm';
+        vi.spyOn(gemini, 'generate').mockResolvedValue(reason === 'model unavailable' ? null
+          : JSON.stringify({ action: 'booking', at: '15:00' }));
+        const reply = await say(message);
+        expect(reply).toContain(reason === 'ambiguous' ? 'Neither the AM nor PM time is available'
+          : reason === 'unavailable' ? 'That exact time is not available' : 'Please give one exact time');
+        const fresh = await conversation();
+        expect(fresh?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
+        expect(fresh?.holdToken).toBeUndefined();
+        expect(fresh?.slotStart).toBeUndefined();
+        expect(fresh?.holdToken).not.toBe(original?.holdToken);
+        expect(await say('yes')).not.toContain("You're booked");
+        expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
+      });
+
+    it.each(['closing', 'break', 'blocked', 'inactive staff', 'inactive service', 'notice', 'horizon'] as const)(
+      'rechecks %s changed after the confirmation prompt', async (change) => {
+        await walkToConfirming();
+        const held = (await conversation())!;
+        const start = new Date(held.slotStart!);
+        const local = DateTime.fromJSDate(start, { zone: TZ });
+        if (change === 'closing' || change === 'break') {
+          const hours = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek,
+            opensAt: '09:00', closesAt: change === 'closing' ? '09:00' : '18:00',
+            breaks: change === 'break' ? [{ startsAt: local.toFormat('HH:mm'),
+              endsAt: local.plus({ minutes: 45 }).toFormat('HH:mm') }] : [],
+          }));
+          await Staff.updateOne({ _id: held.heldStaffId }, { $set: { workingHours: hours } });
+        } else if (change === 'blocked') {
+          await BlockedTime.create({ businessId, staffId: held.heldStaffId, startsAt: start,
+            endsAt: new Date(start.getTime() + 45 * 60000), reason: 'Unavailable' });
+        } else if (change === 'inactive staff') {
+          await Staff.updateOne({ _id: held.heldStaffId }, { $set: { active: false } });
+        } else if (change === 'inactive service') {
+          await Service.updateOne({ _id: hydrafacial }, { $set: { active: false } });
+        } else {
+          await Business.updateOne({ _id: businessId }, { $set: change === 'notice'
+            ? { minNoticeMinutes: 60 * 24 * 31 } : { bookingHorizonDays: 0 } });
+        }
+        expect(await say('yes')).not.toContain("You're booked");
+        expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
+        expect(await SlotOccupancy.countDocuments({ businessId })).toBe(0);
+      });
 
     it('serialises two messages sent faster than processing', async () => {
       await say('hi');

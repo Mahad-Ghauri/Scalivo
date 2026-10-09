@@ -72,23 +72,25 @@ class _StaffScreenState extends State<StaffScreen> {
     final gone = _staff.where((s) => !s.active).toList();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Sc.paper,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Sc.paper,
+        surfaceTintColor: Sc.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: Sc.ink),
         title: const Text(
           'Staff',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: _services.isEmpty ? null : () => _edit(null),
         backgroundColor: _services.isEmpty ? Sc.tealDisabled : Sc.teal,
         foregroundColor: Colors.white,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add_rounded, size: 26),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+        icon: const Icon(Icons.add_rounded, size: 22),
+        label: const Text('Add staff'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Sc.teal))
@@ -241,11 +243,11 @@ class _StaffScreenState extends State<StaffScreen> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Sc.paper,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text(
             'Remove ${member.name}?',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
           ),
           content: const Text(
             // The honest warning: deactivating does not touch their diary, and
@@ -361,15 +363,15 @@ class _StaffEditScreenState extends State<StaffEditScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Sc.paper,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Sc.paper,
+        surfaceTintColor: Sc.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: Sc.ink),
         title: Text(
           widget.member == null ? 'New staff member' : widget.member!.name,
-          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
         ),
       ),
       body: ListView(
@@ -455,33 +457,19 @@ class _StaffEditScreenState extends State<StaffEditScreen> {
   Widget _serviceToggle(ServiceItem service) {
     final on = _serviceIds.contains(service.id);
 
-    return InkWell(
-      onTap: _busy
-          ? null
-          : () => setState(() => on ? _serviceIds.remove(service.id) : _serviceIds.add(service.id)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Row(
-          children: [
-            Icon(
-              on ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-              size: 20,
-              color: on ? Sc.teal : Sc.slateFaint,
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                service.name,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: on ? FontWeight.w600 : FontWeight.w400,
-                  color: on ? Sc.ink : Sc.inkMuted,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return Semantics(checked: on, enabled: !_busy,
+      child: InkWell(
+        onTap: _busy ? null : () => setState(() => on ? _serviceIds.remove(service.id) : _serviceIds.add(service.id)),
+        child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(children: [
+              Icon(on ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                size: 22, color: on ? Sc.teal : Sc.slate),
+              const SizedBox(width: 12),
+              Expanded(child: Text(service.name, style: TextStyle(fontSize: 14,
+                fontWeight: on ? FontWeight.w600 : FontWeight.w400, color: Sc.ink))),
+            ])),
+        )),
     );
   }
 
@@ -489,74 +477,37 @@ class _StaffEditScreenState extends State<StaffEditScreen> {
     final day = _days[dayOfWeek];
     final open = day != null;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 92,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: open ? FontWeight.w600 : FontWeight.w400,
-                color: open ? Sc.ink : Sc.slateLight,
-              ),
-            ),
-          ),
-          Switch(
-            value: open,
-            activeThumbColor: Colors.white,
-            activeTrackColor: Sc.teal,
-            onChanged: _busy ? null : (on) => _toggleDay(dayOfWeek, on),
-          ),
-          const SizedBox(width: 4),
-          if (open)
-            Expanded(
-              child: Row(
-                children: [
-                  _timeButton(day.opensAt, (t) => _setDay(dayOfWeek, day.copyWith(opensAt: t))),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('–', style: TextStyle(fontSize: 13, color: Sc.slateLight)),
-                  ),
-                  _timeButton(day.closesAt, (t) => _setDay(dayOfWeek, day.copyWith(closesAt: t))),
-                ],
-              ),
-            )
-          else
-            const Expanded(
-              child: Text('Closed', style: TextStyle(fontSize: 13, color: Sc.slateFaint)),
-            ),
-        ],
-      ),
+    return Container(
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Sc.divider))),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(label, style: TextStyle(fontSize: 14,
+            fontWeight: open ? FontWeight.w600 : FontWeight.w400, color: Sc.ink))),
+          Semantics(label: '$label working hours', child: Switch(value: open,
+            activeThumbColor: Colors.white, activeTrackColor: Sc.teal,
+            onChanged: _busy ? null : (on) => _toggleDay(dayOfWeek, on))),
+        ]),
+        if (day != null) Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          _timeButton(day.opensAt, (t) => _setDay(dayOfWeek, day.copyWith(opensAt: t)), '$label opening time'),
+          const Text('to', style: TextStyle(fontSize: 13, color: Sc.slate)),
+          _timeButton(day.closesAt, (t) => _setDay(dayOfWeek, day.copyWith(closesAt: t)), '$label closing time'),
+        ]) else const Text('Closed', style: TextStyle(fontSize: 13, color: Sc.slate)),
+      ]),
     );
   }
 
-  Widget _timeButton(String value, ValueChanged<String> onPicked) {
-    return Material(
-      color: Sc.tealSurface,
-      borderRadius: BorderRadius.circular(9),
-      child: InkWell(
-        onTap: _busy ? null : () => _pickTime(value, onPicked),
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: Sc.divider),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Sc.ink,
-            ),
-          ),
-        ),
-      ),
-    );
+  Widget _timeButton(String value, ValueChanged<String> onPicked, String label) {
+    return Semantics(button: true, label: label, child: Material(
+      color: Sc.chipFill, borderRadius: BorderRadius.circular(4),
+      child: InkWell(onTap: _busy ? null : () => _pickTime(value, onPicked),
+        borderRadius: BorderRadius.circular(4),
+        child: ConstrainedBox(constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Text(value, style: const TextStyle(fontSize: 14,
+              fontWeight: FontWeight.w500, color: Sc.ink))),
+        )),
+    ));
   }
 
   Future<void> _pickTime(String current, ValueChanged<String> onPicked) async {

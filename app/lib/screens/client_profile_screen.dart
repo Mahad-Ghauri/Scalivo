@@ -86,15 +86,15 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
     final name = profile?.displayName ?? widget.fallbackName ?? profile?.phone ?? 'Client';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Sc.paper,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Sc.paper,
+        surfaceTintColor: Sc.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: Sc.ink),
         title: Text(
           name,
-          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
         ),
         actions: [
           if (profile != null)
@@ -197,7 +197,9 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   }
 
   Widget _counters(ClientProfileDetail profile) {
-    return Row(
+    return Wrap(
+      spacing: 28,
+      runSpacing: 18,
       children: [
         _stat('${profile.totalVisits}', 'visits'),
         _stat(money(profile.lifetimeSpendMinor), 'spent'),
@@ -211,8 +213,8 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   }
 
   Widget _stat(String value, String label) {
-    return Expanded(
-      child: Column(
+    return Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -227,7 +229,6 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
           const SizedBox(height: 2),
           Text(label, style: const TextStyle(fontSize: 12, color: Sc.slate)),
         ],
-      ),
     );
   }
 
@@ -246,10 +247,9 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Sc.tealSurface,
-        borderRadius: BorderRadius.circular(14),
+        border: Border(top: BorderSide(color: Sc.divider), bottom: BorderSide(color: Sc.divider)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -266,21 +266,10 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   Widget _rhythmLine(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label, style: const TextStyle(fontSize: 13, color: Sc.slate)),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Sc.inkMuted,
-            ),
-          ),
-        ],
-      ),
+      child: Wrap(spacing: 12, runSpacing: 4, children: [
+        Text(label, style: const TextStyle(fontSize: 13, color: Sc.slate)),
+        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Sc.inkMuted)),
+      ]),
     );
   }
 
@@ -304,8 +293,7 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
                 onPressed: _savingNotes ? null : _saveNotes,
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: const Size(48, 48),
                 ),
                 child: Text(
                   _savingNotes ? 'SAVING' : 'SAVE',
@@ -323,7 +311,7 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
         Container(
           decoration: BoxDecoration(
             color: Sc.tealSurface,
-            borderRadius: BorderRadius.circular(13),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(color: Sc.divider),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),

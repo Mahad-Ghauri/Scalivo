@@ -45,7 +45,7 @@ class _TodayTabState extends State<TodayTab> {
     // than showing next Tuesday under a "Today" heading.
     final showingToday = isSameDay(calendar.selectedDay, startOfToday());
 
-    return Column(
+    final heading = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (auth.health == SessionHealth.down) ...[
@@ -76,44 +76,36 @@ class _TodayTabState extends State<TodayTab> {
           ),
           const SizedBox(height: 18),
         ],
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            const Expanded(
-              child: Text(
-                'Today',
-                style: TextStyle(
-                  fontSize: 23,
-                  fontWeight: FontWeight.w700,
-                  color: Sc.ink,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-            Text(
-              dayLabel(DateTime.now()),
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Sc.slate,
-              ),
-            ),
-          ],
-        ),
+        const Text('THE DAY’S DIARY', style: TextStyle(fontSize: 10,
+          fontWeight: FontWeight.w600, color: Sc.slate, letterSpacing: 1.3)),
+        const SizedBox(height: 8),
+        const Text('Today', style: TextStyle(fontSize: 34,
+          fontWeight: FontWeight.w500, color: Sc.ink, letterSpacing: -1)),
+        Text(dayLabel(DateTime.now()), style: const TextStyle(fontSize: 13, color: Sc.slate)),
         const SizedBox(height: 5),
-        Text(
-          _summary(calendar, showingToday),
-          style: const TextStyle(fontSize: 13, color: Sc.slate),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: const BoxDecoration(border: Border(
+            top: BorderSide(color: Sc.divider), bottom: BorderSide(color: Sc.divider))),
+          child: Row(children: [
+            if (showingToday && calendar.entries.isNotEmpty) ...[
+              Text('${calendar.openCount}'.padLeft(2, '0'),
+                style: const TextStyle(fontSize: 32, fontFeatures: [FontFeature.tabularFigures()], fontWeight: FontWeight.w500,
+                  color: Sc.teal900, letterSpacing: -1)),
+              const SizedBox(width: 14),
+            ],
+            Expanded(child: Text(_summary(calendar, showingToday),
+              style: const TextStyle(fontSize: 13, color: Sc.slate))),
+          ]),
         ),
-        const SizedBox(height: 18),
-        Expanded(
-          child: showingToday
-              ? DayAgenda(controller: calendar, emptyState: const _EmptyToday())
-              : _returnHome(calendar),
-        ),
+        const SizedBox(height: 6),
       ],
     );
+    if (showingToday) {
+      return DayAgenda(controller: calendar, emptyState: const _EmptyToday(), header: heading);
+    }
+    return ListView(children: [heading, const SizedBox(height: 24), _returnHome(calendar)]);
   }
 
   String _summary(CalendarController calendar, bool showingToday) {
@@ -178,8 +170,9 @@ class _TodayTabState extends State<TodayTab> {
           MaterialPageRoute<void>(builder: (_) => const QrScreen()),
         ),
         borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           child: Text(
             label,
             style: const TextStyle(
@@ -229,8 +222,8 @@ class _SetupCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        color: Sc.warnBg,
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: Sc.divider),
       ),
       padding: const EdgeInsets.fromLTRB(15, 14, 15, 6),
@@ -282,7 +275,8 @@ class _SetupCard extends StatelessWidget {
     return InkWell(
       onTap: () => onOpen(step.id),
       borderRadius: BorderRadius.circular(9),
-      child: Padding(
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
         padding: const EdgeInsets.symmetric(vertical: 9),
         child: Row(
           children: [

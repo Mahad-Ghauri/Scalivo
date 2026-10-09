@@ -34,7 +34,7 @@ class ScBanner extends StatelessWidget {
     final bodyColor = danger ? Sc.dangerBody : Sc.warnBody;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(4),
       child: ColoredBox(
         color: background,
         child: IntrinsicHeight(
@@ -77,7 +77,10 @@ class ScBanner extends StatelessWidget {
                             ],
                             if (action != null) ...[
                               const SizedBox(height: 10),
-                              Align(alignment: Alignment.centerLeft, child: action!),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: action!,
+                              ),
                             ],
                           ],
                         ),

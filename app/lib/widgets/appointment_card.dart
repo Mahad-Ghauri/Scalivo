@@ -22,143 +22,156 @@ class AppointmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = _toneFor(entry.status);
+    final time = hhmm(entry.startsAt).split(' ');
     final faded = entry.status == 'cancelled' || entry.status == 'no_show';
 
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
+      color: Sc.paper,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
         child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Sc.divider),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: Sc.divider)),
           ),
-          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-          child: Opacity(
-            opacity: faded ? 0.55 : 1,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // A coloured spine rather than a badge: it reads down the list
-                // at a glance without adding a word to every row.
-                Container(
-                  width: 3.5,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: tone.accent,
-                    borderRadius: BorderRadius.circular(2),
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final largeText = MediaQuery.textScalerOf(context).scale(14) > 20;
+              final compact = constraints.maxWidth < 340 || largeText;
+              final details = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.clientName ?? 'Walk-in',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: faded ? Sc.slate : Sc.ink,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 13),
-                SizedBox(
-                  width: 62,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hhmm(entry.startsAt),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Sc.ink,
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        duration(entry.durationMinutes),
-                        style: const TextStyle(fontSize: 11.5, color: Sc.slateLight),
-                      ),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '${entry.serviceName} · ${entry.staffName}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Sc.slate,
+                      height: 1.5,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              // A walk-in nobody named still has to read as a
-                              // person, not as an empty row.
-                              entry.clientName ?? 'Walk-in',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
-                                color: Sc.ink,
-                              ),
-                            ),
-                          ),
-                          if (entry.source == 'whatsapp')
-                            const Padding(
-                              padding: EdgeInsets.only(left: 6),
-                              child: Icon(
-                                Icons.chat_bubble,
-                                size: 11,
-                                color: Sc.slateFaint,
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${entry.serviceName} · ${entry.staffName}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12.5, color: Sc.slate),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  if (compact) ...[const SizedBox(height: 8), _status(tone)],
+                  if (entry.source == 'whatsapp') ...[
+                    const SizedBox(height: 5),
+                    const Text(
+                      'via WhatsApp',
+                      style: TextStyle(fontSize: 11, color: Sc.slate),
+                    ),
+                  ],
+                ],
+              );
+              if (largeText) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      money(entry.priceMinor),
+                      '${hhmm(entry.startsAt)} · ${duration(entry.durationMinutes)}',
                       style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Sc.inkMuted,
+                        fontSize: 20,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                        fontWeight: FontWeight.w500,
+                        color: Sc.ink,
                       ),
                     ),
-                    if (tone.label != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        tone.label!,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                          color: tone.accent,
-                        ),
-                      ),
-                    ],
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(width: 2, height: 46, color: tone.accent),
+                        const SizedBox(width: 14),
+                        Expanded(child: details),
+                      ],
+                    ),
                   ],
-                ),
-              ],
-            ),
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: compact ? 76 : 86,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          time.first,
+                          style: const TextStyle(
+                            fontSize: 23,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: -0.8,
+                            color: Sc.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${time.skip(1).join(' ')} · ${duration(entry.durationMinutes)}'.trim(),
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: Sc.slate,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(width: 2, height: 46, color: tone.accent),
+                  const SizedBox(width: 14),
+                  Expanded(child: details),
+                  if (!compact) ...[const SizedBox(width: 12), _status(tone)],
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
+  Widget _status(_Tone tone) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        money(entry.priceMinor),
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: Sc.inkMuted,
+        ),
+      ),
+      if (tone.label != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            tone.label!,
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+              color: Sc.slate,
+            ),
+          ),
+        ),
+    ],
+  );
+
   /// Confirmed carries no label — it is the normal case, and labelling every
   /// row means the owner stops reading any of them.
   static _Tone _toneFor(String status) => switch (status) {
-        'pending' => const _Tone(Sc.yellow, 'UNCONFIRMED'),
-        'confirmed' => const _Tone(Sc.teal, null),
-        'completed' => const _Tone(Sc.slateLight, 'DONE'),
-        'no_show' => const _Tone(Sc.danger, 'NO-SHOW'),
-        'cancelled' => const _Tone(Sc.slateFaint, 'CANCELLED'),
-        _ => const _Tone(Sc.slateLight, null),
-      };
+    'pending' => const _Tone(Sc.yellow, 'UNCONFIRMED'),
+    'confirmed' => const _Tone(Sc.teal, null),
+    'completed' => const _Tone(Sc.slateLight, 'DONE'),
+    'no_show' => const _Tone(Sc.danger, 'NO-SHOW'),
+    'cancelled' => const _Tone(Sc.slateFaint, 'CANCELLED'),
+    _ => const _Tone(Sc.slateLight, null),
+  };
 }
 
 class _Tone {
@@ -171,7 +184,12 @@ class _Tone {
 /// Time the owner declared off-limits, drawn inline with the appointments so a
 /// blocked afternoon is visible in the same scan rather than on another screen.
 class BlockCard extends StatelessWidget {
-  const BlockCard({super.key, required this.block, this.staffName, this.onRemove});
+  const BlockCard({
+    super.key,
+    required this.block,
+    this.staffName,
+    this.onRemove,
+  });
 
   final CalendarBlock block;
   final String? staffName;
@@ -182,7 +200,7 @@ class BlockCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Sc.chipFill,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(4),
       ),
       padding: EdgeInsets.fromLTRB(16, 12, onRemove == null ? 16 : 6, 12),
       child: Row(
@@ -190,30 +208,35 @@ class BlockCard extends StatelessWidget {
           const Icon(Icons.block_rounded, size: 15, color: Sc.slate),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              block.reason?.isNotEmpty == true ? block.reason! : 'Blocked',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Sc.inkMuted,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  block.reason?.isNotEmpty == true ? block.reason! : 'Blocked',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Sc.inkMuted,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${hhmm(block.startsAt)} – ${hhmm(block.endsAt)}'
+                  '${staffName == null ? '' : ' · $staffName'}',
+                  style: const TextStyle(fontSize: 11.5, color: Sc.slate),
+                ),
+              ],
             ),
-          ),
-          Text(
-            // A whole-business block has no staff name to show, and saying
-            // "everyone" is clearer than leaving the row ambiguous.
-            '${hhmm(block.startsAt)} – ${hhmm(block.endsAt)}'
-            '${staffName == null ? '' : ' · $staffName'}',
-            style: const TextStyle(fontSize: 11.5, color: Sc.slate),
           ),
           if (onRemove != null)
             IconButton(
               tooltip: 'Unblock',
-              visualDensity: VisualDensity.compact,
               onPressed: onRemove,
-              icon: const Icon(Icons.close_rounded, size: 16, color: Sc.slateLight),
+              icon: const Icon(
+                Icons.close_rounded,
+                size: 16,
+                color: Sc.slateLight,
+              ),
             ),
         ],
       ),

@@ -123,12 +123,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final fieldCount = _errors.values.where((v) => v != null).length;
 
     return SheetScaffold(
-      heroHeight: 148,
-      overlap: 32,
+      heroHeight: 116 + MediaQuery.paddingOf(context).top + (MediaQuery.textScalerOf(context).scale(14) > 20 ? 48 : 0),
+      overlap: 0,
       hero: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
           child: Row(
             children: [
               Material(
@@ -138,32 +138,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onTap: busy ? null : () => Navigator.of(context).pop(),
                   customBorder: const CircleBorder(),
                   child: const SizedBox(
-                    width: 44,
-                    height: 44,
+                    width: 48,
+                    height: 48,
                     child: Icon(Icons.arrow_back_rounded, size: 20, color: Sc.teal900),
                   ),
                 ),
               ),
               const SizedBox(width: 14),
-              const Text(
-                'Create Account',
+              const Expanded(child: Text(
+                'Create account',
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
                   color: Colors.white,
                   letterSpacing: -0.2,
                 ),
-              ),
+              )),
             ],
           ),
         ),
       ),
-      sheetPadding: const EdgeInsets.fromLTRB(26, 46, 26, 24),
-      sheet: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
+      sheetPadding: const EdgeInsets.fromLTRB(26, 28, 26, 24),
+      sheet: SingleChildScrollView(
+        child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (banner != null) ...[
@@ -192,32 +189,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     textInputAction: TextInputAction.next,
                   ),
                   const SizedBox(height: 19),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ScDropdown<String>(
-                          label: 'Category',
-                          value: _category,
-                          items: _categories.keys.toList(),
-                          itemLabel: (k) => _categories[k]!,
-                          enabled: !busy,
-                          onChanged: (v) => setState(() => _category = v ?? _category),
-                        ),
-                      ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: ScDropdown<String>(
-                          label: 'City',
-                          value: _city,
-                          items: _cities,
-                          itemLabel: (c) => c,
-                          enabled: !busy,
-                          onChanged: (v) => setState(() => _city = v ?? _city),
-                        ),
-                      ),
-                    ],
-                  ),
+                  LayoutBuilder(builder: (context, constraints) {
+                    final stacked = constraints.maxWidth < 300 || MediaQuery.textScalerOf(context).scale(14) > 20;
+                    final width = stacked ? constraints.maxWidth : (constraints.maxWidth - 18) / 2;
+                    return Wrap(spacing: 18, runSpacing: 19, children: [
+                      SizedBox(width: width, child: ScDropdown<String>(
+                        label: 'Category', value: _category, items: _categories.keys.toList(),
+                        itemLabel: (k) => _categories[k]!, enabled: !busy,
+                        onChanged: (v) => setState(() => _category = v ?? _category))),
+                      SizedBox(width: width, child: ScDropdown<String>(
+                        label: 'City', value: _city, items: _cities, itemLabel: (c) => c,
+                        enabled: !busy, onChanged: (v) => setState(() => _city = v ?? _city))),
+                    ]);
+                  }),
                   const SizedBox(height: 19),
                   ScField(
                     label: 'Owner name',
@@ -264,13 +248,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     loading: busy,
                     onPressed: _submit,
                   ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+                  const SizedBox(height: 16),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text(
                 'Already have an account?',
@@ -279,7 +260,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               TextButton(
                 onPressed: busy ? null : () => Navigator.of(context).pop(),
                 style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 44),
+                  minimumSize: const Size(0, 48),
                   foregroundColor: Sc.teal900,
                 ),
                 child: const Text(
@@ -290,6 +271,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ],
           ),
         ],
+      ),
       ),
     );
   }

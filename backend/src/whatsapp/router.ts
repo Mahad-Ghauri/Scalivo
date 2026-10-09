@@ -138,11 +138,7 @@ export async function handleInboundMessage(
         // The BOOKINGS channel, not SESSION_HEALTH: a customer wanting a human
         // is important but not an emergency, and putting it on the alarm
         // channel is how the alarm channel stops being believed.
-        await pushToOwners(businessId, {
-          title: `${business.name} — a customer needs help`,
-          body: `${client.displayName ?? 'A customer'} asked to speak to someone.`,
-          channel: PUSH_CHANNEL.BOOKINGS,
-        }).catch((err) => logger.error({ err, businessId }, 'could not notify the owner'));
+        await notifyHelp(businessId, business.name, client.displayName ?? null);
       }
       return;
     }
@@ -191,6 +187,7 @@ export async function handleInboundMessage(
 
     await persist(deps.redis, businessId, clientId, result.conversation);
     await reply(deps, message, businessId, clientId, result.replies);
+    if (result.notifyOwner) await notifyHelp(businessId, business.name, client.displayName ?? null);
 
     /**
      * The confirmation goes out last, and down a different road.
@@ -213,6 +210,14 @@ export async function handleInboundMessage(
   } finally {
     await release();
   }
+}
+
+async function notifyHelp(businessId: string, businessName: string, clientName: string | null): Promise<void> {
+  await pushToOwners(businessId, {
+    title: `${businessName} — a customer needs help`,
+    body: `${clientName ?? 'A customer'} asked to speak to someone.`,
+    channel: PUSH_CHANNEL.BOOKINGS,
+  }).catch((err) => logger.error({ err, businessId }, 'could not notify the owner'));
 }
 
 async function persist(

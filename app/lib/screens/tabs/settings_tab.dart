@@ -98,11 +98,12 @@ class _SettingsTabState extends State<SettingsTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 110),
         children: [
-          const Text(
+          Text(
             'Settings',
             style: TextStyle(
-              fontSize: 23,
-              fontWeight: FontWeight.w700,
+              fontSize: MediaQuery.sizeOf(context).width < 360 &&
+                  MediaQuery.textScalerOf(context).scale(14) > 20 ? 28 : 34,
+              fontWeight: FontWeight.w500,
               color: Sc.ink,
               letterSpacing: -0.2,
             ),
@@ -310,29 +311,18 @@ class _SettingsTabState extends State<SettingsTab> {
   }
 
   Widget _leadRow(int lead, bool active, BusinessSettings settings) {
-    return InkWell(
-      onTap: _saving ? null : () => _toggleLead(lead, settings),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
-        child: Row(
-          children: [
-            Icon(
-              active ? Icons.check_circle_rounded : Icons.circle_outlined,
-              size: 19,
-              color: active ? Sc.teal : Sc.slateFaint,
-            ),
-            const SizedBox(width: 11),
-            Text(
-              leadLabel(lead),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                color: active ? Sc.ink : Sc.inkMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return Semantics(checked: active, enabled: !_saving,
+      child: InkWell(onTap: _saving ? null : () => _toggleLead(lead, settings),
+        child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(children: [
+              Icon(active ? Icons.check_circle_rounded : Icons.circle_outlined,
+                size: 22, color: active ? Sc.teal : Sc.slate),
+              const SizedBox(width: 12),
+              Expanded(child: Text(leadLabel(lead), style: TextStyle(fontSize: 14,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400, color: Sc.ink))),
+            ])),
+        )),
     );
   }
 
@@ -394,54 +384,27 @@ class _SettingsTabState extends State<SettingsTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Sc.ink,
-                ),
-              ),
-            ),
-            _round(Icons.remove_rounded, onLess),
-            SizedBox(
-              width: 72,
-              child: Text(
-                value,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
-                  color: Sc.ink,
-                ),
-              ),
-            ),
-            _round(Icons.add_rounded, onMore),
-          ],
-        ),
+        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Sc.ink)),
+        const SizedBox(height: 8),
+        Row(children: [
+          _round(Icons.remove_rounded, onLess, 'Decrease $label'),
+          Expanded(child: Text(value, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Sc.ink))),
+          _round(Icons.add_rounded, onMore, 'Increase $label'),
+        ]),
         const SizedBox(height: 4),
         Text(hint, style: const TextStyle(fontSize: 12, color: Sc.slate, height: 1.4)),
       ],
     );
   }
 
-  Widget _round(IconData icon, VoidCallback? onTap) {
-    final enabled = onTap != null && !_saving;
-    return Material(
-      color: enabled ? Sc.tealSoft : Sc.chipFill,
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 32,
-          height: 32,
-          child: Icon(icon, size: 17, color: enabled ? Sc.teal900 : Sc.slateFaint),
-        ),
-      ),
+  Widget _round(IconData icon, VoidCallback? onTap, String label) {
+    return IconButton(
+      tooltip: label,
+      onPressed: onTap != null && !_saving ? onTap : null,
+      style: IconButton.styleFrom(backgroundColor: Sc.chipFill,
+        minimumSize: const Size(48, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
+      icon: Icon(icon, size: 22, color: Sc.teal900),
     );
   }
 
@@ -473,11 +436,9 @@ class _SettingsTabState extends State<SettingsTab> {
         const SizedBox(height: 10),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Sc.divider),
+            border: Border(top: BorderSide(color: Sc.divider)),
           ),
-          padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           child: child,
         ),
       ],

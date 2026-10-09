@@ -96,7 +96,7 @@ void main() {
     final api = FakeApi()..noSession = true;
     await openScreen(tester, api);
     expect(api.provisionCalls, 0);
-    await tester.tap(find.text('SET UP MY NUMBER'));
+    await tester.tap(find.text('Set up my number'));
     await tester.pump();
     await tester.pump();
     expect(api.provisionCalls, 1);
@@ -178,13 +178,13 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
     expect(find.byType(Image), findsNothing);
-    expect(find.text('TRY AGAIN'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
     expect(find.textContaining('private'), findsNothing);
     final calls = api.statusCalls;
     await tester.pump(const Duration(seconds: 30));
     expect(api.statusCalls, calls);
     api.failQr = false;
-    await tester.tap(find.text('TRY AGAIN'));
+    await tester.tap(find.text('Try again'));
     await tester.pump();
     await tester.pump();
     expect(find.byType(Image), findsOneWidget);
@@ -205,7 +205,7 @@ void main() {
       final api = FakeApi()..link = LinkResult(status: 'qr_ready', qrCode: code);
       await openScreen(tester, api);
       expect(find.byType(Image), findsNothing);
-      expect(find.text('TRY AGAIN'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     }
   });
@@ -214,7 +214,7 @@ void main() {
     for (final status in ['failed', 'unexpected']) {
       final api = FakeApi()..link = LinkResult(status: status, qrCode: null);
       await openScreen(tester, api);
-      expect(find.text('TRY AGAIN'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
       await tester.pump(const Duration(seconds: 30));
       expect(api.statusCalls, 0);
       await tester.pumpWidget(const SizedBox());
@@ -228,7 +228,7 @@ void main() {
     await openScreen(tester, api);
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
-    expect(find.text('TRY AGAIN'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
     expect(find.byType(Image), findsNothing);
     expect(api.qrCalls, 0);
     await tester.pump(const Duration(minutes: 1));
@@ -241,8 +241,8 @@ void main() {
       ..noSession = true
       ..pendingProvision = Completer<LinkResult>();
     await openScreen(tester, api);
-    await tester.tap(find.text('SET UP MY NUMBER'));
-    await tester.tap(find.text('SET UP MY NUMBER'));
+    await tester.tap(find.text('Set up my number'));
+    await tester.tap(find.text('Set up my number'));
     await tester.pump();
     expect(api.provisionCalls, 1);
     await tester.pumpWidget(const SizedBox());

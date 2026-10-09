@@ -54,7 +54,7 @@ class _ScFieldState extends State<ScField> {
 
     final focused = hasError
         ? const BorderSide(color: Sc.danger, width: 2)
-        : const BorderSide(color: Sc.yellow, width: 2);
+        : const BorderSide(color: Sc.teal, width: 2);
 
     return Opacity(
       opacity: opacity,
@@ -64,37 +64,47 @@ class _ScFieldState extends State<ScField> {
         children: [
           Text(
             widget.label,
-            style: const TextStyle(fontSize: 12.5, color: Sc.slate, height: 1.2),
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Sc.slate,
+              height: 1.2,
+            ),
           ),
           const SizedBox(height: 2),
-          TextField(
-            controller: widget.controller,
-            enabled: widget.enabled,
-            obscureText: _obscured,
-            keyboardType: widget.keyboardType,
-            textInputAction: widget.textInputAction,
-            textCapitalization: widget.textCapitalization,
-            onSubmitted: widget.onSubmitted,
-            cursorColor: Sc.teal,
-            style: const TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w600,
-              color: Sc.ink,
-            ),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: const EdgeInsets.only(top: 8, bottom: 9),
-              hintText: widget.hint,
-              hintStyle: const TextStyle(
+          Semantics(
+            label: widget.label,
+            child: TextField(
+              controller: widget.controller,
+              enabled: widget.enabled,
+              obscureText: _obscured,
+              keyboardType: widget.keyboardType,
+              textInputAction: widget.textInputAction,
+              textCapitalization: widget.textCapitalization,
+              onSubmitted: widget.onSubmitted,
+              cursorColor: Sc.teal,
+              style: const TextStyle(
                 fontSize: 15.5,
-                fontWeight: FontWeight.w400,
-                color: Sc.slateFaint,
+                fontWeight: FontWeight.w600,
+                color: Sc.ink,
               ),
-              enabledBorder: UnderlineInputBorder(borderSide: idle),
-              disabledBorder: UnderlineInputBorder(borderSide: idle),
-              focusedBorder: UnderlineInputBorder(borderSide: focused),
-              suffixIcon: widget.password ? _revealToggle() : null,
-              suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.only(top: 14, bottom: 14),
+                hintText: widget.hint,
+                hintStyle: const TextStyle(
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w400,
+                  color: Sc.slateFaint,
+                ),
+                enabledBorder: UnderlineInputBorder(borderSide: idle),
+                disabledBorder: UnderlineInputBorder(borderSide: idle),
+                focusedBorder: UnderlineInputBorder(borderSide: focused),
+                suffixIcon: widget.password ? _revealToggle() : null,
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 48,
+                  minHeight: 48,
+                ),
+              ),
             ),
           ),
           if (hasError)
@@ -124,21 +134,20 @@ class _ScFieldState extends State<ScField> {
   }
 
   Widget _revealToggle() {
-    return GestureDetector(
-      onTap: widget.enabled ? () => setState(() => _obscured = !_obscured) : null,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        // Keeps the tap target at 44px without pushing the word off the line.
-        padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
-        child: Text(
-          _obscured ? 'Show' : 'Hide',
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: widget.enabled ? Sc.teal : Sc.slate,
-          ),
-        ),
+    return SizedBox(width: 48, height: 48, child: IconButton(
+      visualDensity: VisualDensity.standard,
+      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+      tooltip: _obscured ? 'Show password' : 'Hide password',
+      onPressed: widget.enabled
+          ? () => setState(() => _obscured = !_obscured)
+          : null,
+      icon: Icon(
+        _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+        color: Sc.teal,
+        size: 22,
       ),
-    );
+    ));
   }
 }

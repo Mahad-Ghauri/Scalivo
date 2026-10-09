@@ -7,13 +7,16 @@ import {
   REVIEW_COMMENT_MIN_LENGTH,
 } from '@scalivo/shared';
 import { Booking } from '../../models/Booking.js';
+import { Business } from '../../models/Business.js';
 import { Service } from '../../models/Service.js';
 import { Staff } from '../../models/Staff.js';
-import { daysWithAvailability, getAvailability } from '../../bookings/availability.js';
+import { daysWithAvailability, getAvailability, loadContext, slotsFor } from '../../bookings/availability.js';
+import { holdKeys, releaseHold } from '../../bookings/holds.js';
 import { cancelBooking, createBooking, holdSlot } from '../../bookings/create.js';
 import { attachComment, recordRating } from '../../reviews/record.js';
 import { transferDeposit } from '../../payments/deposits.js';
 import { logger } from '../../lib/logger.js';
+import { handleGlobalCommand } from '../interceptors/global-commands.js';
 import * as copy from '../messages.js';
 import { CONVERSATION_STATE, type Conversation, MAX_INVALID_INPUT } from './states.js';
 import {
@@ -22,6 +25,7 @@ import {
   localMinutes,
   parseIntent,
   resolveIntent,
+  requestedTime,
   type ResolvedIntent,
   type Vocabulary,
   worthLooking,
@@ -71,22 +75,25 @@ export interface TurnResult {
    * rather than a line of chat. See the note in commit().
    */
   confirms?: string;
+  notifyOwner?: boolean;
 }
 
 /** Index into the list the customer is actually looking at. */
 function pickOption(text: string, options: string[] | undefined): string | null {
   if (!options?.length) return null;
-  const n = Number(text.trim());
+  const words = ['first', 'second', 'third', 'fourth', 'fifth'];
+  const ordinal = /^(?:the )?(first|second|third|fourth|fifth)(?: (?:one|appointment|option|slot))?[.!]?$/i.exec(text.trim());
+  const n = ordinal ? words.indexOf(ordinal[1]!.toLowerCase()) + 1 : Number(text.trim());
   if (!Number.isInteger(n) || n < 1 || n > options.length) return null;
   return options[n - 1] ?? null;
 }
 
 function isYes(text: string): boolean {
-  return /^(yes|y|yeah|ok|okay|haan|han)$/i.test(text.trim());
+  return /^(yes|y|yeah|ok|okay|haan|han)(?:[, ]+(?:please|pls))?[.!]?$/i.test(text.trim());
 }
 
 function isNo(text: string): boolean {
-  return /^(no|n|nope|nahi)$/i.test(text.trim());
+  return /^(no|n|nope|nahi)(?:[, ]+(?:thanks|thank you|please))?[.!]?$/i.test(text.trim());
 }
 
 /**
@@ -240,6 +247,30 @@ async function promptDate(redis: Redis, ctx: TurnContext, base: Conversation): P
   };
 }
 
+/** Abandon only this conversation's hold, never a hold acquired by someone else. */
+async function discardConfirmation(redis: Redis, ctx: TurnContext): Promise<Conversation | null> {
+  const previous = ctx.conversation;
+  if (!previous) return null;
+  if (previous.holdToken && previous.heldStaffId && previous.slotStart && previous.serviceId) {
+    const context = await loadContext(ctx.businessId, previous.serviceId);
+    if (context) await releaseHold(redis, {
+      token: previous.holdToken,
+      staffId: previous.heldStaffId,
+      keys: holdKeys(ctx.businessId, previous.heldStaffId, slotsFor(new Date(previous.slotStart), context)),
+      expiresAt: new Date(),
+    });
+  }
+  const fresh = { ...previous };
+  delete fresh.slotStart;
+  delete fresh.holdToken;
+  delete fresh.heldStaffId;
+  delete fresh.requestedAt;
+  delete fresh.ambiguousAt;
+  delete fresh.options;
+  if (fresh.state === CONVERSATION_STATE.CONFIRMING) fresh.state = CONVERSATION_STATE.SELECTING_SLOT;
+  return fresh;
+}
+
 async function promptSlot(
   redis: Redis,
   ctx: TurnContext,
@@ -250,8 +281,41 @@ async function promptSlot(
     businessId: ctx.businessId,
     serviceId: base.serviceId!,
     date: base.date!,
+    ...(ctx.now ? { now: ctx.now } : {}),
     ...(base.staffId ? { staffId: base.staffId } : {}),
   });
+
+  if (base.ambiguousAt !== undefined) {
+    const am = base.ambiguousAt;
+    const candidates = slots.filter((slot) => {
+      const minutes = localMinutes(slot.startsAt, ctx.timezone);
+      return minutes === am || minutes === am + 12 * 60;
+    });
+    const fresh = { ...base };
+    delete fresh.ambiguousAt;
+    delete fresh.within;
+    if (candidates.length) return {
+      replies: [copy.ambiguousTimeOptions(candidates.map((slot) => slot.startsAt), ctx.timezone)],
+      conversation: { ...fresh, state: CONVERSATION_STATE.SELECTING_SLOT,
+        options: candidates.map((slot) => slot.startsAt.toISOString()), invalidCount: 0 },
+    };
+    const alternative = await promptSlot(redis, ctx, fresh, copy.neitherTimeAvailable);
+    if (!alternative.replies.includes(copy.neitherTimeAvailable)) alternative.replies.unshift(copy.neitherTimeAvailable);
+    return alternative;
+  }
+
+  if (base.requestedAt !== undefined) {
+    const exact = slots.find((slot) => localMinutes(slot.startsAt, ctx.timezone) === base.requestedAt);
+    const fresh = { ...base };
+    delete fresh.requestedAt;
+    delete fresh.within;
+    if (exact) return promptConfirm(redis, ctx, fresh, exact.startsAt);
+    const alternative = await promptSlot(redis, ctx, fresh, copy.requestedTimeUnavailable);
+    if (!alternative.replies.includes(copy.requestedTimeUnavailable)) {
+      alternative.replies.unshift(copy.requestedTimeUnavailable);
+    }
+    return alternative;
+  }
 
   // The day filled between being offered and being chosen. Never present an
   // empty list as a choice — go back to the days that do have room.
@@ -293,7 +357,7 @@ async function promptSlot(
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_SLOT,
-      options: offered.map((s) => s.startsAt.toISOString()),
+      options: offered.slice(0, copy.MAX_SLOT_OPTIONS).map((s) => s.startsAt.toISOString()),
       invalidCount: 0,
     },
   };
@@ -459,8 +523,8 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
   if (!worthLooking(ctx.text)) return null;
 
   const [services, staff] = await Promise.all([
-    Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 }),
-    Staff.find({ businessId: ctx.businessId, active: true }),
+    Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 }).limit(100).maxTimeMS(5000),
+    Staff.find({ businessId: ctx.businessId, active: true }).limit(100).maxTimeMS(5000),
   ]);
 
   const vocabulary: Vocabulary = {
@@ -468,17 +532,129 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
     staff: staff.map((s) => ({ id: String(s._id), name: s.name, serviceIds: s.serviceIds })),
   };
 
-  if (!hasBookingDetail(ctx.text, vocabulary)) return null;
+  const clock = requestedTime(ctx.text);
+  if (clock.kind === 'invalid' || (clock.kind === 'ambiguous' && clock.minutes === undefined)) {
+    return { replies: [copy.clarifyTime], conversation: await discardConfirmation(redis, ctx) };
+  }
+  // A new clock request invalidates earlier consent even if model classification fails.
+  if (clock.kind === 'exact' || clock.kind === 'ambiguous') {
+    ctx = { ...ctx, conversation: await discardConfirmation(redis, ctx) };
+  }
+  const detail = hasBookingDetail(ctx.text, vocabulary);
+  const greeting = !detail &&
+    /^(hi|hey|hello|salam|assalam o alaikum|aoa)[!.\s]*$/i.test(ctx.text.trim());
+  const availability = !detail &&
+    /\b(available|availability|free|other|another|different|alternative|more)\b/i.test(ctx.text) &&
+    /\b(times?|slots?|appointments?)\b/i.test(ctx.text);
+  const raw = greeting
+    ? { service: null, staff: null, day: null, window: null, at: null, action: 'greeting' as const }
+    : availability
+      ? { service: null, staff: null, day: null, window: null, at: null, action: 'availability' as const }
+      : await parseIntent(ctx.text, vocabulary, ctx.conversation) ??
+        (clock.kind === 'ambiguous' ? { action: 'booking' as const, service: null, staff: null, day: null, window: null, at: null } : null);
+  if (!raw) {
+    if (clock.kind === 'exact') {
+      return { replies: [copy.clarifyTime], conversation: await discardConfirmation(redis, ctx) };
+    }
+    return null;
+  }
+  // A model-provided time is never authority: use only the clock in the user's message.
+  raw.at = clock.kind === 'exact'
+    ? `${Math.floor(clock.minutes / 60).toString().padStart(2, '0')}:${(clock.minutes % 60).toString().padStart(2, '0')}`
+    : null;
+  if (clock.kind === 'ambiguous') raw.window = null;
 
-  const raw = await parseIntent(ctx.text, vocabulary);
-  if (!raw) return null;
-
-  const resolved = resolveIntent(raw, {
+  const previous = ctx.conversation;
+  const selectedService = vocabulary.services.find((service) => service.id === previous?.serviceId);
+  const answer = (text: string): TurnResult => ({ replies: [text.slice(0, 3500)], conversation: previous ? { ...previous, invalidCount: 0 } : null });
+  if (raw.action === 'cancel' || raw.action === 'reschedule' || raw.action === 'help') {
+    const command = await handleGlobalCommand({ ...ctx, text: raw.action.toUpperCase() });
+    return command ?? answer(copy.nothingToMove);
+  }
+  if (raw.action === 'off_topic') return answer(copy.bookingHelp);
+  if (raw.action === 'location') {
+    const business = await Business.findOne({ _id: ctx.businessId }).select('city profile.addressLine profile.neighbourhood').maxTimeMS(5000);
+    return answer(copy.location([business?.profile?.addressLine, business?.profile?.neighbourhood, business?.city]
+      .filter((part): part is string => typeof part === 'string' && Boolean(part.trim()))));
+  }
+  if (raw.action === 'greeting') {
+    if (previous && previous.state !== CONVERSATION_STATE.HELP) return answer(copy.greeting(ctx.businessName, ctx.firstName) + '\n\n' + copy.bookingHelp);
+    const asked = await promptService(ctx, {});
+    return { ...asked, replies: [copy.greeting(ctx.businessName, ctx.firstName), ...asked.replies] };
+  }
+  if (raw.action === 'appointments') {
+    const bookings = await upcomingBookings(ctx.businessId, ctx.clientId);
+    if (!bookings.length) return answer(copy.noAppointments);
+    const catalog = await Service.find({ businessId: ctx.businessId,
+      _id: { $in: bookings.map((booking) => booking.serviceId) } }).limit(100).maxTimeMS(5000);
+    return answer(copy.appointmentList(bookings.map((booking) => ({
+      serviceName: catalog.find((service) => String(service._id) === booking.serviceId)?.name ?? 'Appointment',
+      startsAt: booking.startsAt,
+    })), ctx.timezone));
+  }
+  if (raw.action === 'services' || raw.action === 'price' || raw.action === 'duration') {
+    const requested = raw.service ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() }) : null;
+    if (requested && !requested.serviceId && !requested.serviceOptions.length) {
+      return answer('That service is not listed.\n\n' + copy.serviceDetails(services));
+    }
+    const ids = requested ? [requested.serviceId, ...requested.serviceOptions] : [previous?.serviceId];
+    const chosen = raw.action === 'services' || !ids.some(Boolean) ? services : services.filter((service) => ids.includes(String(service._id)));
+    return answer(copy.serviceDetails(chosen));
+  }
+  if (raw.action === 'staff' || raw.action === 'hours') {
+    const requested = raw.service ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() }).serviceId : previous?.serviceId;
+    const eligible = requested ? staff.filter((member) => member.serviceIds.includes(requested)) : staff;
+    return answer(raw.action === 'staff' ? copy.staffDetails(eligible.map((member) => member.name))
+      : copy.workingHours(eligible.map((member) => ({ name: member.name, hours: member.workingHours }))));
+  }
+  const resolved = resolveIntent({ ...raw, service: raw.service ?? selectedService?.name ?? null }, {
     ...vocabulary,
     timezone: ctx.timezone,
     now: ctx.now ?? new Date(),
   });
-  if (!isUseful(resolved)) return null;
+  const question = raw.action === 'availability' || raw.action === 'booking' || raw.action === 'no_preference';
+  if (clock.kind === 'ambiguous' && clock.minutes !== undefined) resolved.ambiguousAt = clock.minutes;
+  if (!question && clock.kind !== 'ambiguous' && (!isUseful(resolved) || !(
+    (raw.service && (resolved.serviceId || resolved.serviceOptions.length)) ||
+    (raw.staff && resolved.staffId) || (raw.day && resolved.date) ||
+    ((raw.window || raw.at) && resolved.within)
+  ))) return null;
+
+  // Carry earlier answers only when this message did not replace them. Never
+  // retain a staff choice that cannot perform the newly selected service.
+  if (!raw.staff && previous?.staffId && vocabulary.staff.some((member) =>
+    member.id === previous.staffId && member.serviceIds.includes(resolved.serviceId ?? ''),
+  )) resolved.staffId = previous.staffId;
+  if (!raw.day && previous?.date) resolved.date = previous.date;
+  if (!raw.window && !raw.at && previous?.within) resolved.within = previous.within;
+
+  ctx = { ...ctx, conversation: await discardConfirmation(redis, ctx) };
+  if (!raw.window && clock.kind === 'absent' && previous?.requestedAt !== undefined) {
+    resolved.at = previous.requestedAt;
+  }
+  if (!raw.window && clock.kind === 'absent' && previous?.ambiguousAt !== undefined) {
+    resolved.ambiguousAt = previous.ambiguousAt;
+  }
+
+  if (raw.action === 'availability' || raw.action === 'no_preference') {
+    const base: Omit<Conversation, 'state'> = {
+      ...(resolved.serviceId ? { serviceId: resolved.serviceId } : {}),
+      ...(resolved.date ? { date: resolved.date } : {}),
+      ...(resolved.at !== null ? { requestedAt: resolved.at } : {}),
+      ...(resolved.ambiguousAt !== undefined ? { ambiguousAt: resolved.ambiguousAt } : {}),
+      ...(raw.action !== 'no_preference' && resolved.staffId ? { staffId: resolved.staffId } : {}),
+      ...((raw.window || raw.at) && resolved.within ? { within: resolved.within } : {}),
+      ...(previous?.bookingId ? { bookingId: previous.bookingId } : {}),
+      opener: previous?.opener ?? FLOW_OPENER.FREE_TEXT,
+      invalidCount: 0,
+    };
+    if (!resolved.serviceId) {
+      const asked = await promptService(ctx, base, resolved.serviceOptions);
+      return { ...asked, replies: [copy.availabilityNeedsService, ...asked.replies] };
+    }
+    if (raw.action === 'availability') delete base.requestedAt;
+    return promptDate(redis, ctx, { ...base, state: CONVERSATION_STATE.SELECTING_DATE });
+  }
 
   return resumeFromIntent(redis, ctx, resolved, vocabulary);
 }
@@ -529,10 +705,13 @@ export async function resumeFromIntent(
   // Everything a conversation is except the state, which each prompt builder sets
   // to whatever question it is about to ask.
   const base: Omit<Conversation, 'state'> = {
+    ...(ctx.conversation?.bookingId ? { bookingId: ctx.conversation.bookingId } : {}),
     ...(resolved.serviceId ? { serviceId: resolved.serviceId } : {}),
     ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
     ...(resolved.date ? { date: resolved.date } : {}),
     ...(resolved.within ? { within: resolved.within } : {}),
+    ...(resolved.at !== null ? { requestedAt: resolved.at } : {}),
+    ...(resolved.ambiguousAt !== undefined ? { ambiguousAt: resolved.ambiguousAt } : {}),
     opener,
     invalidCount: 0,
   };
@@ -559,36 +738,13 @@ export async function resumeFromIntent(
 
     const settled: Conversation = { ...base, state: CONVERSATION_STATE.SELECTING_SERVICE };
 
-    /**
-     * Straight to the confirmation, for a customer who named a time that is free.
-     *
-     * Gated on the staff question being settled — either they named someone, or
-     * there is nobody to choose between. Otherwise this would assign a staff member
-     * silently, which is the one shortcut the ladder refuses to take.
-     *
-     * Availability is queried twice on this path, once here and once inside
-     * promptSlot if the time turns out to be taken. Worth the second query: it only
-     * happens when a clock time was given, and the alternative is duplicating the
-     * hold-and-summarise logic to save a read.
-     */
-    const qualified = vocabulary.staff.filter((member) =>
-      member.serviceIds.includes(resolved.serviceId as string),
-    );
+    const noPreference = ctx.conversation?.serviceId === resolved.serviceId &&
+      !ctx.conversation.staffId &&
+      (ctx.conversation.state === CONVERSATION_STATE.SELECTING_DATE ||
+        ctx.conversation.state === CONVERSATION_STATE.SELECTING_SLOT ||
+        ctx.conversation.state === CONVERSATION_STATE.CONFIRMING);
 
-    if (resolved.at !== null && resolved.date && (resolved.staffId || qualified.length <= 1)) {
-      const slots = await getAvailability(redis, {
-        businessId: ctx.businessId,
-        serviceId: resolved.serviceId,
-        date: resolved.date,
-        ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
-        ...(ctx.now ? { now: ctx.now } : {}),
-      });
-
-      const exact = slots.find((s) => localMinutes(s.startsAt, ctx.timezone) === resolved.at);
-      if (exact) return promptConfirm(redis, ctx, settled, exact.startsAt);
-    }
-
-    return promptStaffOrDate(redis, ctx, settled);
+    return noPreference ? promptDate(redis, ctx, settled) : promptStaffOrDate(redis, ctx, settled);
   }
 }
 
@@ -597,6 +753,12 @@ export async function resumeFromIntent(
 /** One inbound message, one turn. The interceptor chain has already run. */
 export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResult> {
   const conversation = ctx.conversation;
+  if (conversation && conversation.state !== CONVERSATION_STATE.AWAITING_RATING &&
+    conversation.state !== CONVERSATION_STATE.AWAITING_REVIEW_COMMENT &&
+    !pickOption(ctx.text, conversation.options) && !isYes(ctx.text) && !isNo(ctx.text)) {
+    const parsed = await fromFreeText(redis, ctx);
+    if (parsed) return parsed;
+  }
 
   // IDLE — the absence of a key, not a stored state.
   if (!conversation) {
@@ -629,9 +791,6 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
          * Strictly after pickOption, so a bare "2" is always the menu pick it looks
          * like and never goes near the model.
          */
-        const parsed = await fromFreeText(redis, ctx);
-        if (parsed) return parsed;
-
         const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
         return invalid(ctx, conversation, copy.serviceMenu(services));
       }
@@ -680,8 +839,10 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
 
     case CONVERSATION_STATE.CONFIRMING: {
       if (isYes(ctx.text)) return commit(redis, ctx, conversation);
-      if (isNo(ctx.text)) return promptSlot(redis, ctx, { ...conversation, invalidCount: 0 });
-
+      if (isNo(ctx.text)) {
+        const fresh = await discardConfirmation(redis, ctx);
+        return promptSlot(redis, ctx, { ...fresh!, invalidCount: 0 });
+      }
       return invalid(
         ctx,
         conversation,
@@ -881,5 +1042,5 @@ export async function upcomingBookings(businessId: string, clientId: string) {
     clientId,
     startsAt: { $gt: new Date() },
     status: { $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.CONFIRMED] },
-  }).sort({ startsAt: 1 });
+  }).sort({ startsAt: 1 }).limit(20).maxTimeMS(5000);
 }

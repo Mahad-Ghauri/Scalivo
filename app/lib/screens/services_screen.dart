@@ -67,23 +67,25 @@ class _ServicesScreenState extends State<ServicesScreen> {
     final retired = _services.where((s) => !s.active).toList();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Sc.paper,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Sc.paper,
+        surfaceTintColor: Sc.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: Sc.ink),
         title: const Text(
           'Services',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _edit(null),
         backgroundColor: Sc.teal,
         foregroundColor: Colors.white,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add_rounded, size: 26),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+        icon: const Icon(Icons.add_rounded, size: 22),
+        label: const Text('Add service'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Sc.teal))
@@ -232,10 +234,10 @@ class _ServicesScreenState extends State<ServicesScreen> {
   Future<void> _edit(ServiceItem? service) async {
     final saved = await showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Sc.paper,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => _ServiceSheet(
         api: _api,
@@ -310,8 +312,8 @@ class _ServiceSheetState extends State<_ServiceSheet> {
               Text(
                 widget.service == null ? 'New service' : 'Edit service',
                 style: const TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w500,
                   color: Sc.ink,
                   letterSpacing: -0.2,
                 ),

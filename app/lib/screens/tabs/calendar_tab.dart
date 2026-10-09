@@ -43,7 +43,7 @@ class _CalendarTabState extends State<CalendarTab> {
   Widget build(BuildContext context) {
     final controller = context.watch<CalendarController>();
 
-    return Column(
+    final header = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _DateStrip(
@@ -60,9 +60,9 @@ class _CalendarTabState extends State<CalendarTab> {
           ),
         ],
         const SizedBox(height: 16),
-        Expanded(child: DayAgenda(controller: controller)),
       ],
     );
+    return DayAgenda(controller: controller, header: header);
   }
 }
 
@@ -94,8 +94,8 @@ class _DateStrip extends StatelessWidget {
               child: Text(
                 dayLabelLong(selected),
                 style: const TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
                   color: Sc.ink,
                   letterSpacing: -0.2,
                 ),
@@ -106,8 +106,7 @@ class _DateStrip extends StatelessWidget {
                 onPressed: () => onPick(startOfToday()),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: const Size(48, 48),
                 ),
                 child: const Text(
                   'TODAY',
@@ -121,7 +120,7 @@ class _DateStrip extends StatelessWidget {
               ),
             IconButton(
               onPressed: () => _jump(context),
-              visualDensity: VisualDensity.compact,
+              tooltip: 'Choose date',
               icon: const Icon(Icons.calendar_month_rounded, size: 19, color: Sc.slate),
             ),
             // Blocking lives in a menu rather than on the floating button: that
@@ -149,11 +148,14 @@ class _DateStrip extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 62,
-          child: Row(
+          height: (MediaQuery.textScalerOf(context).scale(25.5) * 1.5 + 14)
+              .clamp(78.0, double.infinity).toDouble(),
+          child: ListView(
+            scrollDirection: Axis.horizontal,
             children: [
               for (var i = 0; i < 7; i++)
-                Expanded(child: _pill(start.add(Duration(days: i)))),
+                SizedBox(width: MediaQuery.textScalerOf(context).scale(14) > 20 ? 64 : 48,
+                  child: _pill(start.add(Duration(days: i)))),
             ],
           ),
         ),
@@ -165,14 +167,15 @@ class _DateStrip extends StatelessWidget {
     final isSelected = isSameDay(date, selected);
     final isToday = isSameDay(date, startOfToday());
 
-    return Padding(
+    return Semantics(button: true, selected: isSelected, label: dayLabelLong(date),
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2.5),
       child: Material(
         color: isSelected ? Sc.teal900 : Colors.transparent,
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(4),
         child: InkWell(
           onTap: () => onPick(date),
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(4),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -210,6 +213,7 @@ class _DateStrip extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -234,7 +238,7 @@ class _StaffFilter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 32,
+      height: 48,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -247,7 +251,7 @@ class _StaffFilter extends StatelessWidget {
   }
 
   Widget _chip(String label, bool active, VoidCallback onTap) {
-    return Padding(
+    return Semantics(button: true, selected: active, child: Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Material(
         color: active ? Sc.tealSoft : Sc.chipFill,
@@ -270,7 +274,7 @@ class _StaffFilter extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -280,74 +284,55 @@ class _StaffFilter extends StatelessWidget {
 /// and two implementations would drift the moment one grew a status the other
 /// did not draw.
 class DayAgenda extends StatelessWidget {
-  const DayAgenda({super.key, required this.controller, this.emptyState});
+  const DayAgenda({super.key, required this.controller, this.emptyState, this.header});
 
   final CalendarController controller;
 
   /// Today has a richer empty state — it is the screen an owner opens on day one.
   final Widget? emptyState;
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
-    if (controller.loading && controller.view == null) {
-      return const Center(child: CircularProgressIndicator(color: Sc.teal));
-    }
-
-    if (controller.error != null && controller.view == null) {
-      return _Failed(
-        message: controller.error!.message,
-        onRetry: () => controller.load(),
-      );
-    }
-
     final entries = controller.entries;
     final blocks = controller.blocks;
-
-    if (entries.isEmpty && blocks.isEmpty) {
-      return RefreshIndicator(
-        color: Sc.teal,
-        onRefresh: () => controller.load(quiet: true),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 40),
-            emptyState ?? const _NothingOn(),
-          ],
-        ),
-      );
-    }
-
     final staffNames = {for (final s in controller.staffList) s.id: s.name};
-
+    Widget? state;
+    if (controller.loading && controller.view == null) {
+      state = const Padding(padding: EdgeInsets.symmetric(vertical: 60),
+        child: Center(child: CircularProgressIndicator(color: Sc.teal)));
+    } else if (controller.error != null && controller.view == null) {
+      state = _Failed(message: controller.error!.message, onRetry: () => controller.load());
+    } else if (entries.isEmpty && blocks.isEmpty) {
+      state = Padding(padding: const EdgeInsets.symmetric(vertical: 40),
+        child: emptyState ?? const _NothingOn());
+    }
     return RefreshIndicator(
       color: Sc.teal,
       onRefresh: () => controller.load(quiet: true),
-      child: ListView.separated(
+      child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: 110),
-        itemCount: entries.length + blocks.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 9),
-        itemBuilder: (context, index) {
-          // Blocks below the appointments: they are context for the day, not
-          // things to act on, and interleaving them by time buries the schedule.
-          if (index >= entries.length) {
-            final block = blocks[index - entries.length];
-            return BlockCard(
-              block: block,
-              staffName: block.staffId == null ? null : staffNames[block.staffId],
-              onRemove: () => _removeBlock(context, controller, block),
-            );
-          }
-
-          final entry = entries[index];
-          return AppointmentCard(
-            entry: entry,
-            onTap: () => showBookingSheet(context, controller: controller, entry: entry),
-          );
-        },
+        slivers: [
+          if (header != null) SliverToBoxAdapter(child: header),
+          if (state != null) SliverToBoxAdapter(child: state)
+          else SliverList(delegate: SliverChildBuilderDelegate((context, index) {
+            if (index >= entries.length) {
+              final block = blocks[index - entries.length];
+              return Padding(padding: const EdgeInsets.only(top: 12), child: BlockCard(
+                block: block,
+                staffName: block.staffId == null ? null : staffNames[block.staffId],
+                onRemove: () => _removeBlock(context, controller, block)));
+            }
+            final entry = entries[index];
+            return AppointmentCard(entry: entry,
+              onTap: () => showBookingSheet(context, controller: controller, entry: entry));
+          }, childCount: entries.length + blocks.length)),
+          const SliverToBoxAdapter(child: SizedBox(height: 90)),
+        ],
       ),
     );
   }
+
 }
 
 /// Lifting a block.

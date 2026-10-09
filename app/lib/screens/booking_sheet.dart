@@ -20,10 +20,10 @@ Future<void> showBookingSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: Sc.paper,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (_) => _BookingSheet(controller: controller, entry: entry),
   );
@@ -48,7 +48,7 @@ class _BookingSheetState extends State<_BookingSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(22, 14, 22, 18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -142,8 +142,8 @@ class _BookingSheetState extends State<_BookingSheet> {
                       tone: Sc.danger,
                       onTap: () => _confirmThen(
                         title: 'Cancel this appointment?',
-                        message: 'The slot is freed for someone else and the '
-                            'we will try to notify the customer. This cannot be undone.',
+                        message: 'The slot is freed for someone else. '
+                            'We will try to notify the customer. This cannot be undone.',
                         confirmLabel: 'CANCEL BOOKING',
                         danger: true,
                         action: () => widget.controller.cancel(entry),
@@ -179,7 +179,7 @@ class _BookingSheetState extends State<_BookingSheet> {
     return Container(
       decoration: BoxDecoration(
         color: Sc.tealSurface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(6),
       ),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
@@ -222,13 +222,13 @@ class _BookingSheetState extends State<_BookingSheet> {
   }) {
     return Material(
       color: Sc.tealSurface,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: _busy ? null : onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(6),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(color: Sc.divider),
           ),
           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -299,11 +299,11 @@ class _BookingSheetState extends State<_BookingSheet> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: Sc.paper,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           title,
-          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
         ),
         content: Text(
           message,

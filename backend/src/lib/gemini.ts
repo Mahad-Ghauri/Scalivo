@@ -49,10 +49,10 @@ export async function generate(request: GenerateRequest): Promise<string | null>
 
   try {
     const response = await fetch(
-      `${ENDPOINT}/${env.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+      `${ENDPOINT}/${env.GEMINI_MODEL}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: request.instruction }] },
           contents: [{ role: 'user', parts: [{ text: request.input }] }],

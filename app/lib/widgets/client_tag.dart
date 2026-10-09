@@ -9,12 +9,12 @@ import '../theme.dart';
 /// each one means before the word is read — teal is good, yellow wants
 /// attention, red has already gone.
 ({Color fill, Color text, String label}) tagStyle(String tag) => switch (tag) {
-      'new' => (fill: Sc.tealSoft, text: Sc.teal900, label: 'New'),
-      'vip' => (fill: Color(0xFFFFF3D4), text: Sc.warnTitle, label: 'VIP'),
-      'at_risk' => (fill: Sc.warnBg, text: Sc.warnBody, label: 'At risk'),
-      'lapsed' => (fill: Sc.dangerBg, text: Sc.dangerTitle, label: 'Lapsed'),
-      _ => (fill: Sc.chipFill, text: Sc.inkMuted, label: tag),
-    };
+  'new' => (fill: Sc.tealSoft, text: Sc.teal900, label: 'New'),
+  'vip' => (fill: Color(0xFFFFF3D4), text: Sc.warnTitle, label: 'VIP'),
+  'at_risk' => (fill: Sc.warnBg, text: Sc.warnBody, label: 'At risk'),
+  'lapsed' => (fill: Sc.dangerBg, text: Sc.dangerTitle, label: 'Lapsed'),
+  _ => (fill: Sc.chipFill, text: Sc.inkMuted, label: tag),
+};
 
 class ClientTagChip extends StatelessWidget {
   const ClientTagChip({super.key, required this.tag, this.dense = false});
@@ -29,9 +29,12 @@ class ClientTagChip extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: style.fill,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(3),
       ),
-      padding: EdgeInsets.symmetric(horizontal: dense ? 7 : 9, vertical: dense ? 2.5 : 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 7 : 9,
+        vertical: dense ? 2.5 : 4,
+      ),
       child: Text(
         style.label.toUpperCase(),
         style: TextStyle(

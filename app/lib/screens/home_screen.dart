@@ -7,6 +7,7 @@ import '../state/calendar_controller.dart';
 import '../state/clients_controller.dart';
 import '../theme.dart';
 import '../widgets/session_pill.dart';
+import '../widgets/sc_button.dart';
 import '../widgets/sheet_scaffold.dart';
 import 'qr_screen.dart';
 import 'tabs/calendar_tab.dart';
@@ -96,12 +97,19 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
     final auth = context.watch<AuthController>();
     final business = auth.business;
 
+    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final largeText = scale > 1.3;
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    final navHeight = 76 + bottom;
     return SheetScaffold(
-      heroHeight: 200,
+      heroHeight: 164 + MediaQuery.paddingOf(context).top,
+      fitHero: largeText,
+      bottomBar: largeText ? _nav() : null,
+      overlap: 0,
       hero: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -112,18 +120,18 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          _greeting(),
-                          style: const TextStyle(fontSize: 13, color: Sc.onTealMuted),
-                        ),
-                        const SizedBox(height: 3),
+                        if (!largeText) ...[
+                          const Text('SCALIVO / YOUR WORKING DAY',
+                            style: TextStyle(fontSize: 10, letterSpacing: 1.0, color: Sc.onTealMuted)),
+                          const SizedBox(height: 3),
+                        ],
                         Text(
                           business?.name ?? 'Your business',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 21,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                             color: Colors.white,
                             letterSpacing: -0.2,
                           ),
@@ -135,7 +143,7 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
                   _avatar(context, auth),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               SessionPill(
                 health: auth.health,
                 onTap: auth.health == SessionHealth.live ? null : () => _openQr(context),
@@ -144,7 +152,7 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
           ),
         ),
       ),
-      sheetPadding: const EdgeInsets.fromLTRB(24, 34, 24, 0),
+      sheetPadding: EdgeInsets.fromLTRB(24, 26, 24, largeText ? 0 : navHeight),
       // IndexedStack, not a switch: rebuilding the tab from scratch on every tap
       // would refetch the diary and lose the client search the owner just typed.
       sheet: IndexedStack(
@@ -160,20 +168,21 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
         // Only where a walk-in means something: the diary. On the clients and
         // settings tabs a floating "+" would be an invitation to type a customer
         // in by hand, which is the one thing this CRM does not want.
-        if (_tab == 0 || _tab == 1)
+        if (!largeText && (_tab == 0 || _tab == 1))
           Positioned(
             right: 22,
-            bottom: 96,
-            child: FloatingActionButton(
+            bottom: navHeight + 14,
+            child: FloatingActionButton.extended(
               onPressed: () => _walkIn(context),
               backgroundColor: Sc.teal,
               foregroundColor: Colors.white,
-              elevation: 6,
-              shape: const CircleBorder(),
-              child: const Icon(Icons.add_rounded, size: 26),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              icon: const Icon(Icons.add_rounded, size: 22),
+              label: const Text('Walk-in', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
           ),
-        Positioned(left: 0, right: 0, bottom: 0, child: _nav()),
+        if (!largeText) Positioned(left: 0, right: 0, bottom: 0, child: _nav()),
       ],
     );
   }
@@ -219,8 +228,8 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
         ),
       ],
       child: Container(
-        width: 44,
-        height: 44,
+        width: 48,
+        height: 48,
         decoration: const BoxDecoration(color: Sc.yellow, shape: BoxShape.circle),
         alignment: Alignment.center,
         child: Text(
@@ -243,64 +252,48 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
       (Icons.tune_rounded, 'Settings'),
     ];
 
-    return Container(
-      height: 78,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Sc.navBorder)),
-      ),
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++)
-            Expanded(
-              child: InkWell(
-                onTap: () => setState(() => _tab = i),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      items[i].$1,
-                      size: 22,
-                      color: i == _tab ? Sc.teal900 : const Color(0xFFA3B1B0),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      items[i].$2,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: i == _tab ? FontWeight.w600 : FontWeight.w500,
-                        color: i == _tab ? Sc.teal900 : const Color(0xFFA3B1B0),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    if (i == _tab)
-                      Container(
-                        width: 18,
-                        height: 2.5,
-                        decoration: BoxDecoration(
-                          color: Sc.yellow,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+    final largeText = MediaQuery.textScalerOf(context).scale(14) / 14 > 1.3;
+    Widget destination(int index) => Expanded(
+      child: Semantics(button: true, selected: index == _tab,
+        child: InkWell(onTap: () => setState(() => _tab = index),
+          child: ConstrainedBox(constraints: BoxConstraints(minHeight: largeText ? 48 : 60),
+            child: largeText
+              ? Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: Row(children: [
+                    Icon(items[index].$1, size: 20, color: index == _tab ? Sc.teal900 : Sc.slate),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(items[index].$2, maxLines: 1, softWrap: false,
+                      style: TextStyle(fontSize: 11, fontWeight: index == _tab ? FontWeight.w600 : FontWeight.w400,
+                        color: index == _tab ? Sc.teal900 : Sc.slate))),
+                  ]))
+              : Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(items[index].$1, size: 22, color: index == _tab ? Sc.teal900 : Sc.slate),
+                  const SizedBox(height: 5),
+                  Text(items[index].$2, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, fontWeight: index == _tab ? FontWeight.w600 : FontWeight.w400,
+                      color: index == _tab ? Sc.teal900 : Sc.slate)),
+                  const SizedBox(height: 5),
+                  Container(width: 20, height: 2, color: index == _tab ? Sc.yellow : Colors.transparent),
+                ])),
+        )),
     );
+    return Material(color: Sc.paper, child: Container(
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: Sc.navBorder))),
+      child: SafeArea(top: false, child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: largeText ? Column(mainAxisSize: MainAxisSize.min, children: [
+          if (_tab == 0 || _tab == 1) Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: ScButton(label: 'Walk-in', onPressed: () => _walkIn(context))),
+          Row(children: [destination(0), destination(1)]),
+          Row(children: [destination(2), destination(3)]),
+        ]) : Row(children: [for (var i = 0; i < items.length; i++) destination(i)]),
+      )),
+    ));
   }
 
   void _openQr(BuildContext context) {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const QrScreen()));
-  }
-
-  String _greeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
   }
 
   String _initials(String name) {

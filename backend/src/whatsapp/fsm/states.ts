@@ -79,6 +79,10 @@ export interface Conversation {
    * this is meant to save for a step of its own.
    */
   within?: TimeWindow;
+  /** Exact requested local minute; retained while service, staff or day is collected. */
+  requestedAt?: number;
+  /** Twelve-hour time pending availability checks for both AM and PM. */
+  ambiguousAt?: number;
   /** UTC instant, ISO. */
   slotStart?: string;
   /** Proves ownership of the soft hold at confirm time. */

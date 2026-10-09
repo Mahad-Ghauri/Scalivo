@@ -76,13 +76,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.watch<AuthController>();
     final busy = auth.busy;
 
-    // Give the keyboard room by shrinking the hero rather than squashing the form.
     final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final heroHeight = keyboardUp ? 210.0 : 396.0;
-
-    // 105 is the overlap from the canvas. It has to come down with the hero:
-    // at 210 tall the sheet would ride straight over "Welcome Back!".
-    final overlap = keyboardUp ? 40.0 : 105.0;
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 20;
+    final heroHeight = (keyboardUp ? 104.0 : largeText ? 200.0 : 236.0) + MediaQuery.paddingOf(context).top;
+    const overlap = 0.0;
 
     return SheetScaffold(
       heroHeight: heroHeight,
@@ -90,35 +87,34 @@ class _LoginScreenState extends State<LoginScreen> {
       hero: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (!keyboardUp) ...[
-                const LogoMark(size: 104),
-                const SizedBox(height: 20),
+              Row(children: [
+                if (!keyboardUp) ...[const LogoMark(size: 36), const SizedBox(width: 12)],
+                Expanded(child: Text('scalivo', style: TextStyle(fontSize: keyboardUp || largeText ? 18 : 24,
+                  fontWeight: FontWeight.w500, color: Colors.white, letterSpacing: -0.8))),
+              ]),
+              if (!keyboardUp && !largeText) ...[
+                const SizedBox(height: 24),
+                const Text('A little order.\nA better day.', style: TextStyle(fontSize: 30,
+                  fontWeight: FontWeight.w500, color: Colors.white, height: 1.2, letterSpacing: -1)),
               ],
-              const Text(
-                'Welcome Back!',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: -0.3,
-                ),
-              ),
             ],
           ),
         ),
       ),
-      sheetPadding: const EdgeInsets.fromLTRB(26, 34, 26, 26),
-      sheet: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
+      sheetPadding: EdgeInsets.fromLTRB(26, 28, 26, 20 + MediaQuery.paddingOf(context).bottom),
+      sheet: SingleChildScrollView(
+        child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const Text('Sign in', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w500, letterSpacing: -0.7)),
+                  const SizedBox(height: 5),
+                  const Text('Your diary, people and bookings.', style: TextStyle(fontSize: 13, color: Sc.slate)),
+                  const SizedBox(height: 24),
                   if (auth.error != null && auth.error!.fieldErrors.isEmpty) ...[
                     ScBanner(
                       title: auth.error!.message,
@@ -159,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: TextButton(
                       onPressed: busy ? null : () => _showResetHelp(context),
                       style: TextButton.styleFrom(
-                        minimumSize: const Size(0, 44),
+                        minimumSize: const Size(0, 48),
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         foregroundColor: Sc.inkMuted,
                       ),
@@ -179,12 +175,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: _submit,
                   ),
                   const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text(
                 "Don't have an account?",
@@ -200,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         );
                       },
                 style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 44),
+                  minimumSize: const Size(0, 48),
                   foregroundColor: Sc.teal900,
                 ),
                 child: const Text(
@@ -212,15 +205,17 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
+      ),
     );
   }
 
   Widget _rememberMe(bool busy) {
-    return GestureDetector(
+    return Semantics(checked: _remember, enabled: !busy,
+      child: GestureDetector(
       onTap: busy ? null : () => setState(() => _remember = !_remember),
       behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        height: 44,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
         child: Row(
           children: [
             Container(
@@ -239,12 +234,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   : null,
             ),
             const SizedBox(width: 10),
-            const Text(
+            const Expanded(child: Text(
               'Remember me',
               style: TextStyle(fontSize: 13.5, color: Sc.inkMuted),
-            ),
+            )),
           ],
         ),
+      ),
       ),
     );
   }

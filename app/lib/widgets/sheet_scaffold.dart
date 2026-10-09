@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// The app's signature shape: a teal hero with a white sheet riding up over it.
+/// Forest header and a warm paper working surface.
 ///
 /// Every full screen uses it, so the overlap and the corner radius are defined
 /// once. The sheet is positioned rather than translated — a translate would
@@ -14,9 +14,11 @@ class SheetScaffold extends StatelessWidget {
     required this.hero,
     required this.heroHeight,
     required this.sheet,
-    this.overlap = 52,
+    this.overlap = 16,
     this.sheetPadding = const EdgeInsets.fromLTRB(26, 34, 26, 26),
     this.floating = const [],
+    this.fitHero = false,
+    this.bottomBar,
   });
 
   final Widget hero;
@@ -29,42 +31,34 @@ class SheetScaffold extends StatelessWidget {
   /// Drawn above the sheet — the walk-in button, the bottom nav.
   final List<Widget> floating;
 
+  /// Let accessible enlarged-text headers and navigation take their natural height.
+  final bool fitHero;
+  final Widget? bottomBar;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Sc.teal900,
-      body: Stack(
-        children: [
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: heroHeight,
-            child: ColoredBox(color: Sc.teal900, child: hero),
-          ),
-          Positioned(
-            top: heroHeight - overlap,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Sc.sheetRadius,
-                  topRight: Sc.sheetRadius,
-                ),
-              ),
-              clipBehavior: Clip.antiAlias,
-              padding: sheetPadding,
-              child: sheet,
-            ),
-          ),
-          ...floating,
-        ],
-      ),
+    final paper = Container(
+      decoration: const BoxDecoration(
+        color: Sc.paper,
+        borderRadius: BorderRadius.only(topLeft: Sc.sheetRadius, topRight: Sc.sheetRadius)),
+      clipBehavior: Clip.antiAlias,
+      padding: sheetPadding,
+      child: sheet,
     );
+    return Scaffold(backgroundColor: Sc.teal900, body: Stack(children: [
+      if (fitHero) Column(children: [
+        ColoredBox(color: Sc.teal900, child: hero),
+        Expanded(child: paper),
+        ?bottomBar,
+      ]) else ...[
+        Positioned(top: 0, left: 0, right: 0, height: heroHeight,
+          child: ColoredBox(color: Sc.teal900, child: hero)),
+        Positioned(top: heroHeight - overlap, left: 0, right: 0, bottom: 0, child: paper),
+      ],
+      ...floating,
+    ]));
   }
+
 }
 
 /// The yellow disc with three leaning bars.

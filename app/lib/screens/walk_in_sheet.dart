@@ -26,10 +26,10 @@ Future<bool> showWalkInSheet(
 }) async {
   final created = await showModalBottomSheet<bool>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: Sc.paper,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (_) => _WalkInSheet(controller: controller),
   );
@@ -128,8 +128,8 @@ class _WalkInSheetState extends State<_WalkInSheet> {
               const Text(
                 'Walk-in',
                 style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w500,
                   color: Sc.ink,
                   letterSpacing: -0.2,
                 ),
@@ -234,6 +234,7 @@ class _WalkInSheetState extends State<_WalkInSheet> {
         InkWell(
           onTap: _busy ? null : _pickTime,
           child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Sc.hairline, width: 1.5)),
             ),

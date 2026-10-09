@@ -7,7 +7,7 @@ import { formatLocal, toBusinessLocal } from '../lib/time.js';
  * copy is text worth changing without touching logic. It is also where the
  * pilot's tone gets adjusted after real customers read it.
  *
- * House rules: numbered lists so a reply is one keystroke; times always
+ * House rules: conversational booking questions; times always
  * business-local; prices in rupees, never paisa; no emoji beyond one greeting.
  */
 
@@ -20,6 +20,31 @@ export function numbered(items: string[]): string {
   return items.map((item, i) => `${i + 1}. ${item}`).join('\n');
 }
 
+const listed = (items: string[]): string => items.slice(0, 20).map((item) => `• ${item}`).join('\n').slice(0, 3000);
+
+export const bookingHelp = 'I can help with services, prices, working hours, available times, and your appointments. Tell me what you need, or ask to speak to someone.';
+export const availabilityNeedsService = 'Which service do you need? Available times depend on the service.';
+export const nothingToMove = 'You have no upcoming appointment to reschedule. Would you like to book one?';
+export const noAppointments = 'You have no upcoming appointments. Would you like to book one?';
+export const location = (parts: string[]) => parts.length ? `Our listed location: ${parts.join(', ')}.`
+  : 'The address is not listed yet. Ask to speak to someone for directions.';
+export const serviceDetails = (services: { name: string; durationMinutes: number; priceMinor: number }[]) =>
+  services.length ? `Here are our services:\n\n${listed(services.map((service) => `${service.name} — ${service.durationMinutes} min, ${formatPrice(service.priceMinor)}`))}`
+    : 'That service is not listed. Ask to speak to someone for more information.';
+export const staffDetails = (names: string[]) => names.length
+  ? `You can book with:\n\n${listed(names)}\n\nWho would you prefer? You can also say anyone.`
+  : 'No bookable staff are listed. Ask to speak to someone.';
+export const workingHours = (members: { name: string; hours: { dayOfWeek?: number; opensAt?: string; closesAt?: string }[] }[]) => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const hours = members.flatMap((member) => member.hours.filter((hour) =>
+    hour.dayOfWeek !== undefined && Number.isInteger(hour.dayOfWeek) && hour.dayOfWeek >= 0 && hour.dayOfWeek <= 6 && hour.opensAt && hour.closesAt,
+  ).map((hour) => `${member.name}: ${days[hour.dayOfWeek!]} ${hour.opensAt}–${hour.closesAt}`));
+  return hours.length ? `Bookable working hours:\n\n${listed(hours)}\n\nWhich service and day would you like?`
+    : 'Working hours are not listed yet. Ask to speak to someone.';
+};
+export const appointmentList = (bookings: { serviceName: string; startsAt: Date }[], timezone: string) =>
+  `Your upcoming appointments:\n\n${listed(bookings.map((booking) => `${booking.serviceName} — ${formatLocal(booking.startsAt, timezone)}`))}\n\nYou can ask to cancel or reschedule an appointment.`;
+
 export const greeting = (businessName: string, firstName: string | null) =>
   firstName
     ? `Welcome back to ${businessName}, ${firstName} 👋`
@@ -28,22 +53,28 @@ export const greeting = (businessName: string, firstName: string | null) =>
 export const serviceMenu = (
   services: { name: string; durationMinutes: number; priceMinor: number }[],
 ) =>
-  `What would you like to book?\n\n${numbered(
+  `What would you like to book?\n\n${listed(
     services.map((s) => `${s.name} — ${s.durationMinutes} min, ${formatPrice(s.priceMinor)}`),
-  )}\n\nReply with a number.`;
+  )}\n\nTell us the service you'd like and when you want to come.`;
 
 export const staffMenu = (names: string[]) =>
-  `Who would you like to see?\n\n${numbered([...names, 'No preference'])}\n\nReply with a number.`;
+  `Who would you like to see?\n\n${listed([...names, 'No preference'])}\n\nTell us their name, or say anyone.`;
 
 export const dateMenu = (dates: string[], timezone: string) =>
-  `Which day suits you?\n\n${numbered(
+  `Which day suits you?\n\n${listed(
     dates.map((date) => toBusinessLocal(new Date(`${date}T12:00:00Z`), timezone).toFormat('cccc d LLLL')),
-  )}\n\nReply with a number.`;
+  )}\n\nTell us a day, such as tomorrow.`;
 
-export const slotMenu = (slots: Date[], timezone: string) =>
-  `Available times:\n\n${numbered(
-    slots.map((slot) => formatLocal(slot, timezone, 'h:mm a')),
-  )}\n\nReply with a number.`;
+/** At most one day of five-minute starts; selection options use the same cap. */
+export const MAX_SLOT_OPTIONS = 288;
+
+export const slotMenu = (slots: Date[], timezone: string) => {
+  const shown = slots.slice(0, MAX_SLOT_OPTIONS);
+  const more = slots.length > shown.length
+    ? `\n\nShowing the first ${shown.length} times. You can ask about later times.` : '';
+  return `Available times:\n\n${shown.map((slot) => `• ${formatLocal(slot, timezone, 'h:mm a')}`).join('\n')}${more}` +
+    '\n\nWhat time suits you? You can say a time, such as 3pm, or ask for another day.';
+};
 
 /**
  * What we understood from a sentence, said back before anything is held — the
@@ -199,7 +230,7 @@ export const nothingAvailable = (serviceName: string) =>
   `Sorry, there's nothing available for ${serviceName} at the moment. ` +
   `Reply HELP and someone will get back to you.`;
 
-export const invalidInput = 'Sorry, I didn\'t catch that. Reply with one of the numbers above.';
+export const invalidInput = "Sorry, I didn't catch that.";
 
 /** An opener that is not a greeting or a booking word. The menu follows it. */
 export const notUnderstood = "Sorry, I didn't understand that.";
@@ -337,3 +368,12 @@ export const campaignTemplate = (businessName: string) =>
 /** An owner's message, with the opt-out line added if they have not written one. */
 export const campaignMessage = (body: string) =>
   /\bstop\b/i.test(body) ? body.trim() : `${body.trim()}\n\n${optOutLine}`;
+
+export const clarifyTime = 'Please give one exact time with AM or PM, such as 5:30 PM. I have not booked a time.';
+export const requestedTimeUnavailable = 'That exact time is not available. Please choose another time; I have not booked anything.';
+
+export const neitherTimeAvailable = 'Neither the AM nor PM time is available. Please choose another time; I have not booked anything.';
+export const ambiguousTimeOptions = (slots: Date[], timezone: string) =>
+  `At that time, ${slots.length === 1 ? 'only this option is available' : 'these options are available'}:\n\n` +
+  slots.map((slot) => `• ${formatLocal(slot, timezone, 'h:mm a')}`).join('\n') +
+  '\n\nPlease specify the time with AM or PM. I have not booked anything.';
