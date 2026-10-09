@@ -15,7 +15,7 @@ import '../widgets/sc_field.dart';
 /// which meant a salon that added a treatment in month two had no way to say so
 /// — and a service nobody can add is a booking nobody can make.
 ///
-/// **Nothing here deletes.** A Booking stores its serviceId, so removing the row
+/// **Nothing here hard-deletes.** A Booking stores its serviceId, so removing the row
 /// would turn finished appointments into blanks in a client's visit history.
 /// Retiring hides a service from the menu and leaves the past intact, which is
 /// why retired rows stay visible here: retiring is the only delete this system
@@ -35,6 +35,8 @@ class _ServicesScreenState extends State<ServicesScreen> {
   List<ServiceItem> _services = const [];
   ApiException? _error;
   bool _loading = true;
+  int _loadVersion = 0;
+  final Set<String> _updating = {};
 
   @override
   void initState() {
@@ -43,17 +45,18 @@ class _ServicesScreenState extends State<ServicesScreen> {
   }
 
   Future<void> _load() async {
+    final version = ++_loadVersion;
     setState(() => _loading = true);
     try {
       final services = await _api.allServices(_businessId);
-      if (!mounted) return;
+      if (!mounted || version != _loadVersion) return;
       setState(() {
         _services = services;
         _error = null;
         _loading = false;
       });
     } on ApiException catch (err) {
-      if (!mounted) return;
+      if (!mounted || version != _loadVersion) return;
       setState(() {
         _error = err;
         _loading = false;
@@ -75,7 +78,11 @@ class _ServicesScreenState extends State<ServicesScreen> {
         iconTheme: const IconThemeData(color: Sc.ink),
         title: const Text(
           'Services',
-          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w500,
+            color: Sc.ink,
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -143,7 +150,11 @@ class _ServicesScreenState extends State<ServicesScreen> {
           SizedBox(height: 14),
           Text(
             'No services yet',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Sc.inkMuted),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Sc.inkMuted,
+            ),
           ),
           SizedBox(height: 7),
           Text(
@@ -160,7 +171,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
     return Opacity(
       opacity: service.active ? 1 : 0.55,
       child: InkWell(
-        onTap: () => _edit(service),
+        onTap: _updating.contains(service.id) ? null : () => _edit(service),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 13),
           child: Row(
@@ -198,15 +209,28 @@ class _ServicesScreenState extends State<ServicesScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              IconButton(
-                tooltip: service.active ? 'Retire' : 'Bring back',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _toggleActive(service),
-                icon: Icon(
-                  service.active ? Icons.archive_outlined : Icons.unarchive_outlined,
-                  size: 18,
-                  color: Sc.slateLight,
-                ),
+              PopupMenuButton<String>(
+                tooltip: 'Service actions',
+                enabled: !_updating.contains(service.id),
+                onSelected: (action) {
+                  if (action == 'edit') {
+                    _edit(service);
+                  } else {
+                    _toggleActive(service);
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Text('Edit service'),
+                  ),
+                  PopupMenuItem(
+                    value: 'active',
+                    child: Text(
+                      service.active ? 'Delete service' : 'Restore service',
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -216,8 +240,44 @@ class _ServicesScreenState extends State<ServicesScreen> {
   }
 
   Future<void> _toggleActive(ServiceItem service) async {
+    if (_updating.contains(service.id)) return;
+    setState(() => _updating.add(service.id));
+    if (service.active) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Delete ${service.name}?'),
+          content: const Text(
+            'This service will be hidden from new bookings. Existing appointments and history are kept. You can restore it later.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Keep service'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete service'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (confirmed != true) {
+        setState(() => _updating.remove(service.id));
+        return;
+      }
+    }
     try {
       await _api.setServiceActive(_businessId, service.id, !service.active);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            service.active ? 'Service deleted' : 'Service restored',
+          ),
+        ),
+      );
     } on ApiException catch (err) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -228,6 +288,8 @@ class _ServicesScreenState extends State<ServicesScreen> {
         ),
       );
     }
+    if (!mounted) return;
+    setState(() => _updating.remove(service.id));
     await _load();
   }
 
@@ -239,18 +301,19 @@ class _ServicesScreenState extends State<ServicesScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _ServiceSheet(
-        api: _api,
-        businessId: _businessId,
-        service: service,
-      ),
+      builder: (_) =>
+          _ServiceSheet(api: _api, businessId: _businessId, service: service),
     );
-    if (saved == true) await _load();
+    if (mounted && saved == true) await _load();
   }
 }
 
 class _ServiceSheet extends StatefulWidget {
-  const _ServiceSheet({required this.api, required this.businessId, this.service});
+  const _ServiceSheet({
+    required this.api,
+    required this.businessId,
+    this.service,
+  });
 
   final ApiClient api;
   final String businessId;
@@ -262,14 +325,18 @@ class _ServiceSheet extends StatefulWidget {
 
 class _ServiceSheetState extends State<_ServiceSheet> {
   late final _name = TextEditingController(text: widget.service?.name ?? '');
-  late final _duration =
-      TextEditingController(text: '${widget.service?.durationMinutes ?? 30}');
-  late final _buffer = TextEditingController(text: '${widget.service?.bufferMinutes ?? 0}');
+  late final _duration = TextEditingController(
+    text: '${widget.service?.durationMinutes ?? 30}',
+  );
+  late final _buffer = TextEditingController(
+    text: '${widget.service?.bufferMinutes ?? 0}',
+  );
 
   /// Rupees, not paisa. The owner thinks in rupees and the wire is in paisa;
   /// converting here is the only place the two meet.
-  late final _price =
-      TextEditingController(text: '${(widget.service?.priceMinor ?? 0) ~/ 100}');
+  late final _price = TextEditingController(
+    text: '${(widget.service?.priceMinor ?? 0) ~/ 100}',
+  );
 
   bool _busy = false;
   Map<String, String> _fieldErrors = const {};
@@ -345,7 +412,8 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                 // The distinction matters and is invisible otherwise: the buffer
                 // is held by the grid so nothing can be booked into it, but the
                 // appointment is DRAWN at its service length.
-                helper: 'Extra minutes held after it, for cleaning down. Nobody '
+                helper:
+                    'Extra minutes held after it, for cleaning down. Nobody '
                     'can be booked into this time, and it is not shown on the '
                     'appointment.',
                 enabled: !_busy,
@@ -365,7 +433,11 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                 const SizedBox(height: 14),
                 Text(
                   _formError!,
-                  style: const TextStyle(fontSize: 12.5, color: Sc.dangerText, height: 1.4),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: Sc.dangerText,
+                    height: 1.4,
+                  ),
                 ),
               ],
               const SizedBox(height: 24),
@@ -383,17 +455,23 @@ class _ServiceSheetState extends State<_ServiceSheet> {
   }
 
   Future<void> _submit() async {
+    if (_busy) return;
     final name = _name.text.trim();
     final minutes = int.tryParse(_duration.text.trim());
-    final buffer = int.tryParse(_buffer.text.trim()) ?? 0;
+    final buffer = int.tryParse(_buffer.text.trim());
     final rupees = int.tryParse(_price.text.trim());
 
     // Checked here so a typo comes back instantly rather than as a round trip,
     // but the server checks the same things — this is courtesy, not the guard.
     final errors = <String, String>{
-      if (name.isEmpty) 'name': 'Give it a name',
-      if (minutes == null || minutes <= 0) 'durationMinutes': 'Minutes, as a number',
-      if (rupees == null || rupees < 0) 'priceMinor': 'A price in rupees',
+      if (name.isEmpty || name.length > 80)
+        'name': 'Use a name of 1–80 characters',
+      if (minutes == null || minutes <= 0 || minutes > 1440)
+        'durationMinutes': 'Use 1–1440 minutes',
+      if (buffer == null || buffer < 0 || buffer > 1440)
+        'bufferMinutes': 'Use 0–1440 minutes',
+      if (rupees == null || rupees < 0 || rupees > 90071992547409)
+        'priceMinor': 'A price in rupees',
     };
 
     if (errors.isNotEmpty) {
@@ -413,7 +491,7 @@ class _ServiceSheetState extends State<_ServiceSheet> {
         serviceId: widget.service?.id,
         name: name,
         durationMinutes: minutes!,
-        bufferMinutes: buffer,
+        bufferMinutes: buffer!,
         priceMinor: rupees! * 100,
       );
       if (!mounted) return;
