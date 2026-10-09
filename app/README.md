@@ -4,9 +4,10 @@ Flutter owner app for bookings, customers, services, staff, and WhatsApp connect
 
 ## Mobile business tools
 
-Open **Settings → Your business** for analytics, reviews, Grow, and customer import.
+Open **Settings → Your business** for briefings, analytics, reviews, Grow, and customer import.
 These screens use the existing authenticated backend APIs. Deposits are excluded.
 
+- Briefings shows the latest 20 daily summaries, weekly reports, and alerts. Owners explicitly mark messages as read, open supported actions, and set the briefing hour in their business timezone. Notification taps open the inbox after authentication.
 - Analytics shows completed revenue, appointment outcomes, trends, and booked revenue ahead.
 - Reviews separates published feedback from private alerts and links flagged reviews to customer profiles.
 - Grow shares booking links and QR posters, manages listing boosts and rebooking nudges, and previews campaigns before sending. Delivery counts come from acknowledgements.
@@ -25,6 +26,9 @@ flutter run -d <device-id> --dart-define=SCALIVO_API=https://your-api.example
 For local development, use an API address reachable from the device. A phone's
 `localhost` refers to the phone. Configure the backend's existing `WEB_URL` with
 a customer-reachable public booking URL before sharing links or posters.
+The booking URL belongs to the Next.js customer site in `web`, not the Flutter
+owner preview. When running both locally, use separate ports and configure
+`WEB_URL` and the customer's `NEXT_PUBLIC_SITE_URL` to the customer site's origin.
 
 File selection, image sharing, and native notifications require device acceptance
 testing in addition to the automated tests below. File selection uses the platform

@@ -10,14 +10,15 @@ import '../widgets/owner_report_widgets.dart';
 import '../widgets/sc_button.dart';
 
 class CampaignScreen extends StatefulWidget {
-  const CampaignScreen({super.key});
+  const CampaignScreen({super.key, this.audience = CampaignAudience.lapsed});
+  final CampaignAudience audience;
   @override
   State<CampaignScreen> createState() => _CampaignScreenState();
 }
 
 class _CampaignScreenState extends State<CampaignScreen> {
   final _message = TextEditingController();
-  CampaignAudience _audience = CampaignAudience.lapsed;
+  late CampaignAudience _audience;
   AudiencePreview? _preview;
   ApiException? _error;
   bool _loading = true, _sending = false, _confirming = false;
@@ -26,6 +27,7 @@ class _CampaignScreenState extends State<CampaignScreen> {
   @override
   void initState() {
     super.initState();
+    _audience = widget.audience;
     _load();
   }
 

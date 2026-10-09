@@ -14,6 +14,7 @@ import '../analytics_screen.dart';
 import '../reviews_screen.dart';
 import '../grow_screen.dart';
 import '../client_import_screen.dart';
+import '../briefings_screen.dart';
 import '../../state/clients_controller.dart';
 
 /// Settings, and specifically the reminder schedule.
@@ -122,6 +123,15 @@ class _SettingsTabState extends State<SettingsTab> {
             title: 'Your business',
             child: Column(
               children: [
+                _navRow(
+                  icon: Icons.notifications_active_outlined,
+                  label: 'Briefings',
+                  detail: 'Daily summaries, weekly reports and alerts',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const BriefingsScreen()),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
                 _navRow(
                   icon: Icons.insights_outlined,
                   label: 'Analytics',

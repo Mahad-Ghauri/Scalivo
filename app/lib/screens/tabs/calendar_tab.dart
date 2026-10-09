@@ -84,23 +84,25 @@ class _DateStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final start = selected.subtract(const Duration(days: 3));
+    final largeText = MediaQuery.textScalerOf(context).scale(24) > 36;
+    final heading = Text(
+      dayLabelLong(selected),
+      style: const TextStyle(
+        fontSize: 24,
+        fontWeight: FontWeight.w500,
+        color: Sc.ink,
+        letterSpacing: -0.2,
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (largeText) heading,
         Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Expanded(
-              child: Text(
-                dayLabelLong(selected),
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w500,
-                  color: Sc.ink,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
+            if (!largeText) Expanded(child: heading),
             if (!isSameDay(selected, startOfToday()))
               TextButton(
                 onPressed: () => onPick(startOfToday()),

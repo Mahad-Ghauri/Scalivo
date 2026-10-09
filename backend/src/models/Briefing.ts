@@ -63,7 +63,13 @@ const briefingSchema = new Schema(
     phrasedBy: { type: String, enum: Object.values(PHRASED_BY), required: true },
 
     actions: {
-      type: [{ label: { type: String, required: true }, href: { type: String, required: true }, _id: false }],
+      type: [
+        {
+          label: { type: String, required: true },
+          href: { type: String, required: true },
+          _id: false,
+        },
+      ],
       default: [],
     },
 
@@ -79,6 +85,7 @@ const briefingSchema = new Schema(
 briefingSchema.index({ businessId: 1, dedupeKey: 1 }, { unique: true });
 
 /** The feed: newest first, for one business. */
-briefingSchema.index({ businessId: 1, scheduledFor: -1 });
+briefingSchema.index({ businessId: 1, scheduledFor: -1, _id: -1 });
+briefingSchema.index({ businessId: 1, readAt: 1 });
 
 export const Briefing = model('Briefing', briefingSchema);

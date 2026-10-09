@@ -68,6 +68,16 @@ class PushService {
   /// background tap, flutter_local_notifications delivers this one — and an
   /// alarm that opens the QR screen only when the app was closed is a trap.
   static void Function(String route)? _tapHandler;
+  void Function(String route)? _handler;
+  StreamSubscription<RemoteMessage>? _opened, _foreground;
+  bool _disposed = false;
+
+  void dispose() {
+    _disposed = true;
+    if (identical(_tapHandler, _handler)) _tapHandler = null;
+    unawaited(_opened?.cancel());
+    unawaited(_foreground?.cancel());
+  }
 
   /// Idempotent: [ensureChannels] and [token] are both called on paths that can
   /// run more than once (app start, every login, token rotation).
@@ -133,14 +143,16 @@ class PushService {
 
   /// Called when a notification is tapped, and when one launched the app.
   void onNotificationTap(void Function(String route) handler) {
+    _handler = handler;
     _tapHandler = handler;
 
     unawaited(() async {
       try {
         await _init().timeout(_timeout);
+        if (_disposed) return;
 
         // A tap while the app was merely backgrounded.
-        FirebaseMessaging.onMessageOpenedApp.listen((message) {
+        _opened = FirebaseMessaging.onMessageOpenedApp.listen((message) {
           final route = message.data[kPushRoute];
           if (route is String) handler(route);
         });
@@ -148,13 +160,14 @@ class PushService {
         // The app was TERMINATED and the notification started it. This arrives
         // once, is easy to forget, and is exactly the case a session-down alert
         // hits — the owner's phone was in their pocket.
-        final initial = await FirebaseMessaging.instance.getInitialMessage();
+        final initial = await FirebaseMessaging.instance.getInitialMessage().timeout(_timeout);
+        if (_disposed) return;
         final route = initial?.data[kPushRoute];
         if (route is String) handler(route);
 
         // Foregrounded messages draw no system notification on Android, so
         // there is nothing to tap unless we draw it ourselves.
-        FirebaseMessaging.onMessage.listen(_showForeground);
+        _foreground = FirebaseMessaging.onMessage.listen(_showForeground);
       } catch (err) {
         debugPrint('[push] could not attach notification handlers');
       }

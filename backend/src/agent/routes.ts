@@ -52,7 +52,7 @@ const settingsBody = z.object({
    * rather than trusted, because this is the one field in the agent that causes a
    * WhatsApp message to leave the business's number.
    */
-  whatsappTo: z.string().trim().min(1).nullable().optional(),
+  whatsappTo: z.string().trim().min(1).max(32).nullable().optional(),
 });
 
 export function createAgentRouter(deps: SendDeps): Router {
@@ -76,7 +76,7 @@ export function createAgentRouter(deps: SendDeps): Router {
     }
 
     const [rows, unread] = await Promise.all([
-      Briefing.find({ businessId }).sort({ scheduledFor: -1 }).limit(parsed.data.limit),
+      Briefing.find({ businessId }).sort({ scheduledFor: -1, _id: -1 }).limit(parsed.data.limit),
       Briefing.countDocuments({ businessId, readAt: null }),
     ]);
 
@@ -111,7 +111,17 @@ export function createAgentRouter(deps: SendDeps): Router {
 
     // Already read is not an error — two devices opening the same notification is
     // the ordinary case, and the second one has nothing to report.
-    res.json({ readAt: updated?.readAt?.toISOString() ?? null });
+    const record =
+      updated ??
+      (await Briefing.findOne({
+        _id: briefingId,
+        businessId: param(req, 'businessId'),
+      }).select('readAt'));
+    if (!record) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    res.json({ readAt: record.readAt?.toISOString() ?? null });
   });
 
   router.patch('/:businessId/agent/settings', ...guard, json, async (req, res) => {
@@ -132,7 +142,7 @@ export function createAgentRouter(deps: SendDeps): Router {
         update['agent.whatsappTo'] = null;
       } else {
         const normalised = normalisePhone(whatsappTo);
-        if (!normalised) {
+        if (!normalised || !/^\d{8,15}$/.test(normalised)) {
           res.status(400).json({ error: 'that does not look like a phone number' });
           return;
         }

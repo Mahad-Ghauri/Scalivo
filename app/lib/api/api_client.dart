@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import 'models.dart';
 import 'growth_models.dart';
+import 'briefing_models.dart';
 import '../format.dart';
 
 enum ApiErrorKind { network, unauthorized, validation, conflict, server }
@@ -475,6 +476,29 @@ class ApiClient {
       );
     }
     return {'from': isoDate(from), 'to': isoDate(to)};
+  }
+
+  Future<BriefingFeed> briefings(String businessId) => _growth(
+    businessId, 'GET', '/agent/briefings', BriefingFeed.fromJson,
+    query: {'limit': '20'},
+  );
+
+  Future<void> markBriefingRead(String businessId, String briefingId) {
+    if (!RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(briefingId)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid briefing');
+    }
+    return _growth(businessId, 'POST', '/agent/briefings/$briefingId/read', (json) {
+      if (json['readAt'] != null) wireDate(json['readAt']);
+    });
+  }
+
+  Future<AgentSettings> updateAgentSettings(String businessId, {bool? enabled, int? hour}) {
+    if ((enabled == null && hour == null) || (hour != null && (hour < 5 || hour > 11))) {
+      throw const ApiException(ApiErrorKind.validation, 'Choose a briefing time between 5 AM and 11 AM');
+    }
+    return _growth(businessId, 'PATCH', '/agent/settings', AgentSettings.fromJson,
+      body: {'enabled': ?enabled, 'hour': ?hour},
+    );
   }
 
   Future<AnalyticsReport> analytics(

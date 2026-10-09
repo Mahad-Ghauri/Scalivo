@@ -6,6 +6,7 @@ import 'push/push_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/qr_screen.dart';
+import 'screens/briefings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'state/auth_controller.dart';
 import 'theme.dart';
@@ -30,18 +31,20 @@ void main() {
 }
 
 class ScalivoOwnerApp extends StatelessWidget {
-  const ScalivoOwnerApp({super.key});
+  const ScalivoOwnerApp({super.key, this.auth, this.push});
+  final AuthController? auth;
+  final PushService? push;
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AuthController()..restore(),
+      create: (_) => (auth ?? AuthController())..restore(),
       child: MaterialApp(
         title: 'Scalivo',
         debugShowCheckedModeBanner: false,
         navigatorKey: navigatorKey,
         theme: buildScalivoTheme(),
-        home: const _Root(),
+        home: _Root(push: push ?? PushService()),
       ),
     );
   }
@@ -53,7 +56,8 @@ class ScalivoOwnerApp extends StatelessWidget {
 /// were, and a `pushReplacement` scattered across five screens is how that gets
 /// missed on the sixth.
 class _Root extends StatefulWidget {
-  const _Root();
+  const _Root({required this.push});
+  final PushService push;
 
   @override
   State<_Root> createState() => _RootState();
@@ -61,44 +65,55 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   late final AuthController _auth;
+  late final PushService _push;
+  String? _pendingRoute;
   @override
   void initState() {
     super.initState();
 
-    final push = PushService();
-    push.ensureChannels();
+    _push = widget.push;
+    _push.ensureChannels();
 
     // A Session Health notification must open the QR screen directly. Landing
     // on Home and making a worried owner hunt for the fix wastes the minutes
     // the alert bought.
     _auth = context.read<AuthController>();
     _auth.addListener(_authChanged);
-    push.onNotificationTap((route) {
-      // Only '/qr' has a screen to open. A briefing's route ('/briefings') falls
-      // through deliberately: the notification body IS the whole briefing, so a
-      // tap that does nothing costs the owner nothing, and the archive lives on
-      // the web dashboard. A Flutter screen for it belongs with the rest of the
-      // app's build-out, not wedged into the agent.
-      if (!mounted ||
-          context.read<AuthController>().status != AuthStatus.signedIn ||
-          route != '/qr') {
-        return;
-      }
-      navigatorKey.currentState?.push(
-        MaterialPageRoute<void>(builder: (_) => const QrScreen()),
-      );
+    _push.onNotificationTap(_onNotificationTap);
+  }
+
+  void _onNotificationTap(String route) {
+    if (!mounted || !['/qr', '/briefings'].contains(route)) return;
+    if (_auth.status == AuthStatus.signedOut) return;
+    // A cold-start tap may arrive before stored-token validation completes.
+    _pendingRoute = route;
+    _openPendingRoute();
+  }
+
+  void _openPendingRoute() {
+    if (_auth.status != AuthStatus.signedIn || _auth.business == null || _pendingRoute == null) return;
+    final route = _pendingRoute!;
+    _pendingRoute = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _auth.status != AuthStatus.signedIn || _auth.business == null) return;
+      navigatorKey.currentState?.push(MaterialPageRoute<void>(
+        builder: (_) => route == '/qr' ? const QrScreen() : const BriefingsScreen(),
+      ));
     });
   }
 
   void _authChanged() {
     if (context.read<AuthController>().status == AuthStatus.signedOut) {
+      _pendingRoute = null;
       navigatorKey.currentState?.popUntil((route) => route.isFirst);
     }
+    _openPendingRoute();
   }
 
   @override
   void dispose() {
     _auth.removeListener(_authChanged);
+    _push.dispose();
     super.dispose();
   }
 
