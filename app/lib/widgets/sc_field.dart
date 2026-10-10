@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme.dart';
 
@@ -14,6 +15,7 @@ class ScField extends StatefulWidget {
     required this.label,
     required this.controller,
     this.hint,
+    this.maxLength,
     this.helper,
     this.errorText,
     this.password = false,
@@ -27,6 +29,7 @@ class ScField extends StatefulWidget {
   final String label;
   final TextEditingController controller;
   final String? hint;
+  final int? maxLength;
   final String? helper;
   final String? errorText;
   final bool password;
@@ -74,6 +77,7 @@ class _ScFieldState extends State<ScField> {
           Semantics(
             label: widget.label,
             child: TextField(
+              inputFormatters: [if (widget.maxLength != null) LengthLimitingTextInputFormatter(widget.maxLength)],
               controller: widget.controller,
               enabled: widget.enabled,
               obscureText: _obscured,

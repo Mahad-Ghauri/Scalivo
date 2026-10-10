@@ -39,7 +39,24 @@ class AuthController extends ChangeNotifier {
   ApiException? error;
 
   ApiClient get api => _api;
-  BusinessSummary? get business => me?.business;
+  String? _selectedBusinessId;
+  BusinessSummary? get business => me?.businesses.where((b) => b.id == _selectedBusinessId).firstOrNull ?? me?.business;
+
+  void selectBusiness(String id) {
+    if (status != AuthStatus.signedIn || me?.businesses.any((b) => b.id == id) != true || business?.id == id) return;
+    _selectedBusinessId = id;
+    _api.businessTimezone = business!.timezone;
+    notifyListeners();
+  }
+
+  Future<void> reloadBusinesses() async {
+    final version = _sessionVersion;
+    final loaded = await _api.me();
+    if (version != _sessionVersion || status != AuthStatus.signedIn) return;
+    me = loaded;
+    _api.businessTimezone = business?.timezone ?? 'Asia/Karachi';
+    notifyListeners();
+  }
   SessionHealth get health => business?.health ?? SessionHealth.notConnected;
 
   /// Called once from the splash screen.
@@ -67,6 +84,7 @@ class AuthController extends ChangeNotifier {
         return;
       }
       me = loaded;
+      _selectedBusinessId = null;
       _api.businessTimezone = loaded.business?.timezone ?? 'Asia/Karachi';
       status = AuthStatus.signedIn;
       notifyListeners();
@@ -162,12 +180,12 @@ class AuthController extends ChangeNotifier {
 
     try {
       final updated = await _api.whatsappState(current.id, current);
-      if (version != _sessionVersion) return;
+      if (version != _sessionVersion || current.id != business?.id) return;
       me = Me(
         role: me?.role ?? 'owner',
         name: me?.name,
         email: me?.email ?? '',
-        businesses: [updated, ...?me?.businesses.skip(1)],
+        businesses: [for (final b in me!.businesses) b.id == updated.id ? updated : b],
       );
       notifyListeners();
     } on ApiException {
@@ -209,6 +227,7 @@ class AuthController extends ChangeNotifier {
       final loaded = await _api.me();
       if (version != _sessionVersion) return false;
       me = loaded;
+      _selectedBusinessId = null;
       _api.businessTimezone = loaded.business?.timezone ?? 'Asia/Karachi';
       status = AuthStatus.signedIn;
       busy = false;

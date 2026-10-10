@@ -141,6 +141,15 @@ class PushService {
     }
   }
 
+  static String? notificationRoute(Map<String, dynamic> data) {
+    final route = data[kPushRoute];
+    final businessId = data['businessId'];
+    if (route is! String || !['/qr', '/briefings'].contains(route)) return null;
+    if (businessId == null) return route;
+    if (businessId is! String || !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(businessId)) return null;
+    return Uri(path: route, queryParameters: {'businessId': businessId}).toString();
+  }
+
   /// Called when a notification is tapped, and when one launched the app.
   void onNotificationTap(void Function(String route) handler) {
     _handler = handler;
@@ -153,8 +162,8 @@ class PushService {
 
         // A tap while the app was merely backgrounded.
         _opened = FirebaseMessaging.onMessageOpenedApp.listen((message) {
-          final route = message.data[kPushRoute];
-          if (route is String) handler(route);
+          final route = notificationRoute(message.data);
+          if (route != null) handler(route);
         });
 
         // The app was TERMINATED and the notification started it. This arrives
@@ -162,8 +171,8 @@ class PushService {
         // hits — the owner's phone was in their pocket.
         final initial = await FirebaseMessaging.instance.getInitialMessage().timeout(_timeout);
         if (_disposed) return;
-        final route = initial?.data[kPushRoute];
-        if (route is String) handler(route);
+        final route = initial == null ? null : notificationRoute(initial.data);
+        if (route != null) handler(route);
 
         // Foregrounded messages draw no system notification on Android, so
         // there is nothing to tap unless we draw it ourselves.
@@ -263,7 +272,7 @@ class PushService {
         ),
         iOS: const DarwinNotificationDetails(),
       ),
-      payload: message.data[kPushRoute] as String?,
+      payload: notificationRoute(message.data),
     );
   }
 }

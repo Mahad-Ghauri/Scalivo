@@ -43,7 +43,7 @@ class HomeScreen extends StatelessWidget {
     return MultiProvider(
       // Keyed by business id so signing in as another owner builds new
       // controllers rather than showing the previous tenant's diary.
-      key: ValueKey(business.id),
+      key: ValueKey('${business.id}:${business.timezone}'),
       providers: [
         ChangeNotifierProvider(
           create: (_) => CalendarController(api: auth.api, businessId: business.id),
@@ -210,6 +210,7 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       onSelected: (value) {
         if (value == 'signout') auth.logout();
+        if (value.startsWith('business:')) auth.selectBusiness(value.substring(9));
       },
       itemBuilder: (_) => [
         PopupMenuItem(
@@ -219,6 +220,9 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
             style: const TextStyle(fontSize: 12.5, color: Sc.slate),
           ),
         ),
+        if ((auth.me?.businesses.length ?? 0) > 1)
+          for (final b in auth.me!.businesses) PopupMenuItem(value: 'business:${b.id}', child: Row(children: [
+            Icon(b.id == auth.business?.id ? Icons.check : Icons.storefront_outlined, size: 18), const SizedBox(width: 10), Expanded(child: Text(b.name))])),
         const PopupMenuItem(
           value: 'signout',
           child: Text(

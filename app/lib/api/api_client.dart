@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'models.dart';
 import 'growth_models.dart';
 import 'briefing_models.dart';
+import 'owner_booking_models.dart';
 import '../format.dart';
 
 enum ApiErrorKind { network, unauthorized, validation, conflict, server }
@@ -477,6 +478,57 @@ class ApiClient {
     }
     return {'from': isoDate(from), 'to': isoDate(to)};
   }
+
+  Future<List<AvailableSlot>> availability(String businessId, {required String serviceId, required String date, required String staffId}) {
+    if (![serviceId, staffId].every((id) => RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) || DateTime.tryParse(date) == null || isoDate(DateTime.parse(date)) != date) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid availability request');
+    }
+    return _growth(businessId, 'GET', '/availability', (json) {
+      final slots = wireList(json['slots'], AvailableSlot.fromJson, 300);
+      if (slots.any((slot) => slot.staffId != staffId || isoDate(businessTime(slot.startsAt, timezone: businessTimezone)) != date)) {
+        throw const FormatException('Invalid availability response');
+      }
+      return slots;
+    },
+      query: {'serviceId': serviceId, 'date': date, 'staffId': staffId});
+  }
+
+  Future<AppointmentPage> appointments(String businessId, {String? q, String? status, String? staffId, String? serviceId, String? from, String? to, int skip = 0}) {
+    if (skip < 0 || skip > 100000 || (q?.length ?? 0) > 120 ||
+        (status != null && !appointmentStatuses.contains(status)) ||
+        [staffId, serviceId].whereType<String>().any((id) => !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) ||
+        [from, to].whereType<String>().any((date) => !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) || DateTime.tryParse(date) == null || isoDate(DateTime.parse(date)) != date) ||
+        (from != null && to != null && from.compareTo(to) > 0)) {
+      throw const ApiException(ApiErrorKind.validation, 'Check appointment filters');
+    }
+    return _growth(businessId, 'GET', '/bookings', (json) => AppointmentPage.fromJson(json, businessTimezone),
+      query: {'limit': '20', 'skip': '$skip', 'sort': 'desc', if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+        'status': ?status, 'staffId': ?staffId, 'serviceId': ?serviceId, 'from': ?from, 'to': ?to});
+  }
+
+  Future<BusinessProfile> businessProfile(String businessId) => _growth(businessId, 'GET', '', BusinessProfile.fromJson);
+
+  Future<BusinessProfile> saveBusinessProfile(String businessId, {required String name, required String city, required String timezone, required int slotIncrementMinutes, required Map<String, String> profile}) {
+    const bounds = {'tagline': 120, 'about': 2000, 'neighbourhood': 80, 'addressLine': 200, 'logoUrl': 2000, 'coverUrl': 2000, 'themeColor': 7};
+    if (name.trim().isEmpty || name.length > 120 || city.trim().isEmpty || city.length > 80 || timezone.isEmpty || timezone.length > 80 ||
+        ![5, 10, 15, 30].contains(slotIncrementMinutes) || profile.entries.any((e) => !bounds.containsKey(e.key) || e.value.length > bounds[e.key]!)) {
+      throw const ApiException(ApiErrorKind.validation, 'Check business details');
+    }
+    for (final key in ['logoUrl', 'coverUrl']) {
+      final value = profile[key] ?? '';
+      final uri = Uri.tryParse(value);
+      if (value.isNotEmpty && (uri == null || uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty)) {
+        throw const ApiException(ApiErrorKind.validation, 'Image links must use HTTPS');
+      }
+    }
+    final colour = profile['themeColor'] ?? '';
+    if (colour.isNotEmpty && !RegExp(r'^#[a-fA-F0-9]{6}$').hasMatch(colour)) throw const ApiException(ApiErrorKind.validation, 'Use a colour such as #1a2b3c');
+    return _growth(businessId, 'PATCH', '', BusinessProfile.fromJson, body: {'name': name.trim(), 'city': city.trim(), 'timezone': timezone,
+      'slotIncrementMinutes': slotIncrementMinutes, 'profile': profile});
+  }
+
+  Future<BusinessProfile> setPublished(String businessId, bool published) => _growth(businessId, 'PATCH', '', BusinessProfile.fromJson, body: {'published': published});
 
   Future<BriefingFeed> briefings(String businessId) => _growth(
     businessId, 'GET', '/agent/briefings', BriefingFeed.fromJson,

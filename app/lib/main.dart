@@ -67,6 +67,7 @@ class _RootState extends State<_Root> {
   late final AuthController _auth;
   late final PushService _push;
   String? _pendingRoute;
+  String? _lastBusinessId;
   @override
   void initState() {
     super.initState();
@@ -78,12 +79,18 @@ class _RootState extends State<_Root> {
     // on Home and making a worried owner hunt for the fix wastes the minutes
     // the alert bought.
     _auth = context.read<AuthController>();
+    _lastBusinessId = _auth.business?.id;
     _auth.addListener(_authChanged);
     _push.onNotificationTap(_onNotificationTap);
   }
 
   void _onNotificationTap(String route) {
-    if (!mounted || !['/qr', '/briefings'].contains(route)) return;
+    if (!mounted || route.length > 200) return;
+    final uri = Uri.tryParse(route);
+    if (uri == null || uri.hasScheme || uri.hasAuthority || uri.hasFragment || !['/qr', '/briefings'].contains(uri.path)) return;
+    try {
+      if (uri.queryParametersAll.entries.any((e) => e.key != 'businessId' || e.value.length != 1 || !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(e.value.single))) return;
+    } on FormatException { return; }
     if (_auth.status == AuthStatus.signedOut) return;
     // A cold-start tap may arrive before stored-token validation completes.
     _pendingRoute = route;
@@ -92,10 +99,17 @@ class _RootState extends State<_Root> {
 
   void _openPendingRoute() {
     if (_auth.status != AuthStatus.signedIn || _auth.business == null || _pendingRoute == null) return;
-    final route = _pendingRoute!;
+    final uri = Uri.parse(_pendingRoute!);
     _pendingRoute = null;
+    final businessId = uri.queryParameters['businessId'];
+    if (businessId != null) {
+      if (_auth.me?.businesses.any((b) => b.id == businessId) != true) return;
+      _auth.selectBusiness(businessId);
+    }
+    final route = uri.path;
+    final targetBusinessId = _auth.business!.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _auth.status != AuthStatus.signedIn || _auth.business == null) return;
+      if (!mounted || _auth.status != AuthStatus.signedIn || _auth.business?.id != targetBusinessId) return;
       navigatorKey.currentState?.push(MaterialPageRoute<void>(
         builder: (_) => route == '/qr' ? const QrScreen() : const BriefingsScreen(),
       ));
@@ -105,6 +119,10 @@ class _RootState extends State<_Root> {
   void _authChanged() {
     if (context.read<AuthController>().status == AuthStatus.signedOut) {
       _pendingRoute = null;
+      navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    }
+    if (_lastBusinessId != _auth.business?.id) {
+      _lastBusinessId = _auth.business?.id;
       navigatorKey.currentState?.popUntil((route) => route.isFirst);
     }
     _openPendingRoute();

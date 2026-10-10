@@ -7,6 +7,12 @@ Flutter owner app for bookings, customers, services, staff, and WhatsApp connect
 Open **Settings → Your business** for briefings, analytics, reviews, Grow, and customer import.
 These screens use the existing authenticated backend APIs. Deposits are excluded.
 
+- Appointments searches booking history with status, service, staff, and date filters, in pages of 20.
+- Business profile edits public details, timezone, and slot interval, and publishes or hides the listing. The server rejects interval changes that conflict with future bookings.
+- New bookings can select an existing customer. Booking and rescheduling use available slots from the server, including staff reassignment, with availability checked again when saving.
+- Calendar can show cancelled bookings and a seven-day agenda. Complete and No-show appear only for confirmed appointments once their start time arrives.
+- The account menu switches between authorized businesses. Switching closes screens from the previous business; notification taps select the notification's business after checking membership.
+
 - Briefings shows the latest 20 daily summaries, weekly reports, and alerts. Owners explicitly mark messages as read, open supported actions, and set the briefing hour in their business timezone. Notification taps open the inbox after authentication.
 - Analytics shows completed revenue, appointment outcomes, trends, and booked revenue ahead.
 - Reviews separates published feedback from private alerts and links flagged reviews to customer profiles.

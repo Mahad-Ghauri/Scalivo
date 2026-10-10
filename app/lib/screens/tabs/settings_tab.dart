@@ -15,6 +15,8 @@ import '../reviews_screen.dart';
 import '../grow_screen.dart';
 import '../client_import_screen.dart';
 import '../briefings_screen.dart';
+import '../appointments_screen.dart';
+import '../business_profile_screen.dart';
 import '../../state/clients_controller.dart';
 
 /// Settings, and specifically the reminder schedule.
@@ -123,6 +125,13 @@ class _SettingsTabState extends State<SettingsTab> {
             title: 'Your business',
             child: Column(
               children: [
+                _navRow(icon: Icons.storefront_outlined, label: 'Business profile', detail: 'Public listing, location and booking intervals', onTap: () async {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BusinessProfileScreen()));
+                  if (mounted) _load();
+                }),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(icon: Icons.event_note_outlined, label: 'Appointments', detail: 'Search and filter your booking history', onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AppointmentsScreen()))),
+                const Divider(height: 22, color: Sc.divider),
                 _navRow(
                   icon: Icons.notifications_active_outlined,
                   label: 'Briefings',

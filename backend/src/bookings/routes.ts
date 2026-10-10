@@ -59,17 +59,29 @@ const bookingBody = z.object({
 });
 
 
-const listBookingsQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  skip: z.coerce.number().int().min(0).default(0),
-  status: z.string().optional(),
-  staffId: z.string().min(1).optional(),
-  serviceId: z.string().min(1).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').optional(),
-  q: z.string().trim().min(1).optional(),
-  sort: z.enum(['asc', 'desc']).default('desc'),
-});
+const ownerDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(
+    (value) => DateTime.fromISO(value, { zone: 'UTC' }).isValid,
+    'expected a valid calendar date',
+  );
+const listBookingsQuery = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    skip: z.coerce.number().int().min(0).max(100000).default(0),
+    status: z.enum(Object.values(BOOKING_STATUS) as [string, ...string[]]).optional(),
+    staffId: z.string().min(1).max(80).optional(),
+    serviceId: z.string().min(1).max(80).optional(),
+    from: ownerDate.optional(),
+    to: ownerDate.optional(),
+    q: z.string().trim().min(1).max(120).optional(),
+    sort: z.enum(['asc', 'desc']).default('desc'),
+  })
+  .refine((query) => !query.from || !query.to || query.from <= query.to, {
+    message: 'End date must follow start date',
+    path: ['to'],
+  });
 
 /**
  * How a refusal reaches the caller.

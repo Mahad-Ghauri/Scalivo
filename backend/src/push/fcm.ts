@@ -102,7 +102,7 @@ export async function pushToOwners(businessId: string, message: PushMessage): Pr
     notification: { title: message.title, body: message.body },
     // The route travels in DATA, not in the notification: notification fields
     // are dropped when the app is foregrounded, and this must work either way.
-    data: { route: message.route ?? '/', channel: message.channel },
+    data: { route: message.route ?? '/', channel: message.channel, businessId },
     android: {
       // A session-down alert that waits for the next maintenance window is
       // useless; a booking ping that wakes someone at 11pm is rude.

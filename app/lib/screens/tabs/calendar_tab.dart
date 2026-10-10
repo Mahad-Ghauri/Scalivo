@@ -8,15 +8,12 @@ import '../../theme.dart';
 import '../../widgets/appointment_card.dart';
 import '../block_time_sheet.dart';
 import '../booking_sheet.dart';
+import '../../state/auth_controller.dart';
 
 /// The diary, one day at a time.
 ///
-/// A day rather than a week, and a list rather than a column grid. The week and
-/// staff-column views the spec asks for are genuinely right on a tablet and
-/// genuinely wrong on the phone the owner actually holds: seven columns of
-/// fifteen-minute rows on a 390px screen is a diagram, not a schedule. The staff
-/// dimension is here as a filter instead, which answers the same question —
-/// "what is Ayesha doing today" — in one tap and stays readable.
+/// The week uses an agenda to keep appointments readable on a phone, with a
+/// staff filter shared by both views.
 class CalendarTab extends StatefulWidget {
   const CalendarTab({super.key});
 
@@ -59,6 +56,10 @@ class _CalendarTabState extends State<CalendarTab> {
             onPick: controller.setStaffFilter,
           ),
         ],
+        Wrap(spacing: 12, children: [
+          FilterChip(label: const Text('Show cancelled'), selected: controller.includeCancelled, onSelected: controller.loading ? null : controller.showCancelled),
+          if (controller.rangeDays == 1) ActionChip(label: const Text('Week agenda'), onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _WeekAgenda(date: controller.selectedDay, staffId: controller.staffFilter)))),
+        ]),
         const SizedBox(height: 16),
       ],
     );
@@ -320,14 +321,19 @@ class DayAgenda extends StatelessWidget {
           else SliverList(delegate: SliverChildBuilderDelegate((context, index) {
             if (index >= entries.length) {
               final block = blocks[index - entries.length];
-              return Padding(padding: const EdgeInsets.only(top: 12), child: BlockCard(
+              return Padding(padding: const EdgeInsets.only(top: 12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                if (controller.rangeDays > 1) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(dayLabelLong(block.startsAt), style: const TextStyle(fontWeight: FontWeight.w600))),
+                BlockCard(
                 block: block,
                 staffName: block.staffId == null ? null : staffNames[block.staffId],
-                onRemove: () => _removeBlock(context, controller, block)));
+                onRemove: () => _removeBlock(context, controller, block)),
+              ]));
             }
             final entry = entries[index];
-            return AppointmentCard(entry: entry,
-              onTap: () => showBookingSheet(context, controller: controller, entry: entry));
+            return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (controller.rangeDays > 1 && (index == 0 || !isSameDay(entries[index - 1].startsAt, entry.startsAt))) Padding(padding: const EdgeInsets.only(top: 16, bottom: 8), child: Text(dayLabelLong(entry.startsAt), style: const TextStyle(fontWeight: FontWeight.w600))),
+              AppointmentCard(entry: entry, onTap: () => showBookingSheet(context, controller: controller, entry: entry)),
+            ]);
           }, childCount: entries.length + blocks.length)),
           const SliverToBoxAdapter(child: SizedBox(height: 90)),
         ],
@@ -447,5 +453,18 @@ class _Failed extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _WeekAgenda extends StatelessWidget {
+  const _WeekAgenda({required this.date, this.staffId});
+  final DateTime date;
+  final String? staffId;
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.read<AuthController>();
+    return ChangeNotifierProvider(create: (_) => CalendarController(api: auth.api, businessId: auth.business!.id, rangeDays: 7)..selectedDay = date
+        ..staffFilter = staffId,
+      child: Scaffold(backgroundColor: Sc.paper, appBar: AppBar(title: const Text('Seven-day agenda')), body: const Padding(padding: EdgeInsets.all(22), child: CalendarTab())));
   }
 }

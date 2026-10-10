@@ -158,6 +158,27 @@ class FakePush extends PushService {
 }
 
 void main() {
+  test('notification payload accepts only supported routes and bounded business IDs', () {
+    expect(
+      PushService.notificationRoute({'route': '/briefings'}),
+      '/briefings',
+    );
+    expect(
+      PushService.notificationRoute({
+        'route': '/qr',
+        'businessId': 'business-2',
+      }),
+      '/qr?businessId=business-2',
+    );
+    for (final data in <Map<String, dynamic>>[
+      {'route': 'https://example.test'},
+      {'route': '/briefings', 'businessId': '../foreign'},
+      {'route': '/briefings', 'businessId': 42},
+      {'route': '/briefings', 'businessId': 'x' * 81},
+    ]) {
+      expect(PushService.notificationRoute(data), isNull);
+    }
+  });
   late BriefingApi api;
   late FakeAuth auth;
   setUp(() {
@@ -397,6 +418,47 @@ void main() {
       await tester.pumpAndSettle();
       push.tap!('/briefings');
       push.tap!('https://example.test');
+      await tester.pumpAndSettle();
+      expect(find.byType(BriefingsScreen), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'business notification checks membership and clears old business screens',
+    (tester) async {
+      auth.me = Me(
+        name: fixtureMe.name,
+        email: fixtureMe.email,
+        businesses: [
+          ...fixtureMe.businesses,
+          const BusinessSummary(
+            id: 'second',
+            name: 'Second Business',
+            category: 'salon',
+            whatsappStatus: 'created',
+            whatsappIntent: 'stopped',
+          ),
+        ],
+      );
+      final push = FakePush();
+      await tester.pumpWidget(ScalivoOwnerApp(auth: auth, push: push));
+      await tester.pumpAndSettle();
+      for (final route in [
+        '/briefings?businessId=foreign',
+        '/briefings?businessId=second&businessId=business',
+        '/briefings?other=second',
+      ]) {
+        push.tap!(route);
+        await tester.pumpAndSettle();
+        expect(find.byType(BriefingsScreen), findsNothing);
+        expect(auth.business!.id, 'business');
+      }
+      push.tap!('/briefings?businessId=second');
+      await tester.pumpAndSettle();
+      expect(auth.business!.id, 'second');
+      expect(find.byType(BriefingsScreen), findsOneWidget);
+      auth.selectBusiness('business');
       await tester.pumpAndSettle();
       expect(find.byType(BriefingsScreen), findsNothing);
       await tester.pumpWidget(const SizedBox());

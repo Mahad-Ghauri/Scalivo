@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 // env.ts fails fast on missing config, which is correct at boot but means tests
-// need a valid set. These are fakes — no test here touches a real datastore.
+// need a valid set. Integration tests use isolated MongoDB and Redis databases.
 export default defineConfig({
   test: {
     fileParallelism: false,
@@ -10,7 +10,8 @@ export default defineConfig({
       // Overridable for machines where a host Postgres owns 5432 — see the
       // postgres service in docker-compose.yml.
       POSTGRES_URL: process.env.TEST_POSTGRES_URL ?? 'postgres://scalivo:scalivo@localhost:5432/scalivo',
-      REDIS_URL: 'redis://localhost:6379',
+      // Several suites flush Redis. Never share the application's database 0.
+      REDIS_URL: process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/1',
       OPENWA_BASE_URL: 'http://localhost:2785',
       OPENWA_API_KEY: 'owa_k1_test',
       OPENWA_WEBHOOK_SECRET: 'test-webhook-secret-value',

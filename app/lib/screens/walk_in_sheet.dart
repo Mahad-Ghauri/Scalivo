@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../state/auth_controller.dart';
+import '../api/owner_booking_models.dart';
+import 'slot_picker_screen.dart';
+import 'client_picker_screen.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
@@ -51,8 +56,10 @@ class _WalkInSheetState extends State<_WalkInSheet> {
 
   ServiceItem? _service;
   StaffSummary? _staff;
-  late DateTime _startsAt = _nextQuarterHour();
+  late DateTime _startsAt = startOfToday(timezone: context.read<AuthController>().business!.timezone);
   bool _busy = false;
+  bool _selectedTime = false;
+  ClientRow? _client;
   bool _loading = true;
   String? _formError;
 
@@ -78,25 +85,9 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       // single-staff salon should not be asked two questions it cannot get
       // wrong — and pre-selecting the first of many would be a guess.
       if (widget.controller.services.length == 1) _service = widget.controller.services.first;
-      if (widget.controller.staffList.length == 1) _staff = widget.controller.staffList.first;
+      final eligible = widget.controller.staffList.where((s) => _service != null && s.serviceIds.contains(_service!.id)).toList();
+      if (eligible.length == 1) _staff = eligible.first;
     });
-  }
-
-  /// Now, rounded up to the grid the booking system actually works on.
-  ///
-  /// An off-grid start is refused by the server — occupancy rows would land on
-  /// points a genuinely overlapping booking never touches — so offering 14:07
-  /// would be offering a time that cannot be booked.
-  DateTime _nextQuarterHour() {
-    final now = businessTime(
-      DateTime.now(),
-      timezone: widget.controller.view?.timezone ?? 'Asia/Karachi',
-    );
-    final rounded = businessDate(
-      DateTime(now.year, now.month, now.day, now.hour, (now.minute ~/ 15) * 15),
-      timezone: widget.controller.view?.timezone ?? 'Asia/Karachi',
-    );
-    return rounded.isBefore(now) ? rounded.add(const Duration(minutes: 15)) : rounded;
   }
 
   @override
@@ -154,34 +145,39 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                   value: _service,
                   items: controller.services,
                   itemLabel: (s) => '${s.name} — ${duration(s.durationMinutes)}, ${money(s.priceMinor)}',
-                  onChanged: _busy ? null : (s) => setState(() => _service = s),
+                  onChanged: _busy ? null : (s) => setState(() { _service = s; _selectedTime = false; _staff = null; }),
                 ),
                 const SizedBox(height: 18),
                 ScDropdown<StaffSummary>(
+                  key: ValueKey('${_service?.id}:${_staff?.id}'),
                   label: 'With',
                   value: _staff,
-                  items: controller.staffList,
+                  items: controller.staffList.where((s) => _service == null || s.serviceIds.contains(_service!.id)).toList(),
                   itemLabel: (s) => s.name,
-                  onChanged: _busy ? null : (s) => setState(() => _staff = s),
+                  onChanged: _busy ? null : (s) => setState(() { _staff = s; _selectedTime = false; }),
                 ),
                 const SizedBox(height: 18),
                 _timeRow(),
                 const SizedBox(height: 18),
+                TextButton.icon(onPressed: _busy ? null : _chooseClient, icon: const Icon(Icons.person_search_outlined), label: Text(_client == null ? 'Choose existing customer' : 'Change customer')),
+                if (_client != null) TextButton(onPressed: _busy ? null : () => setState(() { _client = null; _name.clear(); _phone.clear(); }), child: const Text('Enter a new customer')),
                 ScField(
                   label: 'Name',
+                  maxLength: 120,
                   controller: _name,
                   hint: 'Who is it for?',
-                  enabled: !_busy,
+                  enabled: !_busy && _client == null,
                   textCapitalization: TextCapitalization.words,
                 ),
                 const SizedBox(height: 18),
                 ScField(
                   label: 'Phone',
+                  maxLength: 32,
                   controller: _phone,
                   hint: '0320 926 3011',
                   helper: 'Optional — but without it they get no confirmation, no '
                       'reminder, and a separate profile from their WhatsApp history.',
-                  enabled: !_busy,
+                  enabled: !_busy && _client == null,
                   keyboardType: TextInputType.phone,
                 ),
                 if (_formError != null) ...[
@@ -243,7 +239,7 @@ class _WalkInSheetState extends State<_WalkInSheet> {
               children: [
                 Expanded(
                   child: Text(
-                    '${relativeDay(_startsAt)}, ${hhmm(_startsAt)}',
+                    _selectedTime ? '${relativeDay(_startsAt)}, ${hhmm(_startsAt)}' : 'Choose an available time',
                     style: const TextStyle(
                       fontSize: 15.5,
                       fontWeight: FontWeight.w500,
@@ -261,23 +257,21 @@ class _WalkInSheetState extends State<_WalkInSheet> {
   }
 
   Future<void> _pickTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _startsAt,
-      firstDate: startOfToday(),
-      lastDate: startOfToday().add(const Duration(days: 365)),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_startsAt),
-    );
-    if (time == null || !mounted) return;
-
+    if (_service == null) { setState(() => _formError = 'Choose a service first.'); return; }
+    final slot = await Navigator.of(context).push<AvailableSlot>(MaterialPageRoute(builder: (_) => SlotPickerScreen(
+      serviceId: _service!.id, staff: widget.controller.staffList, date: _startsAt, staffId: _staff?.id)));
+    if (slot == null || !mounted) return;
     setState(() {
-      _startsAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _startsAt = businessTime(slot.startsAt, timezone: context.read<AuthController>().business!.timezone);
+      _staff = widget.controller.staffList.firstWhere((s) => s.id == slot.staffId);
+      _selectedTime = true;
     });
+  }
+
+  Future<void> _chooseClient() async {
+    final client = await Navigator.of(context).push<ClientRow>(MaterialPageRoute(builder: (_) => const ClientPickerScreen()));
+    if (client == null || !mounted) return;
+    setState(() { _client = client; _name.text = client.displayName ?? ''; _phone.text = client.phone ?? ''; });
   }
 
   Future<void> _submit() async {
@@ -290,7 +284,8 @@ class _WalkInSheetState extends State<_WalkInSheet> {
     }
     // Mirrors the backend's own refusal rather than trusting it: a nameless,
     // numberless walk-in is not a customer, it is an empty row.
-    if (name.isEmpty && phone.isEmpty) {
+    if (!_selectedTime || name.length > 120 || phone.length > 32) { setState(() => _formError = 'Choose an available time and check customer details.'); return; }
+    if (_client == null && name.isEmpty && phone.isEmpty) {
       setState(() => _formError = 'A name or a phone number — we need something to call them.');
       return;
     }
@@ -304,15 +299,16 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       serviceId: _service!.id,
       staffId: _staff!.id,
       startsAt: _startsAt,
-      name: name,
-      phone: phone,
+      name: _client == null ? name : null,
+      phone: _client == null ? phone : null,
+      clientId: _client?.clientId,
     );
 
     if (!mounted) return;
     setState(() => _busy = false);
 
     if (failure != null) {
-      setState(() => _formError = _explain(failure));
+      setState(() { _formError = _explain(failure); _selectedTime = false; });
       return;
     }
 

@@ -178,6 +178,8 @@ class CalendarEntry {
   bool get isTerminal =>
       status == 'completed' || status == 'no_show' || status == 'cancelled';
 
+  bool canMarkOutcomeAt(DateTime now) => status == 'confirmed' && !startsAt.isAfter(now);
+
   factory CalendarEntry.fromJson(Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => CalendarEntry(
@@ -285,14 +287,16 @@ class CalendarView {
 }
 
 class StaffSummary {
-  const StaffSummary({required this.id, required this.name});
+  const StaffSummary({required this.id, required this.name, this.serviceIds = const []});
 
   final String id;
   final String name;
+  final List<String> serviceIds;
 
   factory StaffSummary.fromJson(Map<String, dynamic> json) => StaffSummary(
         id: (json['id'] ?? json['_id']) as String,
         name: json['name'] as String? ?? 'Staff',
+        serviceIds: (json['serviceIds'] as List<dynamic>? ?? const []).cast<String>(),
       );
 }
 

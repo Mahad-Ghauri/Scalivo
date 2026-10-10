@@ -1,4 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../state/auth_controller.dart';
+import '../api/owner_booking_models.dart';
+import 'slot_picker_screen.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
@@ -41,6 +46,18 @@ class _BookingSheet extends StatefulWidget {
 
 class _BookingSheetState extends State<_BookingSheet> {
   bool _busy = false;
+  Timer? _startTimer;
+  @override
+  void initState() {
+    super.initState();
+    final wait = entry.startsAt.difference(DateTime.now());
+    if (entry.status == 'confirmed' && wait > Duration.zero) {
+      _startTimer = Timer(wait, () { if (mounted) setState(() {}); });
+    }
+  }
+  @override
+  void dispose() { _startTimer?.cancel(); super.dispose(); }
+
 
   CalendarEntry get entry => widget.entry;
 
@@ -89,7 +106,7 @@ class _BookingSheetState extends State<_BookingSheet> {
             if (entry.isTerminal)
               _settled()
             else ...[
-              Row(
+              if (entry.canMarkOutcomeAt(DateTime.now())) Row(
                 children: [
                   Expanded(
                     child: _action(
@@ -123,6 +140,8 @@ class _BookingSheetState extends State<_BookingSheet> {
                   ),
                 ],
               ),
+              if (!entry.canMarkOutcomeAt(DateTime.now())) const Padding(
+                padding: EdgeInsets.only(bottom: 10), child: Text('Complete and No-show become available once a confirmed appointment starts.', style: TextStyle(color: Sc.slate))),
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -247,31 +266,16 @@ class _BookingSheetState extends State<_BookingSheet> {
     );
   }
 
-  /// A time picker on the same day, or a date picker first if they want another.
-  ///
-  /// The new time goes through the server's own validation rather than being
-  /// pre-filtered here: availability, the notice period and the occupancy grid
-  /// all live there, and a client-side guess at them would be wrong the moment
-  /// a WhatsApp booking lands between the draw and the tap.
   Future<void> _pickNewTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: entry.startsAt,
-      firstDate: startOfToday(),
-      lastDate: startOfToday().add(const Duration(days: 365)),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(entry.startsAt),
-    );
-    if (time == null || !mounted) return;
-
-    final startsAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    await widget.controller.ensureCatalogue();
+    if (!mounted) return;
+    final slot = await Navigator.of(context).push<AvailableSlot>(MaterialPageRoute(builder: (_) => SlotPickerScreen(
+      serviceId: entry.serviceId, staff: widget.controller.staffList, date: entry.startsAt, staffId: entry.staffId)));
+    if (slot == null || !mounted) return;
+    final startsAt = businessTime(slot.startsAt, timezone: context.read<AuthController>().business!.timezone);
 
     setState(() => _busy = true);
-    final result = await widget.controller.reschedule(entry, startsAt);
+    final result = await widget.controller.reschedule(entry, startsAt, staffId: slot.staffId);
     if (!mounted) return;
     setState(() => _busy = false);
 

@@ -20,7 +20,7 @@ class CalendarController extends ChangeNotifier {
   // initializing formals: `this._api` would make the underscore part of the
   // parameter name, and a private name in a public constructor reads as a leak.
   // ignore_for_file: prefer_initializing_formals
-  CalendarController({required ApiClient api, required String businessId})
+  CalendarController({required ApiClient api, required String businessId, this.rangeDays = 1})
       : _api = api,
         _businessId = businessId {
     selectedDay = startOfToday(timezone: api.businessTimezone);
@@ -28,6 +28,9 @@ class CalendarController extends ChangeNotifier {
 
   final ApiClient _api;
   final String _businessId;
+  final int rangeDays;
+  bool includeCancelled = false;
+  void showCancelled(bool value) { includeCancelled = value; load(); }
 
   DateTime selectedDay = startOfToday();
 
@@ -59,14 +62,14 @@ class CalendarController extends ChangeNotifier {
   CalendarDay? get day => view?.dayFor(isoDate(selectedDay));
 
   List<CalendarEntry> get entries {
-    final all = day?.entries ?? const <CalendarEntry>[];
+    final all = rangeDays == 1 ? day?.entries ?? const <CalendarEntry>[] : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.entries];
     // Sorted here rather than trusted from the wire: the backend groups by day
     // but a screen that renders 4pm above 11am is unreadable regardless of why.
     final sorted = [...all]..sort((a, b) => a.startsAt.compareTo(b.startsAt));
     return sorted;
   }
 
-  List<CalendarBlock> get blocks => day?.blocks ?? const [];
+  List<CalendarBlock> get blocks => rangeDays == 1 ? day?.blocks ?? const [] : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.blocks];
 
   @override
   void dispose() {
@@ -92,8 +95,9 @@ class CalendarController extends ChangeNotifier {
       final loaded = await _api.calendar(
         _businessId,
         from: date,
-        to: date,
+        to: isoDate(DateTime(selectedDay.year, selectedDay.month, selectedDay.day + rangeDays - 1)),
         staffId: staffFilter,
+        includeCancelled: includeCancelled,
       );
       if (_disposed || version != _loadVersion) return;
       view = loaded;
@@ -169,11 +173,13 @@ class CalendarController extends ChangeNotifier {
   // escaping into the widget tree there takes the whole screen down over one
   // appointment.
 
-  Future<ApiException?> complete(CalendarEntry entry) =>
-      _mutate(() => _api.setOutcome(_businessId, entry.id, 'completed'));
+  Future<ApiException?> complete(CalendarEntry entry) => entry.canMarkOutcomeAt(DateTime.now())
+      ? _mutate(() => _api.setOutcome(_businessId, entry.id, 'completed'))
+      : Future.value(const ApiException(ApiErrorKind.validation, 'Only confirmed appointments that have started can be completed.'));
 
-  Future<ApiException?> noShow(CalendarEntry entry) =>
-      _mutate(() => _api.setOutcome(_businessId, entry.id, 'no_show'));
+  Future<ApiException?> noShow(CalendarEntry entry) => entry.canMarkOutcomeAt(DateTime.now())
+      ? _mutate(() => _api.setOutcome(_businessId, entry.id, 'no_show'))
+      : Future.value(const ApiException(ApiErrorKind.validation, 'Only confirmed appointments that have started can be marked no-show.'));
 
   Future<ApiException?> cancel(CalendarEntry entry) =>
       _mutate(() => _api.cancelBooking(_businessId, entry.id));
