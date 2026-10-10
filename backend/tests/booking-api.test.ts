@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -5,6 +6,7 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { MessagingProvider } from '@scalivo/shared';
 import { Business } from '../src/models/Business.js';
+import { ClientProfile } from '../src/models/ClientProfile.js';
 import { Client } from '../src/models/Client.js';
 import { Service } from '../src/models/Service.js';
 import { Staff } from '../src/models/Staff.js';
@@ -50,11 +52,18 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     const app = express();
     const provider = {} as unknown as MessagingProvider;
     app.use('/businesses', createBookingRouter(redis, provider));
-    
+
     // Global error handler to prevent supertest 500 dumps if something internal crashes
-    app.use((err: any, req: any, res: any, next: any) => {
-      res.status(500).json({ error: 'internal server error' });
-    });
+    app.use(
+      (
+        _err: unknown,
+        _req: express.Request,
+        res: express.Response,
+        _next: express.NextFunction,
+      ) => {
+        res.status(500).json({ error: 'internal server error' });
+      },
+    );
 
     server = app.listen(0);
     const { port } = server.address() as AddressInfo;
@@ -78,7 +87,7 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
         minNoticeMinutes: 60,
         bookingHorizonDays: 30,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     businessId = String(business!._id);
     token = signToken({ userId: 'owner1', role: 'owner', businessIds: [businessId] });
@@ -94,12 +103,13 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
         minNoticeMinutes: 60,
         bookingHorizonDays: 30,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     wrongBusinessId = String(wrongBusiness!._id);
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
@@ -134,6 +144,11 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     const unique = `${Date.now() % 100_000}${Math.floor(Math.random() * 1_000_000)}`;
     const client = await Client.create({ phone: `92300${unique}`, displayName: 'Test Client' });
     clientId = String(client._id);
+    await ClientProfile.updateOne(
+      { businessId, clientId },
+      { $setOnInsert: { businessId, clientId } },
+      { upsert: true },
+    );
   });
 
   async function hold(startsAt: string) {
@@ -166,8 +181,8 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
 
     expect(bookingData.id).toBeTypeOf('string');
     // It's 'web' source, so the status is PENDING (only owner source auto-confirms)
-    expect(['PENDING', 'confirmed'].includes(bookingData.status)).toBe(true); 
-    
+    expect(['PENDING', 'confirmed'].includes(bookingData.status)).toBe(true);
+
     // Verify it reached DB
     const docs = await Booking.find({ businessId });
     expect(docs).toHaveLength(1);
@@ -181,7 +196,14 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     const res = await fetch(`${serverUrl}/businesses/${wrongBusinessId}/bookings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ serviceId, staffId, clientId, startsAt, source: 'web', holdToken: 'dummy' }),
+      body: JSON.stringify({
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        source: 'web',
+        holdToken: 'dummy',
+      }),
     });
 
     // The middleware should return 404
@@ -192,7 +214,14 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
     const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ serviceId, staffId, clientId, startsAt: 'invalid-date', source: 'web', holdToken: 'dummy' }),
+      body: JSON.stringify({
+        serviceId,
+        staffId,
+        clientId,
+        startsAt: 'invalid-date',
+        source: 'web',
+        holdToken: 'dummy',
+      }),
     });
 
     expect(res.status).toBe(400);
@@ -203,29 +232,26 @@ describe.skipIf(!infraUp)('Booking API (Phase 3c)', () => {
 
   it('Full-Flow Concurrency: Two independent customers racing for the exact same slot', async () => {
     const startsAt = at('12:00');
-    
+
     // 1. Two independent customers attempt to acquire a hold simultaneously.
-    const [hold1, hold2] = await Promise.all([
-      hold(startsAt),
-      hold(startsAt),
-    ]);
+    const [hold1, hold2] = await Promise.all([hold(startsAt), hold(startsAt)]);
 
     // 2. Redis atomic script arbitrates. Exactly one gets a hold.
     const holds = [hold1, hold2];
-    const holdWinners = holds.filter(r => r.status === 201);
-    const holdLosers = holds.filter(r => r.status === 409);
-    
+    const holdWinners = holds.filter((r) => r.status === 201);
+    const holdLosers = holds.filter((r) => r.status === 409);
+
     expect(holdWinners).toHaveLength(1);
     expect(holdLosers).toHaveLength(1);
 
     const winnerData = await json(holdWinners[0]!);
     const loserData = await json(holdLosers[0]!);
     expect(loserData.reason).toBe('slot_taken');
-    
+
     // 3. The winner submits their booking
     const bookRes = await book(startsAt, winnerData.token);
     expect(bookRes.status).toBe(201);
-    
+
     // 4. Assert invariant: exactly 1 booking exists, exactly 3 occupancy rows exist
     expect(await Booking.countDocuments({ businessId, startsAt: new Date(startsAt) })).toBe(1);
     expect(await SlotOccupancy.countDocuments({ businessId })).toBe(3);

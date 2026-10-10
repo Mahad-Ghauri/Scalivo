@@ -63,6 +63,7 @@ const clientProfileSchema = new Schema(
      * migration and no token minted for a profile nobody ever messages.
      */
     meToken: { type: String, default: null },
+    meTokenExpiresAt: { type: Date, default: null },
 
     /**
      * STOP, scoped to THIS business.

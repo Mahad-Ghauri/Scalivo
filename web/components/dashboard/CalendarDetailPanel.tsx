@@ -13,11 +13,19 @@ interface CalendarDetailPanelProps {
   staff: Staff[];
 }
 
-export function CalendarDetailPanel({ businessId, entry, dateStr, view, timezone, services, staff }: CalendarDetailPanelProps) {
+export function CalendarDetailPanel({
+  businessId,
+  entry,
+  dateStr,
+  view,
+  timezone,
+  services,
+  staff,
+}: CalendarDetailPanelProps) {
   // Format the time range nicely using Intl.DateTimeFormat
   const dStart = new Date(entry.startsAt);
   const dEnd = new Date(entry.endsAt);
-  
+
   const timeFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     hour: 'numeric',
@@ -44,7 +52,12 @@ export function CalendarDetailPanel({ businessId, entry, dateStr, view, timezone
           scroll={false}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
           </svg>
         </Link>
       </div>
@@ -53,14 +66,20 @@ export function CalendarDetailPanel({ businessId, entry, dateStr, view, timezone
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Customer</p>
           <p className="text-[16px] font-semibold text-ink">{entry.clientName || 'Walk-in'}</p>
-          {entry.clientPhone && <p className="text-[14px] text-muted mt-0.5">{entry.clientPhone}</p>}
+          {entry.clientPhone && (
+            <p className="text-[14px] text-muted mt-0.5">{entry.clientPhone}</p>
+          )}
         </div>
 
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Service & Time</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
+            Service & Time
+          </p>
           <p className="text-[16px] font-semibold text-ink">{entry.serviceName}</p>
           <p className="text-[14px] text-muted mt-0.5">{displayDate}</p>
-          <p className="text-[14px] text-muted">{timeRange} ({entry.durationMinutes} min)</p>
+          <p className="text-[14px] text-muted">
+            {timeRange} ({entry.durationMinutes} min)
+          </p>
         </div>
 
         <div className="flex gap-4">
@@ -82,8 +101,9 @@ export function CalendarDetailPanel({ businessId, entry, dateStr, view, timezone
         </div>
 
         {/* Action placeholders for Phase 3b/3c - explicitly inert */}
-        <CalendarDetailActions 
+        <CalendarDetailActions
           businessId={businessId}
+          timezone={timezone}
           entry={entry}
           services={services}
           staff={staff}

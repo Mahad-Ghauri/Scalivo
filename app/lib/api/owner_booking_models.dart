@@ -4,6 +4,7 @@ import 'models.dart';
 
 const appointmentStatuses = [
   'pending',
+  'awaiting_approval',
   'awaiting_deposit',
   'confirmed',
   'completed',
@@ -14,14 +15,36 @@ const appointmentStatuses = [
 class AvailableSlot {
   AvailableSlot.fromJson(Map<String, dynamic> json)
     : staffId = wireText(json['staffId'], max: 80),
-      startsAt = wireDate(json['startsAt']) {
-    final minutes = wireCount(json['durationMinutes']);
+      startsAt = wireDate(json['startsAt']),
+      appointments = json['appointments'] == null
+          ? const []
+          : wireList(json['appointments'], SequenceAppointment.fromJson, 5) {
+    final minutes = wireCount(
+      json['durationMinutes'] ??
+          (appointments.isNotEmpty ? appointments.first.durationMinutes : null),
+    );
     if (minutes < 1 || minutes > 1440) {
       throw const FormatException('Invalid slot duration');
     }
   }
   final String staffId;
   final DateTime startsAt;
+  final List<SequenceAppointment> appointments;
+}
+
+class SequenceAppointment {
+  SequenceAppointment.fromJson(Map<String, dynamic> json)
+    : serviceId = wireText(json['serviceId'], max: 80),
+      staffId = wireText(json['staffId'], max: 80),
+      startsAt = wireDate(json['startsAt']),
+      durationMinutes = wireCount(json['durationMinutes']) {
+    if (durationMinutes < 1 || durationMinutes > 1440)
+      throw const FormatException('Invalid treatment duration');
+  }
+  final String serviceId;
+  final String staffId;
+  final DateTime startsAt;
+  final int durationMinutes;
 }
 
 class AppointmentPage {
@@ -43,13 +66,16 @@ class AppointmentPage {
           timezone: timezone,
         );
         return CalendarEntry(
+          revision: row['revision'] == null ? 0 : wireCount(row['revision']),
           id: wireText(row['id'], max: 80),
           staffId: staff == null ? '' : wireText(staff['id'], max: 80),
           staffName: staff == null
               ? 'Unavailable staff'
               : wireText(staff['name'], max: 120),
           clientId: client == null ? '' : wireText(client['id'], max: 80),
-          clientName: client?['name'] == null
+          clientName: row['appointmentHolderName'] is String
+              ? wireText(row['appointmentHolderName'], max: 80)
+              : client?['name'] == null
               ? null
               : wireText(client!['name'], max: 120),
           clientPhone: client?['phone'] == null

@@ -1,5 +1,11 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'appointment_holders_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../state/auth_controller.dart';
 import '../api/owner_booking_models.dart';
 import 'slot_picker_screen.dart';
@@ -56,10 +62,16 @@ class _WalkInSheetState extends State<_WalkInSheet> {
 
   ServiceItem? _service;
   StaffSummary? _staff;
-  late DateTime _startsAt = startOfToday(timezone: context.read<AuthController>().business!.timezone);
+  late DateTime _startsAt = startOfToday(
+    timezone: context.read<AuthController>().business!.timezone,
+  );
   bool _busy = false;
   bool _selectedTime = false;
   ClientRow? _client;
+  AppointmentHolderItem? _holder;
+  final List<({ServiceItem? service, StaffSummary? staff})> _additional = [];
+  String? _requestId;
+  List<SequenceAppointment> _planned = const [];
   bool _loading = true;
   String? _formError;
 
@@ -84,8 +96,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       // Pre-selected when there is only one real answer. A single-service,
       // single-staff salon should not be asked two questions it cannot get
       // wrong — and pre-selecting the first of many would be a guess.
-      if (widget.controller.services.length == 1) _service = widget.controller.services.first;
-      final eligible = widget.controller.staffList.where((s) => _service != null && s.serviceIds.contains(_service!.id)).toList();
+      if (widget.controller.services.length == 1)
+        _service = widget.controller.services.first;
+      final eligible = widget.controller.staffList
+          .where((s) => _service != null && s.serviceIds.contains(_service!.id))
+          .toList();
       if (eligible.length == 1) _staff = eligible.first;
     });
   }
@@ -135,32 +150,177 @@ class _WalkInSheetState extends State<_WalkInSheet> {
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(child: CircularProgressIndicator(color: Sc.teal)),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Sc.teal),
+                  ),
                 )
-              else if (controller.services.isEmpty || controller.staffList.isEmpty)
+              else if (controller.services.isEmpty ||
+                  controller.staffList.isEmpty)
                 _needsSetup(controller)
               else ...[
                 ScDropdown<ServiceItem>(
                   label: 'Service',
                   value: _service,
                   items: controller.services,
-                  itemLabel: (s) => '${s.name} — ${duration(s.durationMinutes)}, ${money(s.priceMinor)}',
-                  onChanged: _busy ? null : (s) => setState(() { _service = s; _selectedTime = false; _staff = null; }),
+                  itemLabel: (s) =>
+                      '${s.name} — ${duration(s.durationMinutes)}, ${money(s.priceMinor)}',
+                  onChanged: _busy
+                      ? null
+                      : (s) => setState(() {
+                          _service = s;
+                          _selectedTime = false;
+                          _requestId = null;
+                          _staff = null;
+                        }),
                 ),
                 const SizedBox(height: 18),
                 ScDropdown<StaffSummary>(
                   key: ValueKey('${_service?.id}:${_staff?.id}'),
                   label: 'With',
                   value: _staff,
-                  items: controller.staffList.where((s) => _service == null || s.serviceIds.contains(_service!.id)).toList(),
+                  items: controller.staffList
+                      .where(
+                        (s) =>
+                            _service == null ||
+                            s.serviceIds.contains(_service!.id),
+                      )
+                      .toList(),
                   itemLabel: (s) => s.name,
-                  onChanged: _busy ? null : (s) => setState(() { _staff = s; _selectedTime = false; }),
+                  onChanged: _busy
+                      ? null
+                      : (s) => setState(() {
+                          _staff = s;
+                          _selectedTime = false;
+                          _requestId = null;
+                        }),
                 ),
                 const SizedBox(height: 18),
-                _timeRow(),
+                for (var index = 0; index < _additional.length; index++) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Treatment ${index + 2}',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Remove treatment',
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _additional.removeAt(index);
+                                _requestId = null;
+                                _selectedTime = false;
+                              }),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  ScDropdown<ServiceItem>(
+                    label: 'Service',
+                    value: _additional[index].service,
+                    items: controller.services,
+                    itemLabel: (service) =>
+                        '${service.name} — ${duration(service.durationMinutes)}',
+                    onChanged: _busy
+                        ? null
+                        : (service) => setState(() {
+                            _additional[index] = (
+                              service: service,
+                              staff: null,
+                            );
+                            _requestId = null;
+                            _selectedTime = false;
+                          }),
+                  ),
+                  const SizedBox(height: 12),
+                  ScDropdown<StaffSummary>(
+                    key: ValueKey(
+                      'extra:$index:${_additional[index].service?.id}:${_additional[index].staff?.id}',
+                    ),
+                    label: 'With',
+                    value: _additional[index].staff,
+                    items: controller.staffList
+                        .where(
+                          (staff) =>
+                              _additional[index].service != null &&
+                              staff.serviceIds.contains(
+                                _additional[index].service!.id,
+                              ),
+                        )
+                        .toList(),
+                    itemLabel: (staff) => staff.name,
+                    onChanged: _busy
+                        ? null
+                        : (staff) => setState(() {
+                            _additional[index] = (
+                              service: _additional[index].service,
+                              staff: staff,
+                            );
+                            _requestId = null;
+                            _selectedTime = false;
+                          }),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                if (_additional.length < 4)
+                  TextButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _additional.add((service: null, staff: null));
+                            _selectedTime = false;
+                            _requestId = null;
+                          }),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add consecutive treatment'),
+                  ),
+                if (_additional.isNotEmpty)
+                  const Text(
+                    'Treatments run in this order with cleanup gaps included. All staff, rooms and equipment must be available; either the whole visit is booked or nothing is.',
+                    style: TextStyle(color: Sc.slate, height: 1.5),
+                  ),
                 const SizedBox(height: 18),
-                TextButton.icon(onPressed: _busy ? null : _chooseClient, icon: const Icon(Icons.person_search_outlined), label: Text(_client == null ? 'Choose existing customer' : 'Change customer')),
-                if (_client != null) TextButton(onPressed: _busy ? null : () => setState(() { _client = null; _name.clear(); _phone.clear(); }), child: const Text('Enter a new customer')),
+                _timeRow(),
+                if (_selectedTime && _additional.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  for (final appointment in _planned)
+                    Text(
+                      '${controller.services.firstWhere((service) => service.id == appointment.serviceId).name} with ${controller.staffList.firstWhere((member) => member.id == appointment.staffId).name} · ${hhmm(businessTime(appointment.startsAt, timezone: context.read<AuthController>().business!.timezone))}',
+                      style: const TextStyle(color: Sc.slate, height: 1.5),
+                    ),
+                ],
+                const SizedBox(height: 18),
+                TextButton.icon(
+                  onPressed: _busy ? null : _chooseClient,
+                  icon: const Icon(Icons.person_search_outlined),
+                  label: Text(
+                    _client == null
+                        ? 'Choose existing customer'
+                        : 'Change customer',
+                  ),
+                ),
+                if (_client != null)
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _client = null;
+                            _holder = null;
+                            _name.clear();
+                            _phone.clear();
+                          }),
+                    child: const Text('Enter a new customer'),
+                  ),
+                if (_client != null)
+                  TextButton.icon(
+                    onPressed: _busy ? null : _chooseHolder,
+                    icon: const Icon(Icons.people_outline),
+                    label: Text(
+                      'Appointment for: ${_holder?.name ?? _client!.displayName ?? 'Customer themselves'}',
+                    ),
+                  ),
                 ScField(
                   label: 'Name',
                   maxLength: 120,
@@ -175,7 +335,8 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                   maxLength: 32,
                   controller: _phone,
                   hint: '0320 926 3011',
-                  helper: 'Optional — but without it they get no confirmation, no '
+                  helper:
+                      'Optional — but without it they get no confirmation, no '
                       'reminder, and a separate profile from their WhatsApp history.',
                   enabled: !_busy && _client == null,
                   keyboardType: TextInputType.phone,
@@ -184,7 +345,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                   const SizedBox(height: 14),
                   Text(
                     _formError!,
-                    style: const TextStyle(fontSize: 12.5, color: Sc.dangerText, height: 1.4),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Sc.dangerText,
+                      height: 1.4,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -203,7 +368,9 @@ class _WalkInSheetState extends State<_WalkInSheet> {
   }
 
   Widget _needsSetup(CalendarController controller) {
-    final missing = controller.services.isEmpty ? 'a service' : 'a staff member';
+    final missing = controller.services.isEmpty
+        ? 'a service'
+        : 'a staff member';
     return Container(
       decoration: BoxDecoration(
         color: Sc.warnBg,
@@ -224,7 +391,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       children: [
         const Text(
           'Starts',
-          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Sc.slate),
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: Sc.slate,
+          ),
         ),
         const SizedBox(height: 8),
         InkWell(
@@ -232,14 +403,18 @@ class _WalkInSheetState extends State<_WalkInSheet> {
           child: Container(
             constraints: const BoxConstraints(minHeight: 48),
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Sc.hairline, width: 1.5)),
+              border: Border(
+                bottom: BorderSide(color: Sc.hairline, width: 1.5),
+              ),
             ),
             padding: const EdgeInsets.only(bottom: 11, top: 4),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    _selectedTime ? '${relativeDay(_startsAt)}, ${hhmm(_startsAt)}' : 'Choose an available time',
+                    _selectedTime
+                        ? '${relativeDay(_startsAt)}, ${hhmm(_startsAt)}'
+                        : 'Choose an available time',
                     style: const TextStyle(
                       fontSize: 15.5,
                       fontWeight: FontWeight.w500,
@@ -247,7 +422,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                     ),
                   ),
                 ),
-                const Icon(Icons.schedule_rounded, size: 18, color: Sc.slateLight),
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 18,
+                  color: Sc.slateLight,
+                ),
               ],
             ),
           ),
@@ -257,21 +436,74 @@ class _WalkInSheetState extends State<_WalkInSheet> {
   }
 
   Future<void> _pickTime() async {
-    if (_service == null) { setState(() => _formError = 'Choose a service first.'); return; }
-    final slot = await Navigator.of(context).push<AvailableSlot>(MaterialPageRoute(builder: (_) => SlotPickerScreen(
-      serviceId: _service!.id, staff: widget.controller.staffList, date: _startsAt, staffId: _staff?.id)));
+    if (_service == null) {
+      setState(() => _formError = 'Choose a service first.');
+      return;
+    }
+    if (_additional.any((step) => step.service == null || step.staff == null)) {
+      setState(
+        () => _formError =
+            'Choose a service and professional for every treatment first.',
+      );
+      return;
+    }
+    final slot = await Navigator.of(context).push<AvailableSlot>(
+      MaterialPageRoute(
+        builder: (_) => SlotPickerScreen(
+          serviceId: _service!.id,
+          staff: widget.controller.staffList,
+          date: _startsAt,
+          staffId: _staff?.id,
+          additionalServices: [
+            for (final step in _additional)
+              {'serviceId': step.service!.id, 'staffId': step.staff!.id},
+          ],
+        ),
+      ),
+    );
     if (slot == null || !mounted) return;
     setState(() {
-      _startsAt = businessTime(slot.startsAt, timezone: context.read<AuthController>().business!.timezone);
-      _staff = widget.controller.staffList.firstWhere((s) => s.id == slot.staffId);
+      _requestId = null;
+      _startsAt = businessTime(
+        slot.startsAt,
+        timezone: context.read<AuthController>().business!.timezone,
+      );
+      _staff = widget.controller.staffList.firstWhere(
+        (s) => s.id == slot.staffId,
+      );
       _selectedTime = true;
+      _planned = slot.appointments;
     });
   }
 
   Future<void> _chooseClient() async {
-    final client = await Navigator.of(context).push<ClientRow>(MaterialPageRoute(builder: (_) => const ClientPickerScreen()));
+    final client = await Navigator.of(context).push<ClientRow>(
+      MaterialPageRoute(builder: (_) => const ClientPickerScreen()),
+    );
     if (client == null || !mounted) return;
-    setState(() { _client = client; _name.text = client.displayName ?? ''; _phone.text = client.phone ?? ''; });
+    setState(() {
+      _client = client;
+      _holder = null;
+      _requestId = null;
+      _name.text = client.displayName ?? '';
+      _phone.text = client.phone ?? '';
+    });
+  }
+
+  Future<void> _chooseHolder() async {
+    final client = _client;
+    if (client == null) return;
+    final holder = await Navigator.of(context).push<AppointmentHolderItem>(
+      MaterialPageRoute(
+        builder: (_) =>
+            AppointmentHoldersScreen(clientId: client.clientId, select: true),
+      ),
+    );
+    if (!mounted || holder == null) return;
+    setState(() {
+      _holder = holder.id.isEmpty ? null : holder;
+      _requestId = null;
+    });
   }
 
   Future<void> _submit() async {
@@ -282,11 +514,27 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       setState(() => _formError = 'Pick a service and who is doing it.');
       return;
     }
+    if (_additional.any((step) => step.service == null || step.staff == null)) {
+      setState(
+        () => _formError =
+            'Choose a service and staff member for every treatment.',
+      );
+      return;
+    }
     // Mirrors the backend's own refusal rather than trusting it: a nameless,
     // numberless walk-in is not a customer, it is an empty row.
-    if (!_selectedTime || name.length > 120 || phone.length > 32) { setState(() => _formError = 'Choose an available time and check customer details.'); return; }
+    if (!_selectedTime || name.length > 120 || phone.length > 32) {
+      setState(
+        () =>
+            _formError = 'Choose an available time and check customer details.',
+      );
+      return;
+    }
     if (_client == null && name.isEmpty && phone.isEmpty) {
-      setState(() => _formError = 'A name or a phone number — we need something to call them.');
+      setState(
+        () => _formError =
+            'A name or a phone number — we need something to call them.',
+      );
       return;
     }
 
@@ -295,6 +543,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       _formError = null;
     });
 
+    final random = Random.secure();
+    if (_additional.isNotEmpty)
+      _requestId ??= base64UrlEncode(
+        List<int>.generate(24, (_) => random.nextInt(256)),
+      ).replaceAll('=', '');
     final failure = await widget.controller.walkIn(
       serviceId: _service!.id,
       staffId: _staff!.id,
@@ -302,13 +555,22 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       name: _client == null ? name : null,
       phone: _client == null ? phone : null,
       clientId: _client?.clientId,
+      appointmentHolderId: _holder?.id,
+      additionalServices: [
+        for (final step in _additional)
+          {'serviceId': step.service!.id, 'staffId': step.staff!.id},
+      ],
+      requestId: _additional.isEmpty ? null : _requestId,
     );
 
     if (!mounted) return;
     setState(() => _busy = false);
 
     if (failure != null) {
-      setState(() { _formError = _explain(failure); _selectedTime = false; });
+      setState(() {
+        _formError = _explain(failure);
+        _selectedTime = false;
+      });
       return;
     }
 

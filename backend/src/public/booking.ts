@@ -8,13 +8,15 @@ import {
 import { Booking } from '../models/Booking.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
+import { createSequence, type SequenceStep } from '../bookings/sequence.js';
 import { createBooking } from '../bookings/create.js';
 import { loadContext, slotsFor } from '../bookings/availability.js';
-import { holdKeys, releaseHold } from '../bookings/holds.js';
+import { holdKeys, releaseHold, heldPlan } from '../bookings/holds.js';
+import { meTokenFor } from '../me/token.js';
 import { findOrCreateClient } from '../crm/clients.js';
 import { normalisePhone } from '../lib/phone.js';
 import { logger } from '../lib/logger.js';
-import { confirmBooking } from '../notifications/confirm.js';
+import { confirmBooking, confirmBookings } from '../notifications/confirm.js';
 import type { SendDeps } from '../notifications/send.js';
 
 /**
@@ -52,10 +54,11 @@ export async function releaseWebHold(
   const ctx = await loadContext(businessId, hold.serviceId);
   if (!ctx) return;
   const slots = slotsFor(hold.startsAt, ctx);
+  const plan = await heldPlan(deps.redis, hold.token);
   await releaseHold(deps.redis, {
     token: hold.token,
     staffId: hold.staffId,
-    keys: holdKeys(businessId, hold.staffId, slots),
+    keys: plan?.businessId === businessId ? plan.keys : holdKeys(businessId, hold.staffId, slots),
     expiresAt: new Date(),
   });
 }
@@ -65,7 +68,14 @@ export type WebBookingResult =
   | { ok: false; reason: 'slot_taken'; alternatives: PublicSlot[] }
   | {
       ok: false;
-      reason: 'hold_expired' | 'invalid_slot' | 'outside_hours' | 'too_soon' | 'beyond_horizon' | 'no_staff' | 'invalid_phone';
+      reason:
+        | 'hold_expired'
+        | 'invalid_slot'
+        | 'outside_hours'
+        | 'too_soon'
+        | 'beyond_horizon'
+        | 'no_staff'
+        | 'invalid_phone';
     };
 
 /**
@@ -81,7 +91,13 @@ export type ClientBookingResult =
   | { ok: false; reason: 'slot_taken'; alternatives: PublicSlot[] }
   | {
       ok: false;
-      reason: 'hold_expired' | 'invalid_slot' | 'outside_hours' | 'too_soon' | 'beyond_horizon' | 'no_staff';
+      reason:
+        | 'hold_expired'
+        | 'invalid_slot'
+        | 'outside_hours'
+        | 'too_soon'
+        | 'beyond_horizon'
+        | 'no_staff';
     };
 
 /**
@@ -99,6 +115,7 @@ export async function bookAsClient(
   businessId: string,
   input: {
     clientId: string;
+    appointmentHolderId?: string | undefined;
     serviceId: string;
     staffId: string;
     startsAt: Date;
@@ -111,6 +128,7 @@ export async function bookAsClient(
     serviceId: input.serviceId,
     staffId: input.staffId,
     clientId: input.clientId,
+    ...(input.appointmentHolderId ? { appointmentHolderId: input.appointmentHolderId } : {}),
     startsAt: input.startsAt,
     holdToken: input.holdToken,
     source: 'web',
@@ -153,8 +171,15 @@ export async function bookAsClient(
       serviceName: service?.name ?? '',
       staffName: staff?.name ?? '',
       status:
-        confirmed?.ok && !confirmed.awaitingDeposit ? BOOKING_STATUS.CONFIRMED : result.booking.status,
-      depositToken: confirmed?.ok && confirmed.awaitingDeposit ? await depositTokenOf(result.booking.id) : null,
+        confirmed?.ok && confirmed.awaitingApproval
+          ? BOOKING_STATUS.AWAITING_APPROVAL
+          : confirmed?.ok && !confirmed.awaitingDeposit
+            ? BOOKING_STATUS.CONFIRMED
+            : result.booking.status,
+      delivery: confirmed?.ok && confirmed.delivery.ok ? confirmed.delivery.status : 'unavailable',
+      customerToken: await meTokenFor(businessId, input.clientId).catch(() => null),
+      depositToken:
+        confirmed?.ok && confirmed.awaitingDeposit ? await depositTokenOf(result.booking.id) : null,
     },
   };
 }
@@ -169,6 +194,7 @@ export async function bookFromWeb(
     holdToken: string;
     name: string;
     phone: string;
+    appointmentHolderId?: string | undefined;
     channel?: GrowChannel | undefined;
   },
 ): Promise<WebBookingResult> {
@@ -178,9 +204,7 @@ export async function bookFromWeb(
    * CANCEL they reply with all go over WhatsApp — and it is what matches them
    * to the history they already have from booking by message.
    *
-   * It is NOT verified. Anyone can type anyone's number, and the booking then
-   * lands on that person's profile and messages them. An OTP over WhatsApp is
-   * the fix; until then the rate limit on the route is what bounds the damage.
+   * The HTTP boundary verifies ownership before calling this adapter.
    */
   if (!normalisePhone(input.phone)) return { ok: false, reason: 'invalid_phone' };
 
@@ -194,4 +218,65 @@ export async function bookFromWeb(
 async function depositTokenOf(bookingId: string): Promise<string | null> {
   const booking = await Booking.findById(bookingId).select('depositToken');
   return booking?.depositToken ?? null;
+}
+
+/** Identity is verified at the HTTP boundary; the shared engine commits the whole visit. */
+export async function bookSequenceFromWeb(
+  deps: SendDeps,
+  businessId: string,
+  input: {
+    steps: SequenceStep[];
+    startsAt: Date;
+    name: string;
+    phone: string;
+    requestId: string;
+  },
+) {
+  const clientId = await findOrCreateClient({ phone: input.phone, name: input.name, via: 'web' });
+  if (!clientId) return { ok: false as const, reason: 'invalid_phone' as const };
+  const result = await createSequence(deps.redis, {
+    businessId,
+    clientId,
+    steps: input.steps,
+    startsAt: input.startsAt,
+    requestId: input.requestId,
+    source: 'web',
+  });
+  if (!result.ok) return result;
+  const confirmations = await confirmBookings(deps, businessId, result.bookings);
+  const [services, staff, customerToken] = await Promise.all([
+    Service.find({ businessId, _id: { $in: input.steps.map((step) => step.serviceId) } })
+      .select('name')
+      .lean()
+      .limit(5)
+      .maxTimeMS(5000),
+    Staff.find({ businessId, _id: { $in: input.steps.map((step) => step.staffId) } })
+      .select('name')
+      .lean()
+      .limit(5)
+      .maxTimeMS(5000),
+    meTokenFor(businessId, clientId).catch(() => null),
+  ]);
+  const receipts: PublicBookingReceipt[] = result.bookings.map((booking, index) => {
+    const confirmation = confirmations[index];
+    return {
+      id: booking.id,
+      startsAt: booking.startsAt.toISOString(),
+      durationMinutes: booking.durationMinutes,
+      priceMinor: booking.priceMinor,
+      serviceName:
+        services.find((service) => String(service._id) === booking.serviceId)?.name ?? '',
+      staffName: staff.find((member) => String(member._id) === booking.staffId)?.name ?? '',
+      status: confirmation?.ok
+        ? confirmation.awaitingApproval
+          ? BOOKING_STATUS.AWAITING_APPROVAL
+          : BOOKING_STATUS.CONFIRMED
+        : booking.status,
+      delivery:
+        confirmation?.ok && confirmation.delivery.ok ? confirmation.delivery.status : 'unavailable',
+      customerToken,
+      depositToken: null,
+    };
+  });
+  return { ok: true as const, receipts };
 }

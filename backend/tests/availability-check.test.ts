@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { checkIntervalAvailability } from '../src/bookings/availability.js';
 import { Staff } from '../src/models/Staff.js';
@@ -79,17 +79,25 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
     await Staff.deleteMany({ businessId });
     await Service.deleteMany({ businessId });
     await SlotOccupancy.deleteMany({ businessId });
+    await CapacityOccupancy.deleteMany({ businessId });
     await BlockedTime.deleteMany({ businessId });
   });
 
   const cleanup = async () => {
     await SlotOccupancy.deleteMany({ businessId });
+    await CapacityOccupancy.deleteMany({ businessId });
     await BlockedTime.deleteMany({ businessId });
   };
 
   test('a fully open interval returns available', async () => {
     await cleanup();
-    const result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(true);
     expect(result.reason).toBe('available');
   });
@@ -98,10 +106,21 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
     await cleanup();
     await SlotOccupancy.insertMany([
       { businessId, staffId: staffId1, slotStart: testStartUtc, bookingId: 'b1' },
-      { businessId, staffId: staffId1, slotStart: new Date(testStartUtc.getTime() + 15 * 60000), bookingId: 'b1' },
+      {
+        businessId,
+        staffId: staffId1,
+        slotStart: new Date(testStartUtc.getTime() + 15 * 60000),
+        bookingId: 'b1',
+      },
     ]);
 
-    const result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(false);
     expect(result.reason).toBe('slot_taken');
   });
@@ -109,10 +128,21 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
   test('an interval partially overlapping an existing booking returns unavailable', async () => {
     await cleanup();
     await SlotOccupancy.insertMany([
-      { businessId, staffId: staffId1, slotStart: new Date(testStartUtc.getTime() + 15 * 60000), bookingId: 'b1' },
+      {
+        businessId,
+        staffId: staffId1,
+        slotStart: new Date(testStartUtc.getTime() + 15 * 60000),
+        bookingId: 'b1',
+      },
     ]);
 
-    const result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(false);
     expect(result.reason).toBe('slot_taken');
   });
@@ -121,10 +151,21 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
     await cleanup();
     // Claim 10:30 and 10:45. Booking at 10:00 (30m) ends at 10:30.
     await SlotOccupancy.insertMany([
-      { businessId, staffId: staffId1, slotStart: new Date(testStartUtc.getTime() + 30 * 60000), bookingId: 'b1' },
+      {
+        businessId,
+        staffId: staffId1,
+        slotStart: new Date(testStartUtc.getTime() + 30 * 60000),
+        bookingId: 'b1',
+      },
     ]);
 
-    const result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(true);
     expect(result.reason).toBe('available');
   });
@@ -138,7 +179,13 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
       endsAt: new Date(testStartUtc.getTime() + 60 * 60000),
     });
 
-    const result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(false);
     expect(result.reason).toBe('blocked');
   });
@@ -163,16 +210,22 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
       minNoticeMinutes: 60,
       bookingHorizonDays: 30,
     });
-    
+
     // Check Alice (who belongs to Business A) using Business B's ID
-    const result = await checkIntervalAvailability(String(businessB._id), staffId1, serviceId, testStartUtc, now);
-    
+    const result = await checkIntervalAvailability(
+      String(businessB._id),
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
+
     // The very first step in checkIntervalAvailability is loadContext(businessId, serviceId).
     // Because the Service belongs to Business A, it is not found under Business B.
     // This deterministically returns 'invalid_slot' before the staff checks even run.
     expect(result.available).toBe(false);
     expect(result.reason).toBe('invalid_slot');
-    
+
     await Business.deleteOne({ _id: businessB._id });
   });
 
@@ -180,10 +233,21 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
     await cleanup();
     await SlotOccupancy.insertMany([
       { businessId, staffId: staffId1, slotStart: testStartUtc, bookingId: 'b1' },
-      { businessId, staffId: staffId1, slotStart: new Date(testStartUtc.getTime() + 15 * 60000), bookingId: 'b1' },
+      {
+        businessId,
+        staffId: staffId1,
+        slotStart: new Date(testStartUtc.getTime() + 15 * 60000),
+        bookingId: 'b1',
+      },
     ]);
 
-    const result = await checkIntervalAvailability(businessId, staffId2, serviceId, testStartUtc, now);
+    const result = await checkIntervalAvailability(
+      businessId,
+      staffId2,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(true);
     expect(result.reason).toBe('available');
   });
@@ -194,7 +258,13 @@ describe.skipIf(!infraUp)('Availability Engine (checkIntervalAvailability)', () 
     await SlotOccupancy.insertMany([
       { businessId, staffId: staffId1, slotStart: testStartUtc, bookingId: 'b_noshow' },
     ]);
-    let result = await checkIntervalAvailability(businessId, staffId1, serviceId, testStartUtc, now);
+    let result = await checkIntervalAvailability(
+      businessId,
+      staffId1,
+      serviceId,
+      testStartUtc,
+      now,
+    );
     expect(result.available).toBe(false);
     expect(result.reason).toBe('slot_taken');
 

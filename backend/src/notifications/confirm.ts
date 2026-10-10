@@ -1,4 +1,5 @@
 import { BOOKING_STATUS, NOTIFICATION_KIND } from '@scalivo/shared';
+import { PUSH_CHANNEL, pushToOwners } from '../push/fcm.js';
 import { Booking } from '../models/Booking.js';
 import { Business } from '../models/Business.js';
 import { Service } from '../models/Service.js';
@@ -40,14 +41,30 @@ export type ConfirmResult =
       delivery: SendOutcome;
       /** The booking is held pending a deposit; the payment link went out instead. */
       awaitingDeposit?: boolean;
+      awaitingApproval?: boolean;
     }
-  | { ok: false; reason: 'not_found' | 'already_terminal' };
+  | { ok: false; reason: 'not_found' | 'already_terminal' | 'approval_expired' };
 
 export async function confirmBooking(
   deps: SendDeps,
   businessId: string,
   bookingId: string,
+  options: {
+    ownerApproval?: boolean;
+    display?: {
+      businessName: string;
+      timezone: string;
+      serviceName: string;
+      staffName: string;
+      pageUrl: string | null;
+    };
+  } = {},
 ): Promise<ConfirmResult> {
+  if (!options.ownerApproval)
+    await Booking.updateOne(
+      { _id: bookingId, businessId, status: BOOKING_STATUS.PENDING, approvalRequired: true },
+      { $set: { status: BOOKING_STATUS.AWAITING_APPROVAL } },
+    );
   /**
    * Conditional on PENDING, so the write is the check.
    *
@@ -58,8 +75,27 @@ export async function confirmBooking(
    * "already confirmed" and "just confirmed" differently.
    */
   const updated = await Booking.findOneAndUpdate(
-    { _id: bookingId, businessId, status: BOOKING_STATUS.PENDING },
-    { $set: { status: BOOKING_STATUS.CONFIRMED } },
+    {
+      _id: bookingId,
+      businessId,
+      $or: [
+        {
+          status: BOOKING_STATUS.PENDING,
+          ...(options.ownerApproval
+            ? {
+                $or: [
+                  { approvalRequired: { $ne: true } },
+                  { approvalExpiresAt: { $gt: new Date() } },
+                ],
+              }
+            : { approvalRequired: { $ne: true } }),
+        },
+        ...(options.ownerApproval
+          ? [{ status: BOOKING_STATUS.AWAITING_APPROVAL, approvalExpiresAt: { $gt: new Date() } }]
+          : []),
+      ],
+    },
+    { $set: { status: BOOKING_STATUS.CONFIRMED }, $inc: { revision: 1 } },
     { new: true },
   );
 
@@ -69,13 +105,55 @@ export async function confirmBooking(
   // Nothing to confirm about an appointment that is over or called off, and a
   // "you're booked" for one would be actively misleading.
   if (isTerminal(booking.status)) return { ok: false, reason: 'already_terminal' };
+  if (
+    booking.approvalRequired &&
+    booking.status !== BOOKING_STATUS.CONFIRMED &&
+    (!booking.approvalExpiresAt || booking.approvalExpiresAt <= new Date())
+  )
+    return { ok: false, reason: 'approval_expired' };
 
-  const [business, service, staff] = await Promise.all([
-    Business.findById(businessId).select('name timezone'),
-    Service.findById(booking.serviceId).select('name'),
-    Staff.findById(booking.staffId).select('name'),
-  ]);
-  if (!business) return { ok: false, reason: 'not_found' };
+  let display = options.display;
+  if (!display) {
+    const [business, service, staff] = await Promise.all([
+      Business.findById(businessId).select('name timezone'),
+      Service.findOne({ _id: booking.serviceId, businessId }).select('name'),
+      Staff.findOne({ _id: booking.staffId, businessId }).select('name'),
+    ]);
+    if (!business) return { ok: false, reason: 'not_found' };
+    display = {
+      businessName: business.name,
+      timezone: business.timezone,
+      serviceName: service?.name ?? 'your appointment',
+      staffName: staff?.name ?? 'our team',
+      pageUrl: await mePageUrl(businessId, booking.clientId),
+    };
+  }
+  const recipient = booking.appointmentHolderName
+    ? `Appointment for ${booking.appointmentHolderName}.\n\n`
+    : '';
+  if (booking.status === BOOKING_STATUS.AWAITING_APPROVAL) {
+    const delivery = await sendTracked(deps, {
+      businessId,
+      clientId: booking.clientId,
+      bookingId,
+      kind: NOTIFICATION_KIND.CONFIRMATION,
+      dedupeKey: `${bookingId}:approval_request`,
+      scheduledFor: new Date(),
+      text:
+        recipient +
+        `Your ${display.serviceName} request at ${display.businessName} is awaiting the owner's approval. It is not confirmed yet. We will let you know when it is accepted.`,
+    });
+    if (delivery.ok || delivery.reason !== 'already_claimed')
+      await pushToOwners(businessId, {
+        title: 'Appointment awaiting approval',
+        body: 'A customer requested an appointment. Open your calendar to accept or decline before the request expires.',
+        channel: PUSH_CHANNEL.BOOKINGS,
+        route: '/',
+      }).catch((err) =>
+        logger.error({ err, businessId, bookingId }, 'could not notify owner of approval request'),
+      );
+    return { ok: true, changed: false, delivery, awaitingApproval: true };
+  }
 
   /**
    * A deposit-required booking is not confirmed by the customer's YES — it is
@@ -92,16 +170,18 @@ export async function confirmBooking(
       bookingId,
       kind: NOTIFICATION_KIND.DEPOSIT_REQUEST,
       dedupeKey: `${bookingId}:deposit_request`,
-      text: copy.depositRequest({
-        businessName: business.name,
-        serviceName: service?.name ?? 'your appointment',
-        staffName: staff?.name ?? 'our team',
-        startsAt: booking.startsAt,
-        timezone: business.timezone,
-        depositMinor: booking.depositMinor ?? 0,
-        dueBy: booking.depositDueBy ?? booking.startsAt,
-        payUrl: `${env.WEB_URL}/pay/${booking.depositToken}`,
-      }),
+      text:
+        recipient +
+        copy.depositRequest({
+          businessName: display.businessName,
+          serviceName: display.serviceName,
+          staffName: display.staffName,
+          startsAt: booking.startsAt,
+          timezone: display.timezone,
+          depositMinor: booking.depositMinor ?? 0,
+          dueBy: booking.depositDueBy ?? booking.startsAt,
+          payUrl: `${env.WEB_URL}/pay/${booking.depositToken}`,
+        }),
       scheduledFor: new Date(),
     });
     logger.info({ bookingId, businessId }, 'deposit requested');
@@ -116,14 +196,16 @@ export async function confirmBooking(
     // One confirmation per booking, for the life of the booking. A reschedule
     // announces itself separately rather than re-confirming.
     dedupeKey: `${bookingId}:confirmation`,
-    text: copy.booked({
-      businessName: business.name,
-      serviceName: service?.name ?? 'your appointment',
-      staffName: staff?.name ?? 'our team',
-      startsAt: booking.startsAt,
-      timezone: business.timezone,
-      pageUrl: await mePageUrl(businessId, booking.clientId),
-    }),
+    text:
+      recipient +
+      copy.booked({
+        businessName: display.businessName,
+        serviceName: display.serviceName,
+        staffName: display.staffName,
+        startsAt: booking.startsAt,
+        timezone: display.timezone,
+        pageUrl: display.pageUrl,
+      }),
     scheduledFor: new Date(),
   });
 
@@ -138,6 +220,61 @@ export async function confirmBooking(
   );
 
   return { ok: true, changed: Boolean(updated), delivery };
+}
+
+/** Consecutive visits share display reads and a customer link, while each message remains tracked. */
+export async function confirmBookings(
+  deps: SendDeps,
+  businessId: string,
+  bookings: { id: string; clientId: string; serviceId: string; staffId: string }[],
+) {
+  if (
+    !bookings.length ||
+    bookings.length > 5 ||
+    bookings.some((booking) => booking.clientId !== bookings[0]!.clientId)
+  )
+    throw new Error('invalid consecutive confirmation');
+  const [business, services, staff, pageUrl] = await Promise.all([
+    Business.findById(businessId).select('name timezone').lean().maxTimeMS(5000),
+    Service.find({ businessId, _id: { $in: bookings.map((booking) => booking.serviceId) } })
+      .select('name')
+      .lean()
+      .limit(5)
+      .maxTimeMS(5000),
+    Staff.find({ businessId, _id: { $in: bookings.map((booking) => booking.staffId) } })
+      .select('name')
+      .lean()
+      .limit(5)
+      .maxTimeMS(5000),
+    mePageUrl(businessId, bookings[0]!.clientId),
+  ]);
+  if (!business) return bookings.map(() => ({ ok: false as const, reason: 'not_found' as const }));
+  const results: ConfirmResult[] = [];
+  for (const booking of bookings) {
+    try {
+      results.push(
+        await confirmBooking(deps, businessId, booking.id, {
+          display: {
+            businessName: business.name,
+            timezone: business.timezone,
+            pageUrl,
+            serviceName:
+              services.find((service) => String(service._id) === booking.serviceId)?.name ??
+              'your appointment',
+            staffName:
+              staff.find((member) => String(member._id) === booking.staffId)?.name ?? 'our team',
+          },
+        }),
+      );
+    } catch (err) {
+      logger.error(
+        { err, bookingId: booking.id, businessId },
+        'could not confirm consecutive appointment',
+      );
+      results.push({ ok: false, reason: 'not_found' });
+    }
+  }
+  return results;
 }
 
 /**

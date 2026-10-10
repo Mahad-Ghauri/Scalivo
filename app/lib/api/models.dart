@@ -11,9 +11,9 @@ class AuthResult {
   final String role;
 
   factory AuthResult.fromJson(Map<String, dynamic> json) => AuthResult(
-        token: json['token'] as String,
-        role: json['role'] as String? ?? 'owner',
-      );
+    token: json['token'] as String,
+    role: json['role'] as String? ?? 'owner',
+  );
 }
 
 class BusinessSummary {
@@ -90,9 +90,9 @@ class LinkResult {
   final String? qrCode;
 
   factory LinkResult.fromJson(Map<String, dynamic> json) => LinkResult(
-        status: json['status'] as String? ?? 'created',
-        qrCode: json['qrCode'] as String?,
-      );
+    status: json['status'] as String? ?? 'created',
+    qrCode: json['qrCode'] as String?,
+  );
 }
 
 /// What the session banner shows.
@@ -153,6 +153,7 @@ class CalendarEntry {
     required this.status,
     required this.priceMinor,
     required this.source,
+    this.revision = 0,
   });
 
   final String id;
@@ -174,30 +175,38 @@ class CalendarEntry {
   final String status;
   final int priceMinor;
   final String source;
+  final int revision;
 
   bool get isTerminal =>
       status == 'completed' || status == 'no_show' || status == 'cancelled';
 
-  bool canMarkOutcomeAt(DateTime now) => status == 'confirmed' && !startsAt.isAfter(now);
+  bool canCompleteAt(DateTime now) =>
+      status == 'confirmed' && !endsAt.isAfter(now);
+  bool canNoShowAt(DateTime now) =>
+      status == 'confirmed' &&
+      !startsAt.add(const Duration(minutes: 10)).isAfter(now);
+  bool canMarkOutcomeAt(DateTime now) => canCompleteAt(now) || canNoShowAt(now);
 
-  factory CalendarEntry.fromJson(Map<String, dynamic> json, {
+  factory CalendarEntry.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => CalendarEntry(
-        id: json['id'] as String,
-        staffId: json['staffId'] as String,
-        staffName: json['staffName'] as String? ?? 'Staff',
-        clientId: json['clientId'] as String,
-        clientName: json['clientName'] as String?,
-        clientPhone: json['clientPhone'] as String?,
-        serviceId: json['serviceId'] as String,
-        serviceName: json['serviceName'] as String? ?? 'Service',
-        startsAt: _utc(json['startsAt'], timezone),
-        endsAt: _utc(json['endsAt'], timezone),
-        durationMinutes: json['durationMinutes'] as int? ?? 0,
-        status: json['status'] as String? ?? 'pending',
-        priceMinor: json['priceMinor'] as int? ?? 0,
-        source: json['source'] as String? ?? 'whatsapp',
-      );
+    id: json['id'] as String,
+    revision: json['revision'] as int? ?? 0,
+    staffId: json['staffId'] as String,
+    staffName: json['staffName'] as String? ?? 'Staff',
+    clientId: json['clientId'] as String,
+    clientName: json['clientName'] as String?,
+    clientPhone: json['clientPhone'] as String?,
+    serviceId: json['serviceId'] as String,
+    serviceName: json['serviceName'] as String? ?? 'Service',
+    startsAt: _utc(json['startsAt'], timezone),
+    endsAt: _utc(json['endsAt'], timezone),
+    durationMinutes: json['durationMinutes'] as int? ?? 0,
+    status: json['status'] as String? ?? 'pending',
+    priceMinor: json['priceMinor'] as int? ?? 0,
+    source: json['source'] as String? ?? 'whatsapp',
+  );
 }
 
 /// Time the owner declared off-limits. A null staffId closes the business.
@@ -208,27 +217,35 @@ class CalendarBlock {
     required this.startsAt,
     required this.endsAt,
     required this.reason,
+    this.resourceId,
   });
 
   final String id;
   final String? staffId;
+  final String? resourceId;
   final DateTime startsAt;
   final DateTime endsAt;
   final String? reason;
 
-  factory CalendarBlock.fromJson(Map<String, dynamic> json, {
+  factory CalendarBlock.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => CalendarBlock(
-        id: json['id'] as String,
-        staffId: json['staffId'] as String?,
-        startsAt: _utc(json['startsAt'], timezone),
-        endsAt: _utc(json['endsAt'], timezone),
-        reason: json['reason'] as String?,
-      );
+    id: json['id'] as String,
+    staffId: json['staffId'] as String?,
+    resourceId: json['resourceId'] as String?,
+    startsAt: _utc(json['startsAt'], timezone),
+    endsAt: _utc(json['endsAt'], timezone),
+    reason: json['reason'] as String?,
+  );
 }
 
 class CalendarDay {
-  const CalendarDay({required this.date, required this.entries, required this.blocks});
+  const CalendarDay({
+    required this.date,
+    required this.entries,
+    required this.blocks,
+  });
 
   /// Business-local 'YYYY-MM-DD'. The grouping the backend already did, kept
   /// rather than re-derived: splitting on the phone's midnight would move the
@@ -237,23 +254,28 @@ class CalendarDay {
   final List<CalendarEntry> entries;
   final List<CalendarBlock> blocks;
 
-  factory CalendarDay.fromJson(Map<String, dynamic> json, {
+  factory CalendarDay.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => CalendarDay(
-        date: json['date'] as String,
-        entries: (json['entries'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map((row) => CalendarEntry.fromJson(row, timezone: timezone))
-            .toList(growable: false),
-        blocks: (json['blocks'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map((row) => CalendarBlock.fromJson(row, timezone: timezone))
-            .toList(growable: false),
-      );
+    date: json['date'] as String,
+    entries: (json['entries'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((row) => CalendarEntry.fromJson(row, timezone: timezone))
+        .toList(growable: false),
+    blocks: (json['blocks'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((row) => CalendarBlock.fromJson(row, timezone: timezone))
+        .toList(growable: false),
+  );
 }
 
 class CalendarView {
-  const CalendarView({required this.timezone, required this.staff, required this.days});
+  const CalendarView({
+    required this.timezone,
+    required this.staff,
+    required this.days,
+  });
 
   final String timezone;
 
@@ -262,21 +284,21 @@ class CalendarView {
   final List<CalendarDay> days;
 
   factory CalendarView.fromJson(Map<String, dynamic> json) => CalendarView(
-        timezone: json['timezone'] as String? ?? 'Asia/Karachi',
-        staff: (json['staff'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(StaffSummary.fromJson)
-            .toList(growable: false),
-        days: (json['days'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(
-              (row) => CalendarDay.fromJson(
-                row,
-                timezone: json['timezone'] as String? ?? 'Asia/Karachi',
-              ),
-            )
-            .toList(growable: false),
-      );
+    timezone: json['timezone'] as String? ?? 'Asia/Karachi',
+    staff: (json['staff'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(StaffSummary.fromJson)
+        .toList(growable: false),
+    days: (json['days'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (row) => CalendarDay.fromJson(
+            row,
+            timezone: json['timezone'] as String? ?? 'Asia/Karachi',
+          ),
+        )
+        .toList(growable: false),
+  );
 
   CalendarDay? dayFor(String date) {
     for (final day in days) {
@@ -287,17 +309,22 @@ class CalendarView {
 }
 
 class StaffSummary {
-  const StaffSummary({required this.id, required this.name, this.serviceIds = const []});
+  const StaffSummary({
+    required this.id,
+    required this.name,
+    this.serviceIds = const [],
+  });
 
   final String id;
   final String name;
   final List<String> serviceIds;
 
   factory StaffSummary.fromJson(Map<String, dynamic> json) => StaffSummary(
-        id: (json['id'] ?? json['_id']) as String,
-        name: json['name'] as String? ?? 'Staff',
-        serviceIds: (json['serviceIds'] as List<dynamic>? ?? const []).cast<String>(),
-      );
+    id: (json['id'] ?? json['_id']) as String,
+    name: json['name'] as String? ?? 'Staff',
+    serviceIds: (json['serviceIds'] as List<dynamic>? ?? const [])
+        .cast<String>(),
+  );
 }
 
 /// A service, whole.
@@ -316,6 +343,9 @@ class ServiceItem {
     required this.depositAmountMinor,
     required this.displayOrder,
     required this.active,
+    this.resourceRequirements = const [],
+    this.requiresOwnerApproval = false,
+    this.approvalWindowMinutes = 30,
   });
 
   final String id;
@@ -333,17 +363,74 @@ class ServiceItem {
   /// Retired services stay: bookings reference them, and a hard delete would
   /// turn finished appointments into blanks in a client's visit history.
   final bool active;
+  final List<List<String>> resourceRequirements;
+  final bool requiresOwnerApproval;
+  final int approvalWindowMinutes;
 
   factory ServiceItem.fromJson(Map<String, dynamic> json) => ServiceItem(
-        id: (json['id'] ?? json['_id']) as String,
-        name: json['name'] as String? ?? 'Service',
-        durationMinutes: json['durationMinutes'] as int? ?? 30,
-        bufferMinutes: json['bufferMinutes'] as int? ?? 0,
-        priceMinor: json['priceMinor'] as int? ?? 0,
-        depositRequired: json['depositRequired'] as bool? ?? false,
-        depositAmountMinor: json['depositAmountMinor'] as int?,
-        displayOrder: json['displayOrder'] as int? ?? 0,
-        active: json['active'] as bool? ?? true,
+    id: (json['id'] ?? json['_id']) as String,
+    name: json['name'] as String? ?? 'Service',
+    durationMinutes: json['durationMinutes'] as int? ?? 30,
+    bufferMinutes: json['bufferMinutes'] as int? ?? 0,
+    priceMinor: json['priceMinor'] as int? ?? 0,
+    depositRequired: json['depositRequired'] as bool? ?? false,
+    depositAmountMinor: json['depositAmountMinor'] as int?,
+    displayOrder: json['displayOrder'] as int? ?? 0,
+    active: json['active'] as bool? ?? true,
+    resourceRequirements:
+        (json['resourceRequirements'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(
+              (group) =>
+                  (group['anyOfResourceIds'] as List<dynamic>? ?? const [])
+                      .whereType<String>()
+                      .toList(growable: false),
+            )
+            .toList(growable: false),
+    requiresOwnerApproval: json['requiresOwnerApproval'] as bool? ?? false,
+    approvalWindowMinutes: json['approvalWindowMinutes'] as int? ?? 30,
+  );
+}
+
+class ResourceItem {
+  const ResourceItem({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.active,
+    this.fixedRoomId,
+    this.quantity = 1,
+  });
+  final String id;
+  final String name;
+  final String kind;
+  final bool active;
+  final String? fixedRoomId;
+  final int quantity;
+  String get kindLabel => switch (kind) {
+    'room' => 'Whole room',
+    'bed' => 'Bed',
+    'chair' => 'Chair',
+    _ => 'Equipment',
+  };
+  factory ResourceItem.fromJson(Map<String, dynamic> json) => ResourceItem(
+    id: (json['id'] ?? json['_id']) as String,
+    name: json['name'] as String,
+    kind: json['kind'] as String,
+    active: json['active'] as bool? ?? true,
+    fixedRoomId: json['fixedRoomId'] as String?,
+    quantity: json['quantity'] as int? ?? 1,
+  );
+}
+
+class AppointmentHolderItem {
+  const AppointmentHolderItem({required this.id, required this.name});
+  final String id;
+  final String name;
+  factory AppointmentHolderItem.fromJson(Map<String, dynamic> json) =>
+      AppointmentHolderItem(
+        id: json['id'] as String,
+        name: json['name'] as String,
       );
 }
 
@@ -367,17 +454,18 @@ class ClientRow {
   final int lifetimeSpendMinor;
   final DateTime? lastVisitAt;
 
-  factory ClientRow.fromJson(Map<String, dynamic> json, {
+  factory ClientRow.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => ClientRow(
-        clientId: json['clientId'] as String,
-        displayName: json['displayName'] as String?,
-        phone: json['phone'] as String?,
-        tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
-        totalVisits: json['totalVisits'] as int? ?? 0,
-        lifetimeSpendMinor: json['lifetimeSpendMinor'] as int? ?? 0,
-        lastVisitAt: _utcOrNull(json['lastVisitAt'], timezone),
-      );
+    clientId: json['clientId'] as String,
+    displayName: json['displayName'] as String?,
+    phone: json['phone'] as String?,
+    tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
+    totalVisits: json['totalVisits'] as int? ?? 0,
+    lifetimeSpendMinor: json['lifetimeSpendMinor'] as int? ?? 0,
+    lastVisitAt: _utcOrNull(json['lastVisitAt'], timezone),
+  );
 }
 
 /// One visit on a profile's history.
@@ -400,17 +488,18 @@ class VisitRow {
   final String staffName;
   final String source;
 
-  factory VisitRow.fromJson(Map<String, dynamic> json, {
+  factory VisitRow.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) => VisitRow(
-        id: json['id'] as String,
-        startsAt: _utc(json['startsAt'], timezone),
-        status: json['status'] as String? ?? 'pending',
-        priceMinor: json['priceMinor'] as int? ?? 0,
-        serviceName: json['serviceName'] as String? ?? 'Service',
-        staffName: json['staffName'] as String? ?? 'Staff',
-        source: json['source'] as String? ?? 'whatsapp',
-      );
+    id: json['id'] as String,
+    startsAt: _utc(json['startsAt'], timezone),
+    status: json['status'] as String? ?? 'pending',
+    priceMinor: json['priceMinor'] as int? ?? 0,
+    serviceName: json['serviceName'] as String? ?? 'Service',
+    staffName: json['staffName'] as String? ?? 'Staff',
+    source: json['source'] as String? ?? 'whatsapp',
+  );
 }
 
 class ClientProfileDetail {
@@ -446,7 +535,8 @@ class ClientProfileDetail {
   final bool marketingOptOut;
   final List<VisitRow> history;
 
-  factory ClientProfileDetail.fromJson(Map<String, dynamic> json, {
+  factory ClientProfileDetail.fromJson(
+    Map<String, dynamic> json, {
     String timezone = 'Asia/Karachi',
   }) {
     final p = json['profile'] as Map<String, dynamic>? ?? const {};
@@ -503,8 +593,9 @@ class BusinessSettings {
       minNoticeMinutes: json['minNoticeMinutes'] as int? ?? 60,
       bookingHorizonDays: json['bookingHorizonDays'] as int? ?? 30,
       remindersEnabled: r['enabled'] as bool? ?? true,
-      reminderLeadMinutes:
-          (r['leadMinutes'] as List<dynamic>? ?? const [1440]).map((v) => v as int).toList(),
+      reminderLeadMinutes: (r['leadMinutes'] as List<dynamic>? ?? const [1440])
+          .map((v) => v as int)
+          .toList(),
     );
   }
 }
@@ -535,9 +626,9 @@ class TimeBreak {
   final String endsAt;
 
   factory TimeBreak.fromJson(Map<String, dynamic> json) => TimeBreak(
-        startsAt: json['startsAt'] as String? ?? '13:00',
-        endsAt: json['endsAt'] as String? ?? '14:00',
-      );
+    startsAt: json['startsAt'] as String? ?? '13:00',
+    endsAt: json['endsAt'] as String? ?? '14:00',
+  );
 
   Map<String, dynamic> toJson() => {'startsAt': startsAt, 'endsAt': endsAt};
 }
@@ -561,29 +652,33 @@ class WorkingDay {
   final String closesAt;
   final List<TimeBreak> breaks;
 
-  WorkingDay copyWith({String? opensAt, String? closesAt, List<TimeBreak>? breaks}) => WorkingDay(
-        dayOfWeek: dayOfWeek,
-        opensAt: opensAt ?? this.opensAt,
-        closesAt: closesAt ?? this.closesAt,
-        breaks: breaks ?? this.breaks,
-      );
+  WorkingDay copyWith({
+    String? opensAt,
+    String? closesAt,
+    List<TimeBreak>? breaks,
+  }) => WorkingDay(
+    dayOfWeek: dayOfWeek,
+    opensAt: opensAt ?? this.opensAt,
+    closesAt: closesAt ?? this.closesAt,
+    breaks: breaks ?? this.breaks,
+  );
 
   factory WorkingDay.fromJson(Map<String, dynamic> json) => WorkingDay(
-        dayOfWeek: json['dayOfWeek'] as int? ?? 0,
-        opensAt: json['opensAt'] as String? ?? '09:00',
-        closesAt: json['closesAt'] as String? ?? '18:00',
-        breaks: (json['breaks'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(TimeBreak.fromJson)
-            .toList(),
-      );
+    dayOfWeek: json['dayOfWeek'] as int? ?? 0,
+    opensAt: json['opensAt'] as String? ?? '09:00',
+    closesAt: json['closesAt'] as String? ?? '18:00',
+    breaks: (json['breaks'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(TimeBreak.fromJson)
+        .toList(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'dayOfWeek': dayOfWeek,
-        'opensAt': opensAt,
-        'closesAt': closesAt,
-        'breaks': [for (final b in breaks) b.toJson()],
-      };
+    'dayOfWeek': dayOfWeek,
+    'opensAt': opensAt,
+    'closesAt': closesAt,
+    'breaks': [for (final b in breaks) b.toJson()],
+  };
 }
 
 /// A staff member, whole — unlike [StaffSummary], which is the id-and-name pair
@@ -607,15 +702,16 @@ class StaffMember {
   final bool active;
 
   factory StaffMember.fromJson(Map<String, dynamic> json) => StaffMember(
-        id: (json['id'] ?? json['_id']) as String,
-        name: json['name'] as String? ?? 'Staff',
-        serviceIds: (json['serviceIds'] as List<dynamic>? ?? const []).cast<String>(),
-        workingHours: (json['workingHours'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(WorkingDay.fromJson)
-            .toList(),
-        active: json['active'] as bool? ?? true,
-      );
+    id: (json['id'] ?? json['_id']) as String,
+    name: json['name'] as String? ?? 'Staff',
+    serviceIds: (json['serviceIds'] as List<dynamic>? ?? const [])
+        .cast<String>(),
+    workingHours: (json['workingHours'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(WorkingDay.fromJson)
+        .toList(),
+    active: json['active'] as bool? ?? true,
+  );
 }
 
 /// What came back from declaring time off-limits.
@@ -632,9 +728,10 @@ class BlockResult {
   final int affectedBookings;
 
   factory BlockResult.fromJson(Map<String, dynamic> json) => BlockResult(
-        id: (json['block'] as Map<String, dynamic>?)?['id'] as String? ?? '',
-        affectedBookings: (json['affectedBookings'] as List<dynamic>? ?? const []).length,
-      );
+    id: (json['block'] as Map<String, dynamic>?)?['id'] as String? ?? '',
+    affectedBookings:
+        (json['affectedBookings'] as List<dynamic>? ?? const []).length,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -657,10 +754,10 @@ class SetupStep {
   final String? detail;
 
   factory SetupStep.fromJson(Map<String, dynamic> json) => SetupStep(
-        id: json['id'] as String? ?? '',
-        done: json['done'] as bool? ?? false,
-        detail: json['detail'] as String?,
-      );
+    id: json['id'] as String? ?? '',
+    done: json['done'] as bool? ?? false,
+    detail: json['detail'] as String?,
+  );
 }
 
 /// Why this business cannot take a booking yet.
@@ -689,10 +786,10 @@ class SetupChecklist {
       steps.where((s) => !s.done && s.id != 'whatsapp').toList(growable: false);
 
   factory SetupChecklist.fromJson(Map<String, dynamic> json) => SetupChecklist(
-        bookable: json['bookable'] as bool? ?? false,
-        steps: (json['steps'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(SetupStep.fromJson)
-            .toList(growable: false),
-      );
+    bookable: json['bookable'] as bool? ?? false,
+    steps: (json['steps'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(SetupStep.fromJson)
+        .toList(growable: false),
+  );
 }

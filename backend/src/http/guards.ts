@@ -17,7 +17,7 @@ export const safely =
     try {
       await handler(req, res, next);
     } catch (err) {
-      logger.error({ err, path: req.path }, 'public route failed');
+      logger.error({ err, route: req.route?.path ?? 'public' }, 'public route failed');
       if (!res.headersSent) res.status(500).json({ error: 'Something went wrong. Try again.' });
     }
   };

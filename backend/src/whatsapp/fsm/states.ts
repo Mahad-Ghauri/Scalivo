@@ -16,6 +16,7 @@ export const CONVERSATION_STATE = {
   SELECTING_DATE: 'selecting_date',
   SELECTING_SLOT: 'selecting_slot',
   CONFIRMING: 'confirming',
+  AWAITING_NAME: 'awaiting_name',
   /**
    * Reachable only once a payment provider exists (Phase 2, SPEC §12). Entering
    * it now would strand the customer in a state whose only exit is a payment
@@ -39,6 +40,7 @@ export const CONVERSATION_STATE = {
    * typed CANCEL is not silently walked into rescheduling.
    */
   SELECTING_BOOKING: 'selecting_booking',
+  SELECTING_SEQUENCE_STAFF: 'selecting_sequence_staff',
   RESCHEDULING: 'rescheduling',
   CANCELLING: 'cancelling',
   /**
@@ -89,6 +91,9 @@ export interface Conversation {
   holdToken?: string;
   /** The staff member the hold actually landed on, once ANY_STAFF is resolved. */
   heldStaffId?: string;
+  appointmentHolderId?: string;
+  additionalServices?: { serviceId: string; staffId?: string }[];
+  sequenceStaffIndex?: number;
 
   /**
    * What the numbered list the customer is looking at actually maps to.

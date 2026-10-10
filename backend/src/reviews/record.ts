@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import {
   BOOKING_STATUS,
   REVIEW_COMMENT_MAX_LENGTH,
@@ -75,15 +76,42 @@ export async function recordRating(input: Rating): Promise<RatingResult> {
   const published = rating >= REVIEW_PUBLISH_MIN_RATING;
 
   try {
-    const review = await Review.create({
-      businessId,
-      bookingId,
-      clientId,
-      authorName: authorNameOf(client?.displayName),
-      rating,
-      serviceName: service?.name ?? null,
-      published,
-    });
+    const session = await mongoose.startSession();
+    let reviewId: string | null = null;
+    try {
+      await session.withTransaction(
+        async () => {
+          reviewId = null;
+          // The booking write conflicts with an outcome correction; a review
+          // cannot publish after the appointment stopped being completed.
+          const eligible = await Booking.updateOne(
+            { _id: bookingId, businessId, clientId, status: BOOKING_STATUS.COMPLETED },
+            { $set: { updatedAt: new Date() } },
+            { session, maxTimeMS: 5000 },
+          );
+          if (!eligible.matchedCount) return;
+          const [review] = await Review.create(
+            [
+              {
+                businessId,
+                bookingId,
+                clientId,
+                authorName: authorNameOf(client?.displayName),
+                rating,
+                serviceName: service?.name ?? null,
+                published,
+              },
+            ],
+            { session },
+          );
+          reviewId = String(review!._id);
+        },
+        { maxCommitTimeMS: 5000 },
+      );
+    } finally {
+      await session.endSession();
+    }
+    if (!reviewId) return { ok: false, reason: 'no_completed_booking' };
 
     logger.info({ businessId, bookingId, rating, published }, 'review recorded');
 
@@ -98,7 +126,7 @@ export async function recordRating(input: Rating): Promise<RatingResult> {
       });
     }
 
-    return { ok: true, reviewId: String(review._id), published, alreadyRated: false };
+    return { ok: true, reviewId, published, alreadyRated: false };
   } catch (err) {
     if (!isDuplicateKey(err)) throw err;
 
@@ -156,6 +184,9 @@ export async function attachComment(
   const trimmed = comment.trim().slice(0, REVIEW_COMMENT_MAX_LENGTH);
   if (!trimmed) return;
 
-  await Review.updateOne({ bookingId, businessId, published: true }, { $set: { comment: trimmed } });
+  await Review.updateOne(
+    { bookingId, businessId, published: true },
+    { $set: { comment: trimmed } },
+  );
   logger.info({ businessId, bookingId }, 'review comment attached');
 }

@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express from 'express';
@@ -44,7 +45,10 @@ const TZ = 'Asia/Karachi';
 
 const provider = {
   name: 'fake',
-  sendText: async (): Promise<SendResult> => ({ providerMessageId: `grow-${Math.random()}`, acceptedAt: new Date() }),
+  sendText: async (): Promise<SendResult> => ({
+    providerMessageId: `grow-${Math.random()}`,
+    acceptedAt: new Date(),
+  }),
   getSessionStatus: async () => SESSION_STATUS.READY,
 } as unknown as MessagingProvider;
 
@@ -103,7 +107,11 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
   beforeAll(async () => {
     // db 7 — 1–6 belong to the other infrastructure suites.
     redis = new Redis(process.env.REDIS_URL!, { db: 7 });
-    await Promise.all([FunnelDay.syncIndexes(), SlotOccupancy.syncIndexes(), Booking.syncIndexes()]);
+    await Promise.all([
+      FunnelDay.syncIndexes(),
+      SlotOccupancy.syncIndexes(),
+      Booking.syncIndexes(),
+    ]);
 
     const app = express();
     app.use('/public', createPublicRouter(redis, provider));
@@ -124,7 +132,15 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
     const seed = (slug: string, name: string, extra: Record<string, unknown>) =>
       Business.findOneAndReplace(
         { slug },
-        { slug, name, category: 'growcat', city: 'Growabad', timezone: TZ, published: true, ...extra },
+        {
+          slug,
+          name,
+          category: 'growcat',
+          city: 'Growabad',
+          timezone: TZ,
+          published: true,
+          ...extra,
+        },
         { upsert: true, new: true },
       );
     const business = await seed('grow-test', 'Grow Test Salon', {});
@@ -140,6 +156,7 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
       Service.deleteMany({ businessId: { $in: [businessId, otherId] } }),
       Staff.deleteMany({ businessId: { $in: [businessId, otherId] } }),
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
     ]);
   });
 
@@ -168,16 +185,24 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
 
   it('refuses a malformed beacon and never counts an unpublished business', async () => {
     expect((await beacon({ type: 'view', channel: 'qr', visitorId: 'x' })).status).toBe(400);
-    expect((await beacon({ type: 'purchase', channel: 'qr', visitorId: visitor() })).status).toBe(400);
+    expect((await beacon({ type: 'purchase', channel: 'qr', visitorId: visitor() })).status).toBe(
+      400,
+    );
     expect((await beacon('not json')).status).toBe(400);
-    expect((await beacon({ type: 'view', channel: 'qr', visitorId: visitor() }, 'grow-hidden')).status).toBe(404);
+    expect(
+      (await beacon({ type: 'view', channel: 'qr', visitorId: visitor() }, 'grow-hidden')).status,
+    ).toBe(404);
     expect(await FunnelDay.countDocuments({ businessId })).toBe(0);
   });
 
   it('ignores crawlers that run scripts', async () => {
-    const res = await beacon({ type: 'view', channel: 'direct', visitorId: visitor() }, 'grow-test', {
-      'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-    });
+    const res = await beacon(
+      { type: 'view', channel: 'direct', visitorId: visitor() },
+      'grow-test',
+      {
+        'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      },
+    );
     expect(res.status).toBe(204);
     expect(await FunnelDay.countDocuments({ businessId })).toBe(0);
   });
@@ -185,7 +210,8 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
   /* ------------------------------------------------------------- report */
 
   it('reports views, starts and bookings by channel, busiest first', async () => {
-    for (let i = 0; i < 4; i++) await beacon({ type: 'view', channel: 'instagram', visitorId: visitor() });
+    for (let i = 0; i < 4; i++)
+      await beacon({ type: 'view', channel: 'instagram', visitorId: visitor() });
     const starter = visitor();
     await beacon({ type: 'view', channel: 'qr', visitorId: starter });
     await beacon({ type: 'start', channel: 'qr', visitorId: starter });
@@ -203,14 +229,30 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
 
     expect(report.totals).toEqual({ views: 5, starts: 1, bookings: 4 });
     expect(report.whatsappBookings).toBe(1);
-    expect(report.byChannel.map((r: { channel: string }) => r.channel)).toEqual(['instagram', 'qr', 'direct']);
+    expect(report.byChannel.map((r: { channel: string }) => r.channel)).toEqual([
+      'instagram',
+      'qr',
+      'direct',
+    ]);
     expect(report.byChannel[0]).toEqual({ channel: 'instagram', views: 4, starts: 0, bookings: 2 });
   });
 
   it('does not count a deposit hold as a booking until it is paid', async () => {
-    await booking({ channel: 'qr', status: BOOKING_STATUS.AWAITING_DEPOSIT, depositStatus: DEPOSIT_STATUS.AWAITING });
-    await booking({ channel: 'qr', status: BOOKING_STATUS.CANCELLED, depositStatus: DEPOSIT_STATUS.EXPIRED });
-    await booking({ channel: 'qr', status: BOOKING_STATUS.CONFIRMED, depositStatus: DEPOSIT_STATUS.PAID });
+    await booking({
+      channel: 'qr',
+      status: BOOKING_STATUS.AWAITING_DEPOSIT,
+      depositStatus: DEPOSIT_STATUS.AWAITING,
+    });
+    await booking({
+      channel: 'qr',
+      status: BOOKING_STATUS.CANCELLED,
+      depositStatus: DEPOSIT_STATUS.EXPIRED,
+    });
+    await booking({
+      channel: 'qr',
+      status: BOOKING_STATUS.CONFIRMED,
+      depositStatus: DEPOSIT_STATUS.PAID,
+    });
     // Cancelled later, by the customer: the channel still brought them in.
     await booking({ channel: 'qr', status: BOOKING_STATUS.CANCELLED });
 
@@ -230,7 +272,9 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
 
   it('keeps one business’s funnel away from another’s owner', async () => {
     const stranger = signToken({ userId: 'someone', role: 'owner', businessIds: [otherId] });
-    expect((await owner(`/grow/funnel?from=${today()}&to=${today()}`, 'GET', stranger)).status).toBe(404);
+    expect(
+      (await owner(`/grow/funnel?from=${today()}&to=${today()}`, 'GET', stranger)).status,
+    ).toBe(404);
     expect((await owner('/grow/boost', 'POST', stranger)).status).toBe(404);
   });
 
@@ -244,16 +288,29 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
   /* -------------------------------------------------------- web booking */
 
   it('records the channel a web booking came in on', async () => {
-    const service = await Service.create({ businessId, name: 'Cut', durationMinutes: 30, priceMinor: 150_000, displayOrder: 1 });
+    const service = await Service.create({
+      businessId,
+      name: 'Cut',
+      durationMinutes: 30,
+      priceMinor: 150_000,
+      displayOrder: 1,
+    });
     const staff = await Staff.create({
       businessId,
       name: 'Hina',
       serviceIds: [String(service._id)],
-      workingHours: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek, opensAt: '09:00', closesAt: '21:00', breaks: [] })),
+      workingHours: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+        dayOfWeek,
+        opensAt: '09:00',
+        closesAt: '21:00',
+        breaks: [],
+      })),
     });
 
     // Two days out at 11:00 — clear of the notice period, inside the horizon.
-    const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(Date.now() + 2 * 86_400_000));
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(
+      new Date(Date.now() + 2 * 86_400_000),
+    );
     const startsAt = wallClockToUtc(`${day}T11:00`, TZ).toISOString();
     const post = (path: string, body: unknown) =>
       fetch(`${base}/public/businesses/grow-test${path}`, {
@@ -262,13 +319,25 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
         body: JSON.stringify(body),
       }) as Promise<Loose>;
 
-    const hold = await post('/holds', { serviceId: String(service._id), staffId: String(staff._id), startsAt });
+    const hold = await post('/holds', {
+      serviceId: String(service._id),
+      staffId: String(staff._id),
+      startsAt,
+    });
     expect(hold.status).toBe(201);
     const { token: holdToken } = await hold.json();
 
     const phone = `0301${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
     madePhones.push(`92${phone.slice(1)}`);
+    const verificationProof = 'g'.repeat(32);
+    await redis.set(
+      `verification:proof:${verificationProof}`,
+      JSON.stringify({ businessId, phone: `92${phone.slice(1)}` }),
+      'EX',
+      60,
+    );
     const made = await post('/bookings', {
+      verificationProof,
       serviceId: String(service._id),
       staffId: String(staff._id),
       startsAt,
@@ -296,17 +365,27 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
     expect(days).toBeGreaterThan(BOOST_DAYS - 0.01);
     expect(days).toBeLessThanOrEqual(BOOST_DAYS);
 
-    const cards = await (await fetch(`${base}/public/businesses?category=growcat`)).json();
+    const cards = (await (
+      await fetch(`${base}/public/businesses?category=growcat`)
+    ).json()) as import('@scalivo/shared').BusinessCard[];
     expect(cards.map((c: { slug: string }) => c.slug)).toEqual(['grow-test', 'grow-other']);
-    expect(cards[0].featured).toBe(true);
-    expect(cards[1].featured).toBe(false);
+    expect(cards[0]!.featured).toBe(true);
+    expect(cards[1]!.featured).toBe(false);
   });
 
   it('never lifts a business above one that matched and it did not', async () => {
     await owner('/grow/boost', 'POST');
-    await Service.create({ businessId: otherId, name: 'Keratin', durationMinutes: 60, priceMinor: 500_000, displayOrder: 1 });
+    await Service.create({
+      businessId: otherId,
+      name: 'Keratin',
+      durationMinutes: 60,
+      priceMinor: 500_000,
+      displayOrder: 1,
+    });
 
-    const cards = await (await fetch(`${base}/public/businesses?q=keratin`)).json();
+    const cards = (await (
+      await fetch(`${base}/public/businesses?q=keratin`)
+    ).json()) as import('@scalivo/shared').BusinessCard[];
     expect(cards.map((c: { slug: string }) => c.slug)).toEqual(['grow-other']);
   });
 
@@ -319,15 +398,22 @@ describe.skipIf(!infraUp)('grow: funnel and boost', () => {
   });
 
   it('ends on its own, and stops on request', async () => {
-    await Business.updateOne({ _id: businessId }, { $set: { 'boost.until': new Date(Date.now() - 1000) } });
-    let cards = await (await fetch(`${base}/public/businesses?category=growcat`)).json();
+    await Business.updateOne(
+      { _id: businessId },
+      { $set: { 'boost.until': new Date(Date.now() - 1000) } },
+    );
+    let cards = (await (
+      await fetch(`${base}/public/businesses?category=growcat`)
+    ).json()) as import('@scalivo/shared').BusinessCard[];
     expect(cards.every((c: { featured: boolean }) => !c.featured)).toBe(true);
     expect((await (await owner('/grow/boost')).json()).active).toBe(false);
 
     await owner('/grow/boost', 'POST');
     const stopped = await (await owner('/grow/boost', 'DELETE')).json();
     expect(stopped).toEqual({ active: false, until: null });
-    cards = await (await fetch(`${base}/public/businesses?category=growcat`)).json();
+    cards = (await (
+      await fetch(`${base}/public/businesses?category=growcat`)
+    ).json()) as import('@scalivo/shared').BusinessCard[];
     expect(cards.every((c: { featured: boolean }) => !c.featured)).toBe(true);
   });
 });

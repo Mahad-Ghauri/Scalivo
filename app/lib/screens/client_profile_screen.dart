@@ -1,3 +1,5 @@
+import 'appointment_holders_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,7 +22,11 @@ import '../widgets/client_tag.dart';
 /// cache with no visible repair is just a second source of truth nobody can
 /// check.
 class ClientProfileScreen extends StatefulWidget {
-  const ClientProfileScreen({super.key, required this.clientId, this.fallbackName});
+  const ClientProfileScreen({
+    super.key,
+    required this.clientId,
+    this.fallbackName,
+  });
 
   final String clientId;
 
@@ -80,10 +86,48 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
     }
   }
 
+  Future<void> _revokeLink() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revoke customer link?'),
+        content: const Text(
+          'The old link will stop working. The customer can request a new one through WhatsApp.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep link'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Revoke'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _api.revokeCustomerLink(_businessId, widget.clientId);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Customer link revoked.')));
+    } on ApiException catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final profile = _profile;
-    final name = profile?.displayName ?? widget.fallbackName ?? profile?.phone ?? 'Client';
+    final name =
+        profile?.displayName ??
+        widget.fallbackName ??
+        profile?.phone ??
+        'Client';
 
     return Scaffold(
       backgroundColor: Sc.paper,
@@ -94,18 +138,40 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
         iconTheme: const IconThemeData(color: Sc.ink),
         title: Text(
           name,
-          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
+          style: const TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w500,
+            color: Sc.ink,
+          ),
         ),
         actions: [
           if (profile != null)
             PopupMenuButton<String>(
               tooltip: 'More',
               color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
               onSelected: (value) {
                 if (value == 'recompute') _recompute();
+                if (value == 'holders')
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          AppointmentHoldersScreen(clientId: widget.clientId),
+                    ),
+                  );
+                if (value == 'revoke') _revokeLink();
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'holders',
+                  child: Text('Appointment holders'),
+                ),
+                PopupMenuItem(
+                  value: 'revoke',
+                  child: Text('Revoke customer link'),
+                ),
                 PopupMenuItem(
                   value: 'recompute',
                   child: Text(
@@ -122,7 +188,8 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   }
 
   Widget _body(ClientProfileDetail? profile) {
-    if (_loading) return const Center(child: CircularProgressIndicator(color: Sc.teal));
+    if (_loading)
+      return const Center(child: CircularProgressIndicator(color: Sc.teal));
 
     if (profile == null) {
       return Center(
@@ -131,12 +198,20 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.person_off_outlined, size: 32, color: Sc.slateFaint),
+              const Icon(
+                Icons.person_off_outlined,
+                size: 32,
+                color: Sc.slateFaint,
+              ),
               const SizedBox(height: 14),
               Text(
                 _error?.message ?? 'That profile could not be loaded',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13.5, color: Sc.slate, height: 1.5),
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  color: Sc.slate,
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 14),
               TextButton(onPressed: _load, child: const Text('TRY AGAIN')),
@@ -157,13 +232,19 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: [for (final tag in profile.tags) ClientTagChip(tag: tag)],
+              children: [
+                for (final tag in profile.tags) ClientTagChip(tag: tag),
+              ],
             ),
           if (profile.phone != null) ...[
             const SizedBox(height: 14),
             Row(
               children: [
-                const Icon(Icons.phone_outlined, size: 15, color: Sc.slateLight),
+                const Icon(
+                  Icons.phone_outlined,
+                  size: 15,
+                  color: Sc.slateLight,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   profile.phone!,
@@ -181,7 +262,11 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
           const SizedBox(height: 26),
           const Text(
             'Visits',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Sc.ink),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Sc.ink,
+            ),
           ),
           const SizedBox(height: 10),
           if (profile.history.isEmpty)
@@ -214,21 +299,21 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
 
   Widget _stat(String value, String label) {
     return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Sc.ink,
-              letterSpacing: -0.3,
-            ),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: Sc.ink,
+            letterSpacing: -0.3,
           ),
-          const SizedBox(height: 2),
-          Text(label, style: const TextStyle(fontSize: 12, color: Sc.slate)),
-        ],
+        ),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(fontSize: 12, color: Sc.slate)),
+      ],
     );
   }
 
@@ -247,7 +332,10 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Sc.divider), bottom: BorderSide(color: Sc.divider)),
+        border: Border(
+          top: BorderSide(color: Sc.divider),
+          bottom: BorderSide(color: Sc.divider),
+        ),
       ),
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
@@ -266,10 +354,21 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   Widget _rhythmLine(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Wrap(spacing: 12, runSpacing: 4, children: [
-        Text(label, style: const TextStyle(fontSize: 13, color: Sc.slate)),
-        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Sc.inkMuted)),
-      ]),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 4,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Sc.slate)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Sc.inkMuted,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -285,7 +384,11 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
             const Expanded(
               child: Text(
                 'Notes',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Sc.ink),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Sc.ink,
+                ),
               ),
             ),
             if (dirty)
@@ -325,7 +428,11 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
             decoration: const InputDecoration(
               border: InputBorder.none,
               hintText: 'Allergic to the peel. Prefers the 6pm slot.',
-              hintStyle: TextStyle(fontSize: 14, color: Sc.slateFaint, height: 1.5),
+              hintStyle: TextStyle(
+                fontSize: 14,
+                color: Sc.slateFaint,
+                height: 1.5,
+              ),
             ),
           ),
         ),
@@ -389,7 +496,9 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
                       fontSize: 9.5,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.4,
-                      color: visit.status == 'no_show' ? Sc.danger : Sc.slateLight,
+                      color: visit.status == 'no_show'
+                          ? Sc.danger
+                          : Sc.slateLight,
                     ),
                   ),
                 ],

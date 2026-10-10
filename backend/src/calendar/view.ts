@@ -89,6 +89,7 @@ export async function getCalendar(query: CalendarQuery): Promise<CalendarView | 
     }).sort({ startsAt: 1 }),
     BlockedTime.find({
       businessId: query.businessId,
+      resourceId: null,
       // A null staffId closes the whole business and belongs on every column.
       ...(query.staffId ? { $or: [{ staffId: null }, { staffId: query.staffId }] } : {}),
       startsAt: { $lt: to },
@@ -123,7 +124,7 @@ export async function getCalendar(query: CalendarQuery): Promise<CalendarView | 
       // appointment still happened and must still be drawable.
       staffName: staffName.get(booking.staffId) ?? 'Staff',
       clientId: booking.clientId,
-      clientName: client?.displayName ?? null,
+      clientName: booking.appointmentHolderName ?? client?.displayName ?? null,
       clientPhone: client?.phone ?? null,
       serviceId: booking.serviceId,
       serviceName: serviceName.get(booking.serviceId) ?? 'Service',
@@ -131,6 +132,8 @@ export async function getCalendar(query: CalendarQuery): Promise<CalendarView | 
       endsAt,
       durationMinutes: booking.durationMinutes,
       status: booking.status,
+      revision: booking.revision,
+      approvalExpiresAt: booking.approvalExpiresAt ?? null,
       priceMinor: booking.priceMinor,
       source: booking.source,
     });

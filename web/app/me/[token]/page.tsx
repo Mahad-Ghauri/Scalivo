@@ -8,7 +8,7 @@ import {
   type MeView,
 } from '@scalivo/shared';
 
-import { Rebook } from '@/components/me/Rebook';
+import { CustomerBookingTools } from '@/components/me/CustomerBookingTools';
 import { RateVisit } from '@/components/me/RateVisit';
 import { InstallHint } from '@/components/me/InstallHint';
 import { formatDay, formatDuration, formatPrice, formatWhen } from '@/lib/format';
@@ -44,7 +44,10 @@ export const metadata: Metadata = {
 };
 
 async function load(token: string): Promise<MeView | null> {
-  const res = await fetch(`${API_BASE}/public/me/${encodeURIComponent(token)}`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/public/me/${encodeURIComponent(token)}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`customer page lookup failed: ${res.status}`);
   return (await res.json()) as MeView;
@@ -84,7 +87,9 @@ export default async function MePage({ params }: { params: Promise<{ token: stri
 
       {laterOnes.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">Also coming up</h2>
+          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
+            Also coming up
+          </h2>
           <ul className="mt-3 space-y-3">
             {laterOnes.map((appointment) => (
               <li key={appointment.id} className="rounded-2xl border border-line p-4">
@@ -109,13 +114,21 @@ export default async function MePage({ params }: { params: Promise<{ token: stri
         <RateVisit token={token} pending={me.pendingReview} timezone={me.timezone} />
       )}
 
-      <Rebook token={token} usual={me.usual} timezone={me.timezone} businessSlug={me.businessSlug} />
+      <CustomerBookingTools
+        token={token}
+        appointments={me.upcoming}
+        usual={me.usual}
+        timezone={me.timezone}
+        businessSlug={me.businessSlug}
+      />
 
       <Loyalty me={me} />
 
       {me.past.length > 0 && (
         <section className="mt-10">
-          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">Your visits</h2>
+          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
+            Your visits
+          </h2>
           <ul className="mt-3 divide-y divide-line border-t border-line">
             {me.past.map((visit) => (
               <li key={visit.id} className="flex items-baseline justify-between gap-4 py-3">
@@ -126,7 +139,9 @@ export default async function MePage({ params }: { params: Promise<{ token: stri
                   </p>
                 </div>
                 <span className="shrink-0 text-[14px] text-muted">
-                  {visit.status === BOOKING_STATUS.NO_SHOW ? 'Missed' : formatPrice(visit.priceMinor)}
+                  {visit.status === BOOKING_STATUS.NO_SHOW
+                    ? 'Missed'
+                    : formatPrice(visit.priceMinor)}
                 </span>
               </li>
             ))}
@@ -138,8 +153,8 @@ export default async function MePage({ params }: { params: Promise<{ token: stri
 
       <footer className="mt-10 border-t border-line pt-6 text-[13px] text-muted">
         <p>
-          This page is yours — keep the link private. To cancel or move an appointment, reply CANCEL or
-          RESCHEDULE on WhatsApp.
+          Keep this private link safe. Verify WhatsApp above to change appointments or replace your
+          link. You can also reply CANCEL or RESCHEDULE on WhatsApp.
         </p>
         <Link href={`/${me.businessSlug}`} className="mt-2 inline-block font-medium text-brand">
           {me.businessName} →
@@ -164,6 +179,14 @@ function NextUp({ appointment, timezone }: { appointment: MeAppointment; timezon
         {formatDuration(appointment.durationMinutes)} · {formatPrice(appointment.priceMinor)}
       </p>
       <DepositNudge appointment={appointment} />
+      {appointment.status === BOOKING_STATUS.AWAITING_APPROVAL && (
+        <p className="mt-3 text-sm font-semibold">
+          Awaiting owner approval — this appointment is not confirmed yet.
+        </p>
+      )}
+      {appointment.appointmentHolderName && (
+        <p className="mt-2 text-sm">Appointment for {appointment.appointmentHolderName}</p>
+      )}
     </section>
   );
 }
@@ -174,7 +197,8 @@ function NextUp({ appointment, timezone }: { appointment: MeAppointment; timezon
  * invite somebody to pay twice.
  */
 function DepositNudge({ appointment }: { appointment: MeAppointment }) {
-  if (appointment.status !== BOOKING_STATUS.AWAITING_DEPOSIT || !appointment.depositToken) return null;
+  if (appointment.status !== BOOKING_STATUS.AWAITING_DEPOSIT || !appointment.depositToken)
+    return null;
 
   return (
     <Link
@@ -198,7 +222,9 @@ function Loyalty({ me }: { me: MeView }) {
     <section className="mt-10 rounded-2xl border border-line p-6">
       <div className="flex items-baseline justify-between gap-4">
         <div>
-          <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">Your points</p>
+          <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">
+            Your points
+          </p>
           <p className="mt-1 text-[32px] font-bold leading-none tracking-[-0.02em] text-brand">
             {me.loyalty.points.toLocaleString('en-PK')}
           </p>
@@ -214,7 +240,8 @@ function Loyalty({ me }: { me: MeView }) {
         </p>
       </div>
       <p className="mt-4 text-[14px] text-muted">
-        You earn a point for every {formatPrice(LOYALTY_MINOR_PER_POINT)} you spend at {me.businessName}.
+        You earn a point for every {formatPrice(LOYALTY_MINOR_PER_POINT)} you spend at{' '}
+        {me.businessName}.
       </p>
     </section>
   );

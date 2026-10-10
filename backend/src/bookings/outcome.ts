@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { BOOKING_STATUS, type BookingStatus } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
+import { CapacityOccupancy } from '../models/CapacityOccupancy.js';
+import { BookingAudit } from '../models/BookingAudit.js';
 import { recordOutcome } from '../crm/profile.js';
 import { logger } from '../lib/logger.js';
 import { settleDeposit, type OutcomeActor } from '../payments/settle.js';
@@ -28,8 +30,7 @@ const CRM_EFFECT = {
 export type Outcome = keyof typeof CRM_EFFECT;
 
 export type OutcomeResult =
-  | { ok: true; changed: boolean }
-  | { ok: false; reason: 'not_found' | 'already_terminal' };
+  { ok: true; changed: boolean } | { ok: false; reason: 'not_found' | 'already_terminal' };
 
 /** Once a booking is completed, no-showed or cancelled, it stays there. */
 const TERMINAL: BookingStatus[] = [
@@ -56,6 +57,10 @@ export async function setBookingOutcome(
      * and refunded by a pass that read the list before the money arrived.
      */
     expectStatus?: BookingStatus;
+    audit?: { actorId: string; reason: string };
+    expectRevision?: number;
+    futureOnly?: boolean;
+    approvalDueBefore?: Date;
   } = {},
 ): Promise<OutcomeResult> {
   // The status flip and the freed slot commit together: a cancelled booking
@@ -65,32 +70,74 @@ export async function setBookingOutcome(
   const written: { booking: InstanceType<typeof Booking> | null } = { booking: null };
 
   try {
-    await session.withTransaction(async () => {
-      written.booking = await Booking.findOneAndUpdate(
-        {
-          _id: bookingId,
-          businessId,
-          status: options.expectStatus ?? { $nin: TERMINAL },
-        },
-        {
-          $set: {
-            status: outcome,
-            // Stamped in the same write as the status, by the same guarded
-            // filter — so the review request that keys on it inherits the
-            // exactly-once property for free. Set here rather than in the
-            // review pass because this is the only moment we know it happened.
-            ...(outcome === BOOKING_STATUS.COMPLETED ? { completedAt: new Date() } : {}),
+    await session.withTransaction(
+      async () => {
+        const prior = options.audit
+          ? await Booking.findOne({ _id: bookingId, businessId }).session(session)
+          : null;
+        written.booking = await Booking.findOneAndUpdate(
+          {
+            _id: bookingId,
+            businessId,
+            status: options.expectStatus ?? { $nin: TERMINAL },
+            ...(options.expectRevision !== undefined ? { revision: options.expectRevision } : {}),
+            ...(options.approvalDueBefore
+              ? { approvalExpiresAt: { $lte: options.approvalDueBefore } }
+              : {}),
+            ...(options.futureOnly ? { startsAt: { $gt: new Date() } } : {}),
           },
-        },
-        { new: true, session },
-      );
+          {
+            $set: {
+              status: outcome,
+              // Stamped in the same write as the status, by the same guarded
+              // filter — so the review request that keys on it inherits the
+              // exactly-once property for free. Set here rather than in the
+              // review pass because this is the only moment we know it happened.
+              ...(outcome === BOOKING_STATUS.COMPLETED ? { completedAt: new Date() } : {}),
+            },
+            $inc: { revision: 1 },
+          },
+          { new: true, session },
+        );
+        if (written.booking && prior && options.audit)
+          await BookingAudit.create(
+            [
+              {
+                businessId,
+                bookingId,
+                actorId: options.audit.actorId,
+                reason: options.audit.reason,
+                before: prior.status,
+                after: outcome,
+                revision: written.booking.revision,
+              },
+            ],
+            { session },
+          );
 
-      // A no-show keeps its slot: the time was consumed whether or not anyone
-      // turned up. Only a cancellation frees time.
-      if (written.booking && outcome === BOOKING_STATUS.CANCELLED) {
-        await SlotOccupancy.deleteMany({ bookingId, businessId }, { session });
-      }
-    });
+        if (written.booking)
+          await recordOutcome(
+            businessId,
+            written.booking.clientId,
+            CRM_EFFECT[outcome],
+            {
+              startsAt: written.booking.startsAt,
+              priceMinor: written.booking.priceMinor,
+              serviceId: written.booking.serviceId,
+              staffId: written.booking.staffId,
+            },
+            session,
+          );
+
+        // A no-show keeps its slot: the time was consumed whether or not anyone
+        // turned up. Only a cancellation frees time.
+        if (written.booking && outcome === BOOKING_STATUS.CANCELLED) {
+          await SlotOccupancy.deleteMany({ bookingId, businessId }, { session });
+          await CapacityOccupancy.deleteMany({ bookingId, businessId }, { session });
+        }
+      },
+      { maxCommitTimeMS: 5000 },
+    );
   } finally {
     await session.endSession();
   }
@@ -104,18 +151,6 @@ export async function setBookingOutcome(
     const exists = await Booking.exists({ _id: bookingId, businessId });
     return { ok: false, reason: exists ? 'already_terminal' : 'not_found' };
   }
-
-  // The profile is a CACHE of what this booking already records, so a failure
-  // here must not fail an outcome that has already been written and acted on —
-  // the slot is freed, the owner has moved on, and throwing now would report a
-  // completed action as broken. Drift is repairable with recomputeProfile();
-  // a false failure is not.
-  await recordOutcome(businessId, booking.clientId, CRM_EFFECT[outcome], {
-    startsAt: booking.startsAt,
-    priceMinor: booking.priceMinor,
-    serviceId: booking.serviceId,
-    staffId: booking.staffId,
-  }).catch((err) => logger.error({ err, businessId, bookingId }, 'could not update the client profile'));
 
   // Money last, and outside the transaction for the same reason as the CRM: a
   // gateway that is slow or down must not un-cancel an appointment. A deposit

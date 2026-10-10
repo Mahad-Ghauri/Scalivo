@@ -1,19 +1,33 @@
 import mongoose from 'mongoose';
-import {
-  BOOKING_STATUS,
-  type BookingStatus,
-  type RescheduleResult,
-} from '@scalivo/shared';
+import type { Redis } from 'ioredis';
+import { BOOKING_STATUS, type BookingStatus, type RescheduleResult } from '@scalivo/shared';
 import { Booking } from '../models/Booking.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
 import { Service } from '../models/Service.js';
-import { isBlocked, loadContext, qualifiedStaff, slotsFor, windowCheck, withinRoster } from '../bookings/availability.js';
+import {
+  isBlocked,
+  loadContext,
+  qualifiedStaff,
+  slotsFor,
+  windowCheck,
+  withinRoster,
+} from '../bookings/availability.js';
 import { toBooking } from '../bookings/create.js';
 import { alignToGrid, addMinutes, formatLocal } from '../lib/time.js';
 import { logger } from '../lib/logger.js';
 import { notifyClient, type NotifyDeps } from './notify.js';
 import { Business } from '../models/Business.js';
 import { isDuplicateKey } from '../lib/mongo.js';
+import { CapacityOccupancy } from '../models/CapacityOccupancy.js';
+import {
+  CapacityConflict,
+  claimCapacity,
+  chooseResources,
+  resourceConflicts,
+  resourceIdsForBooking,
+  fenceBooking,
+  loadResourceCapacity,
+} from '../bookings/capacity.js';
 
 /**
  * Moving an appointment.
@@ -65,6 +79,8 @@ export interface RescheduleRequest {
    */
   override?: boolean;
   now?: Date;
+  ignoreHoldToken?: string;
+  clientId?: string;
 }
 
 /** Thrown inside the transaction to abort it with a reason the caller can render. */
@@ -74,8 +90,8 @@ class Abort extends Error {
   }
 }
 
-export async function rescheduleBooking(
-  deps: NotifyDeps,
+export async function rescheduleReservation(
+  redis: Redis,
   request: RescheduleRequest,
 ): Promise<RescheduleResult> {
   const { businessId, bookingId } = request;
@@ -95,7 +111,8 @@ export async function rescheduleBooking(
    * looks alive. The status check lives in the update filter, once.
    */
   const booking = await Booking.findOne({ _id: bookingId, businessId });
-  if (!booking) return { ok: false, reason: 'not_found' };
+  if (!booking || (request.clientId && booking.clientId !== request.clientId))
+    return { ok: false, reason: 'not_found' };
 
   const staffId = request.staffId ?? booking.staffId;
   const startsAt = request.startsAt;
@@ -121,8 +138,9 @@ export async function rescheduleBooking(
    * customer.
    */
   const durationMinutes = booking.durationMinutes;
-  const spanMinutes = durationMinutes + ctx.bufferMinutes;
-  const moveCtx = { ...ctx, durationMinutes, spanMinutes };
+  const bufferMinutes = booking.bufferMinutes ?? ctx.bufferMinutes;
+  const spanMinutes = durationMinutes + bufferMinutes;
+  const moveCtx = { ...ctx, durationMinutes, bufferMinutes, spanMinutes };
 
   if (alignToGrid(startsAt, ctx.incrementMinutes).getTime() !== startsAt.getTime()) {
     // Off-grid starts write rows on points a genuinely overlapping booking never
@@ -150,33 +168,94 @@ export async function rescheduleBooking(
 
   const slots = slotsFor(startsAt, moveCtx);
   const previous = { staffId: booking.staffId, startsAt: booking.startsAt };
+  const capacity = await loadResourceCapacity(
+    redis,
+    businessId,
+    ctx.resourceRequirements ?? [],
+    {
+      start: startsAt,
+      end: addMinutes(startsAt, spanMinutes),
+    },
+    bookingId,
+    request.ignoreHoldToken,
+  );
+  const resourceIds = chooseResources(
+    ctx.resourceRequirements ?? [],
+    capacity,
+    startsAt,
+    spanMinutes,
+  );
+  if (!resourceIds) return { ok: false, reason: 'slot_taken' };
 
   const session = await mongoose.startSession();
   try {
-    await session.withTransaction(async () => {
-      // DELETE FIRST — see the self-collision note at the top of this file.
-      await SlotOccupancy.deleteMany({ businessId, bookingId }, { session });
+    await session.withTransaction(
+      async () => {
+        await fenceBooking(businessId, ctx.configRevision ?? 0, session);
+        // DELETE FIRST — see the self-collision note at the top of this file.
+        await SlotOccupancy.deleteMany({ businessId, bookingId }, { session });
+        await CapacityOccupancy.deleteMany({ businessId, bookingId }, { session });
+        await claimCapacity(
+          {
+            businessId,
+            bookingId,
+            clientId: booking.clientId,
+            holderId: booking.appointmentHolderId ?? booking.clientId,
+            resourceIds,
+            conflictingResourceIds: resourceConflicts(capacity, resourceIds),
+            startsAt,
+            durationMinutes,
+            spanMinutes,
+          },
+          session,
+        );
 
-      await SlotOccupancy.insertMany(
-        slots.map((slotStart) => ({ businessId, staffId, slotStart, bookingId })),
-        { session, ordered: true },
-      );
+        await SlotOccupancy.insertMany(
+          slots.map((slotStart) => ({ businessId, staffId, slotStart, bookingId })),
+          { session, ordered: true },
+        );
 
-      // Re-guarded rather than trusted from the read above: between that read
-      // and this write the customer may have cancelled over WhatsApp, and
-      // re-claiming the grid for a cancelled appointment would block an hour
-      // nobody is coming to. No match aborts, and the rollback restores
-      // whatever the cancellation left.
-      const updated = await Booking.findOneAndUpdate(
-        { _id: bookingId, businessId, status: { $nin: TERMINAL } },
-        { $set: { staffId, startsAt } },
-        { session, new: true },
-      );
-      if (!updated) throw new Abort('already_terminal');
-    });
+        // Re-guarded rather than trusted from the read above: between that read
+        // and this write the customer may have cancelled over WhatsApp, and
+        // re-claiming the grid for a cancelled appointment would block an hour
+        // nobody is coming to. No match aborts, and the rollback restores
+        // whatever the cancellation left.
+        const updated = await Booking.findOneAndUpdate(
+          {
+            _id: bookingId,
+            businessId,
+            status: { $nin: TERMINAL },
+            ...(request.clientId ? { clientId: request.clientId, startsAt: { $gt: now } } : {}),
+            ...(booking.status === BOOKING_STATUS.AWAITING_APPROVAL
+              ? { approvalExpiresAt: { $gt: now } }
+              : {}),
+            $or: [{ revision: booking.revision ?? 0 }, { revision: { $exists: false } }],
+          },
+          {
+            $set: {
+              staffId,
+              startsAt,
+              resourceIds: resourceIdsForBooking(resourceIds),
+              bufferMinutes,
+              ...(booking.approvalExpiresAt
+                ? {
+                    approvalExpiresAt: new Date(
+                      Math.min(booking.approvalExpiresAt.getTime(), startsAt.getTime()),
+                    ),
+                  }
+                : {}),
+            },
+            $inc: { revision: 1 },
+          },
+          { session, new: true },
+        );
+        if (!updated) throw new Abort('already_terminal');
+      },
+      { maxCommitTimeMS: 5000 },
+    );
   } catch (err) {
     if (err instanceof Abort) return { ok: false, reason: err.reason };
-    if (isDuplicateKey(err)) {
+    if (isDuplicateKey(err) || err instanceof CapacityConflict) {
       logger.info({ bookingId, businessId, staffId, startsAt }, 'reschedule lost the slot race');
       return { ok: false, reason: 'slot_taken' };
     }
@@ -193,8 +272,23 @@ export async function rescheduleBooking(
     'booking rescheduled',
   );
 
-  const notified = await announce(deps, businessId, moved.clientId, booking.serviceId, startsAt);
-  return { ok: true, booking: toBooking(moved), notified };
+  return { ok: true, booking: toBooking(moved), notified: false };
+}
+
+export async function rescheduleBooking(
+  deps: NotifyDeps,
+  request: RescheduleRequest,
+): Promise<RescheduleResult> {
+  const result = await rescheduleReservation(deps.redis, request);
+  if (!result.ok) return result;
+  const notified = await announce(
+    deps,
+    request.businessId,
+    result.booking.clientId,
+    result.booking.serviceId,
+    request.startsAt,
+  );
+  return { ...result, notified };
 }
 
 /**

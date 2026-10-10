@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -37,9 +38,7 @@ function nextTuesday(): string {
   return d.toISOString().slice(0, 10);
 }
 
-
 const infraUp = await infraReady({ replicaSet: true, redis: true });
-
 
 describe.skipIf(!infraUp)('booking concurrency', () => {
   let redis: Redis;
@@ -87,6 +86,7 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
@@ -186,7 +186,7 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
    */
   describe('the transaction, reached directly', () => {
     /** Same token, twice, at once — both pass every check before the write. */
-    it('lets exactly one of two concurrent writers commit', async () => {
+    it('returns the same committed booking to concurrent retries of one hold', async () => {
       const startsAt = at('16:00');
       const held = await holdSlot(redis, {
         businessId,
@@ -213,11 +213,9 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
         createBooking(redis, request),
       ]);
 
-      expect([first, second].filter((r) => r.ok)).toHaveLength(1);
-
-      const loser = [first, second].find((r) => !r.ok)!;
-      assertFailed(loser, 'the second writer');
-      expect(loser.reason).toBe('slot_taken');
+      assertOk(first, 'first request');
+      assertOk(second, 'idempotent retry');
+      expect(second.booking.id).toBe(first.booking.id);
 
       expect(await Booking.countDocuments({ businessId })).toBe(1);
       // 45 min on a 15-min grid: exactly three rows, not six.
@@ -272,7 +270,28 @@ describe.skipIf(!infraUp)('booking concurrency', () => {
 
   it('allows the same overlapping time for a different staff member', async () => {
     expect((await book(staffA, hydrafacial, at('16:00'))).ok).toBe(true);
-    expect((await book(staffB, laser, at('16:15'))).ok).toBe(true);
+    const other = await Client.create({ displayName: 'Different person' });
+    const held = await holdSlot(redis, {
+      businessId,
+      serviceId: laser,
+      staffId: staffB,
+      startsAt: at('16:15'),
+      source: 'web',
+    });
+    assertOk(held, 'different staff hold');
+    expect(
+      (
+        await createBooking(redis, {
+          businessId,
+          serviceId: laser,
+          staffId: staffB,
+          startsAt: at('16:15'),
+          source: 'web',
+          clientId: String(other._id),
+          holdToken: held.hold.token,
+        })
+      ).ok,
+    ).toBe(true);
     expect(await Booking.countDocuments({ businessId })).toBe(2);
   });
 

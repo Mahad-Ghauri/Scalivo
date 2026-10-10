@@ -20,9 +20,12 @@ class CalendarController extends ChangeNotifier {
   // initializing formals: `this._api` would make the underscore part of the
   // parameter name, and a private name in a public constructor reads as a leak.
   // ignore_for_file: prefer_initializing_formals
-  CalendarController({required ApiClient api, required String businessId, this.rangeDays = 1})
-      : _api = api,
-        _businessId = businessId {
+  CalendarController({
+    required ApiClient api,
+    required String businessId,
+    this.rangeDays = 1,
+  }) : _api = api,
+       _businessId = businessId {
     selectedDay = startOfToday(timezone: api.businessTimezone);
   }
 
@@ -30,7 +33,10 @@ class CalendarController extends ChangeNotifier {
   final String _businessId;
   final int rangeDays;
   bool includeCancelled = false;
-  void showCancelled(bool value) { includeCancelled = value; load(); }
+  void showCancelled(bool value) {
+    includeCancelled = value;
+    load();
+  }
 
   DateTime selectedDay = startOfToday();
 
@@ -62,14 +68,18 @@ class CalendarController extends ChangeNotifier {
   CalendarDay? get day => view?.dayFor(isoDate(selectedDay));
 
   List<CalendarEntry> get entries {
-    final all = rangeDays == 1 ? day?.entries ?? const <CalendarEntry>[] : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.entries];
+    final all = rangeDays == 1
+        ? day?.entries ?? const <CalendarEntry>[]
+        : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.entries];
     // Sorted here rather than trusted from the wire: the backend groups by day
     // but a screen that renders 4pm above 11am is unreadable regardless of why.
     final sorted = [...all]..sort((a, b) => a.startsAt.compareTo(b.startsAt));
     return sorted;
   }
 
-  List<CalendarBlock> get blocks => rangeDays == 1 ? day?.blocks ?? const [] : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.blocks];
+  List<CalendarBlock> get blocks => rangeDays == 1
+      ? day?.blocks ?? const []
+      : [for (final d in view?.days ?? const <CalendarDay>[]) ...d.blocks];
 
   @override
   void dispose() {
@@ -95,7 +105,13 @@ class CalendarController extends ChangeNotifier {
       final loaded = await _api.calendar(
         _businessId,
         from: date,
-        to: isoDate(DateTime(selectedDay.year, selectedDay.month, selectedDay.day + rangeDays - 1)),
+        to: isoDate(
+          DateTime(
+            selectedDay.year,
+            selectedDay.month,
+            selectedDay.day + rangeDays - 1,
+          ),
+        ),
         staffId: staffFilter,
         includeCancelled: includeCancelled,
       );
@@ -106,8 +122,8 @@ class CalendarController extends ChangeNotifier {
       if (!_disposed && version == _loadVersion) error = err;
     } finally {
       if (!_disposed && version == _loadVersion) {
-      loading = false;
-      notifyListeners();
+        loading = false;
+        notifyListeners();
       }
     }
   }
@@ -122,7 +138,8 @@ class CalendarController extends ChangeNotifier {
   Future<void> ensureCatalogue({bool force = false}) async {
     // `setup == null` is part of the condition so the checklist is fetched at
     // least once even on a business whose catalogue is already cached.
-    if (!force && setup != null && services.isNotEmpty && staffList.isNotEmpty) return;
+    if (!force && setup != null && services.isNotEmpty && staffList.isNotEmpty)
+      return;
     try {
       final loaded = await Future.wait([
         _api.services(_businessId),
@@ -173,16 +190,52 @@ class CalendarController extends ChangeNotifier {
   // escaping into the widget tree there takes the whole screen down over one
   // appointment.
 
-  Future<ApiException?> complete(CalendarEntry entry) => entry.canMarkOutcomeAt(DateTime.now())
-      ? _mutate(() => _api.setOutcome(_businessId, entry.id, 'completed'))
-      : Future.value(const ApiException(ApiErrorKind.validation, 'Only confirmed appointments that have started can be completed.'));
+  Future<ApiException?> complete(
+    CalendarEntry entry, {
+    String? earlyCompletionReason,
+  }) =>
+      entry.canCompleteAt(DateTime.now()) ||
+          (entry.status == 'confirmed' &&
+              !entry.startsAt.isAfter(DateTime.now()) &&
+              earlyCompletionReason != null &&
+              earlyCompletionReason.trim().length >= 5 &&
+              earlyCompletionReason.length <= 200)
+      ? _mutate(
+          () => _api.setOutcome(
+            _businessId,
+            entry.id,
+            'completed',
+            earlyCompletionReason: earlyCompletionReason,
+          ),
+        )
+      : Future.value(
+          const ApiException(
+            ApiErrorKind.validation,
+            'Complete is available when the confirmed appointment ends.',
+          ),
+        );
 
-  Future<ApiException?> noShow(CalendarEntry entry) => entry.canMarkOutcomeAt(DateTime.now())
+  Future<ApiException?> noShow(CalendarEntry entry) =>
+      entry.canNoShowAt(DateTime.now())
       ? _mutate(() => _api.setOutcome(_businessId, entry.id, 'no_show'))
-      : Future.value(const ApiException(ApiErrorKind.validation, 'Only confirmed appointments that have started can be marked no-show.'));
+      : Future.value(
+          const ApiException(
+            ApiErrorKind.validation,
+            'Wait ten minutes after the confirmed appointment starts before marking no-show.',
+          ),
+        );
 
   Future<ApiException?> cancel(CalendarEntry entry) =>
       _mutate(() => _api.cancelBooking(_businessId, entry.id));
+
+  Future<ApiException?> approve(CalendarEntry entry) =>
+      _mutate(() => _api.approveBooking(_businessId, entry.id));
+
+  Future<ApiException?> correct(
+    CalendarEntry entry,
+    String outcome,
+    String reason,
+  ) => _mutate(() => _api.correctOutcome(_businessId, entry, outcome, reason));
 
   /// Returns whether the customer was actually messaged, alongside any failure.
   ///
@@ -216,16 +269,23 @@ class CalendarController extends ChangeNotifier {
     String? name,
     String? phone,
     String? clientId,
-  }) =>
-      _mutate(() => _api.walkIn(
-            _businessId,
-            serviceId: serviceId,
-            staffId: staffId,
-            startsAt: startsAt,
-            name: name,
-            phone: phone,
-            clientId: clientId,
-          ));
+    String? appointmentHolderId,
+    List<Map<String, String>>? additionalServices,
+    String? requestId,
+  }) => _mutate(
+    () => _api.walkIn(
+      _businessId,
+      serviceId: serviceId,
+      staffId: staffId,
+      startsAt: startsAt,
+      name: name,
+      phone: phone,
+      clientId: clientId,
+      appointmentHolderId: appointmentHolderId,
+      additionalServices: additionalServices,
+      requestId: requestId,
+    ),
+  );
 
   /// Declare time off-limits.
   ///
@@ -235,6 +295,7 @@ class CalendarController extends ChangeNotifier {
   /// Collapsing them into a boolean would lose the only thing they need to act on.
   Future<({ApiException? error, int affected})> blockTime({
     String? staffId,
+    String? resourceId,
     required DateTime startsAt,
     required DateTime endsAt,
     String? reason,
@@ -243,6 +304,7 @@ class CalendarController extends ChangeNotifier {
       final result = await _api.createBlock(
         _businessId,
         staffId: staffId,
+        resourceId: resourceId,
         startsAt: startsAt,
         endsAt: endsAt,
         reason: reason,

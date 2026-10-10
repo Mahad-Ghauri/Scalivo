@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { BOOKING_STATUS, CLIENT_TAG } from '@scalivo/shared';
@@ -171,7 +172,6 @@ describe('client tags', () => {
   });
 });
 
-
 const infraUp = await infraReady();
 
 describe.skipIf(!infraUp)('client profiles', () => {
@@ -219,6 +219,7 @@ describe.skipIf(!infraUp)('client profiles', () => {
       Booking.deleteMany({ businessId }),
       ClientProfile.deleteMany({ businessId }),
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
     ]);
   });
 

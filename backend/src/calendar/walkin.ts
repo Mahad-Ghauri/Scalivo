@@ -1,11 +1,14 @@
 import { BOOKING_STATUS, type BookingResult } from '@scalivo/shared';
-import { Client } from '../models/Client.js';
+import { ClientProfile } from '../models/ClientProfile.js';
 import { loadContext, slotsFor } from '../bookings/availability.js';
+import { chooseResources, loadResourceCapacity, resourceConflicts } from '../bookings/capacity.js';
+import { addMinutes } from '../lib/time.js';
+import { createSequence, type SequenceStep } from '../bookings/sequence.js';
 import { createBooking } from '../bookings/create.js';
 import { acquireHold, releaseHold } from '../bookings/holds.js';
 import { findOrCreateClient } from '../crm/clients.js';
 import { logger } from '../lib/logger.js';
-import { confirmBooking } from '../notifications/confirm.js';
+import { confirmBooking, confirmBookings } from '../notifications/confirm.js';
 import type { SendDeps } from '../notifications/send.js';
 
 /**
@@ -38,33 +41,63 @@ export interface WalkInRequest {
   phone?: string;
   /** An existing customer the owner picked from search — skips matching entirely. */
   clientId?: string;
+  appointmentHolderId?: string;
   now?: Date;
+  additionalServices?: SequenceStep[];
+  requestId?: string;
 }
 
 export type WalkInResult =
-  | (Extract<BookingResult, { ok: true }> & { clientId: string })
+  | (Extract<BookingResult, { ok: true }> & {
+      clientId: string;
+      bookings?: import('@scalivo/shared').Booking[];
+    })
   | Extract<BookingResult, { ok: false }>
   | { ok: false; reason: 'no_client' };
 
 /** An existing customer the owner picked, or find-or-create — see crm/clients.ts. */
 async function resolveClient(request: WalkInRequest): Promise<string | null> {
   if (request.clientId) {
-    const existing = await Client.exists({ _id: request.clientId });
+    const existing = await ClientProfile.exists({
+      businessId: request.businessId,
+      clientId: request.clientId,
+    }).maxTimeMS(5000);
     return existing ? request.clientId : null;
   }
   return findOrCreateClient({ phone: request.phone, name: request.name, via: 'walk-in' });
 }
 
-export async function createWalkIn(
-  deps: SendDeps,
-  request: WalkInRequest,
-): Promise<WalkInResult> {
+export async function createWalkIn(deps: SendDeps, request: WalkInRequest): Promise<WalkInResult> {
   const { redis } = deps;
   const ctx = await loadContext(request.businessId, request.serviceId);
   if (!ctx) return { ok: false, reason: 'invalid_slot' };
 
   const clientId = await resolveClient(request);
   if (!clientId) return { ok: false, reason: 'no_client' };
+  if (request.additionalServices?.length) {
+    const sequence = await createSequence(redis, {
+      businessId: request.businessId,
+      clientId,
+      startsAt: request.startsAt,
+      source: 'owner',
+      steps: [
+        { serviceId: request.serviceId, staffId: request.staffId },
+        ...request.additionalServices,
+      ],
+      ...(request.appointmentHolderId ? { appointmentHolderId: request.appointmentHolderId } : {}),
+      ...(request.requestId ? { requestId: request.requestId } : {}),
+      ...(request.now ? { now: request.now } : {}),
+    });
+    if (!sequence.ok)
+      return sequence.reason === 'slot_taken'
+        ? { ok: false, reason: 'slot_taken', alternatives: [] }
+        : { ok: false, reason: sequence.reason };
+    const confirmations = await confirmBookings(deps, request.businessId, sequence.bookings);
+    sequence.bookings.forEach((booking, index) => {
+      if (confirmations[index]?.ok) booking.status = BOOKING_STATUS.CONFIRMED;
+    });
+    return { ok: true, booking: sequence.bookings[0]!, bookings: sequence.bookings, clientId };
+  }
 
   /**
    * The hold is taken directly rather than through holdSlot, which enforces the
@@ -76,13 +109,37 @@ export async function createWalkIn(
    * than after a rolled-back write.
    */
   const slots = slotsFor(request.startsAt, ctx);
-  const handle = await acquireHold(redis, request.businessId, request.staffId, slots, 60);
+  const capacity = await loadResourceCapacity(
+    redis,
+    request.businessId,
+    ctx.resourceRequirements ?? [],
+    {
+      start: request.startsAt,
+      end: addMinutes(request.startsAt, ctx.spanMinutes),
+    },
+  );
+  const resourceIds = chooseResources(
+    ctx.resourceRequirements ?? [],
+    capacity,
+    request.startsAt,
+    ctx.spanMinutes,
+  );
+  if (!resourceIds) return { ok: false, reason: 'slot_taken', alternatives: [] };
+  const handle = await acquireHold(redis, request.businessId, request.staffId, slots, 60, {
+    resourceIds,
+    conflictingResourceIds: resourceConflicts(capacity, resourceIds),
+    serviceId: request.serviceId,
+    startsAt: request.startsAt.getTime(),
+    configRevision: ctx.configRevision ?? 0,
+    spanMinutes: ctx.spanMinutes,
+  });
   if (!handle) return { ok: false, reason: 'slot_taken', alternatives: [] };
 
   const result = await createBooking(redis, {
     businessId: request.businessId,
     staffId: request.staffId,
     clientId,
+    ...(request.appointmentHolderId ? { appointmentHolderId: request.appointmentHolderId } : {}),
     serviceId: request.serviceId,
     startsAt: request.startsAt,
     source: 'owner',

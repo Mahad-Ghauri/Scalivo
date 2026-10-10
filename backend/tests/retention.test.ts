@@ -118,7 +118,7 @@ describe.skipIf(!infraUp)('retention', () => {
   let businessId: string;
   let serviceId: string;
   let staffId: string;
-  let business: NonNullable<Awaited<ReturnType<typeof Business.findById>>>;
+  let business: InstanceType<typeof Business>;
 
   /** Clients this suite invents, cleaned up by id — Client is global, never wiped wholesale. */
   const made: string[] = [];
@@ -155,7 +155,8 @@ describe.skipIf(!infraUp)('retention', () => {
     warm?: boolean;
   }): Promise<string> {
     const client = await Client.create({
-      phone: opts.phone === undefined ? `9230055${String(made.length).padStart(5, '0')}` : opts.phone,
+      phone:
+        opts.phone === undefined ? `9230055${String(made.length).padStart(5, '0')}` : opts.phone,
       lids: opts.lid ? [opts.lid] : [],
       displayName: opts.name,
     });
@@ -240,6 +241,7 @@ describe.skipIf(!infraUp)('retention', () => {
       providerMessageId: `in-${Math.random()}`,
       sessionId: SESSION_ID,
       contactPhone: null,
+      displayName: null,
       contactLid: lid,
       body,
       type: 'text',
@@ -369,7 +371,12 @@ describe.skipIf(!infraUp)('retention', () => {
       // At risk, but they crossed the line 40 days ago. Without the lateness
       // bound the first run of this feature messages years of ex-customers in
       // one afternoon — the exact burst that gets a number restricted.
-      await customer({ name: 'Old Timer', visits: 4, firstVisitDaysAgo: 175, lastVisitDaysAgo: 85 });
+      await customer({
+        name: 'Old Timer',
+        visits: 4,
+        firstVisitDaysAgo: 175,
+        lastVisitDaysAgo: 85,
+      });
 
       expect(await nudgePass()).toBe(0);
     });
@@ -377,7 +384,12 @@ describe.skipIf(!infraUp)('retention', () => {
     it('does not nudge someone with no measurable cadence', async () => {
       // Two visits is one interval, not a pattern. "Late" would be a guess, and a
       // guess is not a reason to message somebody.
-      await customer({ name: 'Twice Only', visits: 2, firstVisitDaysAgo: 100, lastVisitDaysAgo: 60 });
+      await customer({
+        name: 'Twice Only',
+        visits: 2,
+        firstVisitDaysAgo: 100,
+        lastVisitDaysAgo: 60,
+      });
 
       expect(await nudgePass()).toBe(0);
     });
@@ -427,7 +439,10 @@ describe.skipIf(!infraUp)('retention', () => {
       // The other half of the rule, and the one that is a missed appointment
       // rather than spam if it is got wrong. STOP silences marketing; it does not
       // cancel a conversation the customer started.
-      const clientId = await atRiskCustomer('Quiet Please', { optedOut: true, lid: '1770000009001@lid' });
+      const clientId = await atRiskCustomer('Quiet Please', {
+        optedOut: true,
+        lid: '1770000009001@lid',
+      });
 
       /**
        * Ten in the morning, business-local, rather than "now".
@@ -546,7 +561,7 @@ describe.skipIf(!infraUp)('retention', () => {
   // ──────────────────────────────────────────────── broadcasts (§6.2) & caps
 
   describe('broadcasts', () => {
-    it('sends the owner\'s message to lapsed clients, with the opt-out line added', async () => {
+    it("sends the owner's message to lapsed clients, with the opt-out line added", async () => {
       await lapsedCustomer('Gone Quiet One');
       await lapsedCustomer('Gone Quiet Two');
       // Not lapsed: at risk is a different audience, and a broadcast aimed at one
@@ -740,7 +755,9 @@ describe.skipIf(!infraUp)('retention', () => {
       });
       if ('error' in created) throw new Error('expected a campaign');
 
-      expect(await cancelCampaign(String(new mongoose.Types.ObjectId()), created.campaignId)).toBe(false);
+      expect(await cancelCampaign(String(new mongoose.Types.ObjectId()), created.campaignId)).toBe(
+        false,
+      );
       const campaign = await Campaign.findById(created.campaignId);
       expect(campaign?.status).toBe(CAMPAIGN_STATUS.SENDING);
     });
@@ -835,7 +852,7 @@ describe.skipIf(!infraUp)('retention', () => {
       expect(profile?.marketingOptOutAt).toBeTruthy();
     });
 
-    it('partitions a campaign\'s sends exactly, so no message is unaccounted for', async () => {
+    it("partitions a campaign's sends exactly, so no message is unaccounted for", async () => {
       await lapsedCustomer('One', { lid: '1770000009081@lid' });
       await lapsedCustomer('Two', { lid: '1770000009082@lid' });
 
@@ -863,7 +880,7 @@ describe.skipIf(!infraUp)('retention', () => {
       expect(o.delivered + o.undelivered + o.queued + o.skipped).toBe(o.sends);
     });
 
-    it('keeps one business\'s campaigns out of another\'s report', async () => {
+    it("keeps one business's campaigns out of another's report", async () => {
       await lapsedCustomer('Ours');
       const created = await createCampaign({
         businessId,

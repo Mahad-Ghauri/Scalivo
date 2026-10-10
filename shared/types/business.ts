@@ -62,6 +62,9 @@ export interface Service {
    */
   bufferMinutes: number;
   priceMinor: number;
+  resourceRequirements?: { anyOfResourceIds: string[] }[];
+  requiresOwnerApproval?: boolean;
+  approvalWindowMinutes?: number;
   depositRequired: boolean;
   depositAmountMinor: number | null;
   displayOrder: number;
@@ -114,4 +117,13 @@ export interface SetupChecklist {
   /** Can this business take a booking right now? True only if every step is done. */
   bookable: boolean;
   steps: SetupStep[];
+}
+
+export interface Resource {
+  id: string;
+  name: string;
+  kind: 'room' | 'bed' | 'chair' | 'equipment';
+  quantity?: number;
+  active: boolean;
+  fixedRoomId: string | null;
 }

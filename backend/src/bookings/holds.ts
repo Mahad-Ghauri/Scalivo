@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { z } from 'zod';
 
 /**
  * Soft holds: "someone is typing, don't offer this slot to anyone else."
@@ -37,9 +38,10 @@ const ACQUIRE = `
 for i = 1, #KEYS do
   if redis.call('EXISTS', KEYS[i]) == 1 then return 0 end
 end
-for i = 1, #KEYS do
+for i = 1, tonumber(ARGV[5]) do
   redis.call('SET', KEYS[i], ARGV[1], 'EX', ARGV[2])
 end
+if ARGV[3] ~= '' then redis.call('SET', ARGV[4], ARGV[3], 'EX', ARGV[2]) end
 return 1
 `;
 
@@ -86,24 +88,63 @@ export async function acquireHold(
   staffId: string,
   slots: Date[],
   ttlSeconds: number,
+  allocation?: {
+    resourceIds: string[];
+    conflictingResourceIds?: string[];
+    serviceId: string;
+    startsAt: number;
+    configRevision: number;
+    spanMinutes: number;
+  },
 ): Promise<HoldHandle | null> {
   if (slots.length === 0) throw new Error('a hold must cover at least one slot');
 
   const token = randomUUID();
   const keys = holdKeys(businessId, staffId, slots);
-  const ok = await redis.eval(ACQUIRE, keys.length, ...keys, token, String(ttlSeconds));
+  if (allocation) {
+    const minutes = allocation.spanMinutes;
+    for (const resourceId of allocation.resourceIds) {
+      const points = Array.from(
+        { length: minutes },
+        (_, i) => new Date(slots[0]!.getTime() + i * 60000),
+      );
+      keys.push(...holdKeys(businessId, `resource:${resourceId}`, points));
+    }
+  }
+  const metadata = allocation ? JSON.stringify({ ...allocation, staffId, businessId, keys }) : '';
+  const conflicts =
+    allocation?.conflictingResourceIds?.flatMap((id) =>
+      holdKeys(
+        businessId,
+        `resource:${id}`,
+        Array.from(
+          { length: allocation.spanMinutes },
+          (_, i) => new Date(slots[0]!.getTime() + i * 60000),
+        ),
+      ),
+    ) ?? [];
+  const ok = await redis.eval(
+    ACQUIRE,
+    keys.length + conflicts.length,
+    // ioredis flattens array arguments. Avoid the JS function-argument limit
+    // when an exclusive room checks many station units over a long treatment.
+    [
+      ...keys,
+      ...conflicts,
+      token,
+      String(ttlSeconds),
+      metadata,
+      `hold-plan:${token}`,
+      String(keys.length),
+    ],
+  );
 
   if (ok !== 1) return null;
   return { token, staffId, keys, expiresAt: new Date(Date.now() + ttlSeconds * 1000) };
 }
 
 export async function releaseHold(redis: Redis, handle: HoldHandle): Promise<number> {
-  return (await redis.eval(
-    RELEASE,
-    handle.keys.length,
-    ...handle.keys,
-    handle.token,
-  )) as number;
+  return (await redis.eval(RELEASE, handle.keys.length, ...handle.keys, handle.token)) as number;
 }
 
 export async function verifyHold(
@@ -130,13 +171,40 @@ export async function heldSlots(
   businessId: string,
   staffId: string,
   slots: Date[],
+  ignoreToken?: string,
 ): Promise<Set<number>> {
   if (slots.length === 0) return new Set();
 
   const values = await redis.mget(...holdKeys(businessId, staffId, slots));
   const held = new Set<number>();
   values.forEach((value, i) => {
-    if (value !== null) held.add(slots[i]!.getTime());
+    if (value !== null && value !== ignoreToken) held.add(slots[i]!.getTime());
   });
   return held;
+}
+
+const planSchema = z.object({
+  businessId: z.string().max(80),
+  staffId: z.string().max(80),
+  serviceId: z.string().max(80),
+  startsAt: z.number().finite(),
+  configRevision: z.number().int().nonnegative(),
+  resourceIds: z.array(z.string().max(80)).max(5),
+  keys: z.array(z.string().max(160)).max(18000),
+});
+export async function heldPlan(redis: Redis, token: string) {
+  const raw = await redis.get(`hold-plan:${token}`);
+  if (!raw) return null;
+  try {
+    return planSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+export async function verifyHeldPlan(
+  redis: Redis,
+  token: string,
+  keys: string[],
+): Promise<boolean> {
+  return keys.length > 0 && (await redis.eval(VERIFY, keys.length, ...keys, token)) === 1;
 }

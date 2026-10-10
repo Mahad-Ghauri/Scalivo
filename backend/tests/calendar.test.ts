@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -76,7 +77,6 @@ function addDays(isoDate: string, days: number): string {
     .slice(0, 10);
 }
 
-
 /* ------------------------------------------------------------------ *
  * Pure — no database, no Redis.
  * ------------------------------------------------------------------ */
@@ -121,14 +121,23 @@ describe('working-hours arithmetic', () => {
     bufferMinutes: 0,
     spanMinutes: 45,
     priceMinor: 800_000,
+    depositMinor: null,
   };
 
   // 2026-09-15 is a Tuesday. Luxon weekday 2, so dayOfWeek 2 in our 0=Sunday form.
   const roster = [
-    { dayOfWeek: 2, opensAt: '09:00', closesAt: '18:00', breaks: [{ startsAt: '13:00', endsAt: '14:00' }] },
+    {
+      dayOfWeek: 2,
+      opensAt: '09:00',
+      closesAt: '18:00',
+      breaks: [{ startsAt: '13:00', endsAt: '14:00' }],
+    },
   ];
   const at = (hhmm: string) => wallClockToUtc(`2026-09-15T${hhmm}`, TZ);
-  const span = (hhmm: string) => ({ start: at(hhmm), end: new Date(at(hhmm).getTime() + 45 * 60_000) });
+  const span = (hhmm: string) => ({
+    start: at(hhmm),
+    end: new Date(at(hhmm).getTime() + 45 * 60_000),
+  });
 
   it('accepts an appointment inside the roster', () => {
     expect(withinRoster(roster, span('10:00'), ctx)).toBe(true);
@@ -146,16 +155,15 @@ describe('working-hours arithmetic', () => {
 
   it('refuses a day with no roster entry at all', () => {
     const sunday = wallClockToUtc('2026-09-13T10:00', TZ);
-    expect(withinRoster(roster, { start: sunday, end: new Date(sunday.getTime() + 45 * 60_000) }, ctx)).toBe(
-      false,
-    );
+    expect(
+      withinRoster(roster, { start: sunday, end: new Date(sunday.getTime() + 45 * 60_000) }, ctx),
+    ).toBe(false);
   });
 });
 
 /* ------------------------------------------------------------------ *
  * Infrastructure-backed.
  * ------------------------------------------------------------------ */
-
 
 const infraUp = await infraReady({ replicaSet: true, redis: true });
 
@@ -259,6 +267,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       // Bookings now confirm, and a confirmation leaves a row behind.
       Notification.deleteMany({ businessId }),
@@ -322,10 +331,7 @@ describe.skipIf(!infraUp)('the calendar', () => {
   }
 
   const move = (bookingId: string, startsAt: Date, extra: Record<string, unknown> = {}) =>
-    rescheduleBooking(
-      { redis, provider },
-      { businessId, bookingId, startsAt, ...extra },
-    );
+    rescheduleBooking({ redis, provider }, { businessId, bookingId, startsAt, ...extra });
 
   describe('reading the diary', () => {
     it('resolves names so one screen is not forty round trips', async () => {
@@ -352,13 +358,16 @@ describe.skipIf(!infraUp)('the calendar', () => {
       // UTC bucketing would agree. 02:00 local the next morning is 21:00 UTC on
       // `date` — that is the one that moves.
       const early = at('02:00', addDays(date, 1));
-      const walkIn = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: early,
-        name: 'Night Owl',
-      });
+      const walkIn = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: early,
+          name: 'Night Owl',
+        },
+      );
       assertOk(walkIn, 'the 2am walk-in');
 
       const view = await getCalendar({
@@ -381,13 +390,16 @@ describe.skipIf(!infraUp)('the calendar', () => {
     it('includes an appointment that began before the range and runs into it', async () => {
       const tomorrow = addDays(date, 1);
       // 23:45 local, 45 minutes long: finishes at 00:30 the next morning.
-      const spillover = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: hydrafacial,
-        staffId: staffA,
-        startsAt: at('23:45'),
-        name: 'Late Finish',
-      });
+      const spillover = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: hydrafacial,
+          staffId: staffA,
+          startsAt: at('23:45'),
+          name: 'Late Finish',
+        },
+      );
       assertOk(spillover, 'the late walk-in');
 
       const view = await getCalendar({ businessId, from: tomorrow, to: tomorrow });
@@ -698,13 +710,16 @@ describe.skipIf(!infraUp)('the calendar', () => {
 
   describe('walk-ins', () => {
     it('books on the same path, writing occupancy rows the grid can see', async () => {
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: hydrafacial,
-        staffId: staffA,
-        startsAt: at('16:00'),
-        name: 'Walk In',
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: hydrafacial,
+          staffId: staffA,
+          startsAt: at('16:00'),
+          name: 'Walk In',
+        },
+      );
       assertOk(result, 'the walk-in');
 
       expect(result.booking.source).toBe('owner');
@@ -713,7 +728,9 @@ describe.skipIf(!infraUp)('the calendar', () => {
 
       // THE point of routing through createBooking. Without these rows WhatsApp
       // would cheerfully sell the same hour to somebody else.
-      expect(await SlotOccupancy.countDocuments({ businessId, bookingId: result.booking.id })).toBe(3);
+      expect(await SlotOccupancy.countDocuments({ businessId, bookingId: result.booking.id })).toBe(
+        3,
+      );
 
       const stored = await Booking.findById(result.booking.id);
       expect(stored!.status).toBe(BOOKING_STATUS.CONFIRMED);
@@ -737,13 +754,16 @@ describe.skipIf(!infraUp)('the calendar', () => {
       const known = await Client.create({ phone: international, displayName: 'Ayesha Malik' });
       madeClients.push(String(known._id));
 
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('16:00'),
-        phone: national.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3'),
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('16:00'),
+          phone: national.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3'),
+        },
+      );
       assertOk(result, 'the walk-in');
 
       expect(result.clientId).toBe(String(known._id));
@@ -753,22 +773,28 @@ describe.skipIf(!infraUp)('the calendar', () => {
     });
 
     it('creates a phone-less client for someone who will not give a number', async () => {
-      const first = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('16:00'),
-        name: 'No Number',
-      });
+      const first = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('16:00'),
+          name: 'No Number',
+        },
+      );
       assertOk(first, 'the first phone-less walk-in');
 
-      const second = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('17:00'),
-        name: 'Also No Number',
-      });
+      const second = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('17:00'),
+          name: 'Also No Number',
+        },
+      );
       // Two phone-less clients coexisting is what the PARTIAL unique index buys.
       // A sparse index would have rejected the second one.
       assertOk(second, 'the second phone-less walk-in');
@@ -776,12 +802,15 @@ describe.skipIf(!infraUp)('the calendar', () => {
     });
 
     it('refuses a walk-in with neither a name nor a number', async () => {
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('16:00'),
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('16:00'),
+        },
+      );
       assertFailed(result, 'the anonymous walk-in');
       expect(result.reason).toBe('no_client');
     });
@@ -795,15 +824,18 @@ describe.skipIf(!infraUp)('the calendar', () => {
       const business = await Business.findById(businessId);
       const now = at('16:00');
 
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('16:00'),
-        name: 'Right Now',
-        // 60 minutes' notice is configured; this is zero.
-        now: new Date(now.getTime() - 60_000),
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('16:00'),
+          name: 'Right Now',
+          // 60 minutes' notice is configured; this is zero.
+          now: new Date(now.getTime() - 60_000),
+        },
+      );
       assertOk(result, 'the immediate walk-in');
       expect(business!.minNoticeMinutes).toBe(60);
     });
@@ -811,25 +843,31 @@ describe.skipIf(!infraUp)('the calendar', () => {
     it('refuses to double-book even for the owner', async () => {
       await book(staffA, hydrafacial, at('16:00'));
 
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: laser,
-        staffId: staffA,
-        startsAt: at('16:15'),
-        name: 'Too Late',
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: laser,
+          staffId: staffA,
+          startsAt: at('16:15'),
+          name: 'Too Late',
+        },
+      );
       assertFailed(result, 'the overlapping walk-in');
       expect(result.reason).toBe('slot_taken');
     });
 
     it('feeds the CRM like any other booking', async () => {
-      const result = await createWalkIn({ redis, provider }, {
-        businessId,
-        serviceId: hydrafacial,
-        staffId: staffA,
-        startsAt: at('16:00'),
-        name: 'New Face',
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId,
+          serviceId: hydrafacial,
+          staffId: staffA,
+          startsAt: at('16:00'),
+          name: 'New Face',
+        },
+      );
       assertOk(result, 'the walk-in');
 
       const profile = await ClientProfile.findOne({ businessId, clientId: result.clientId });

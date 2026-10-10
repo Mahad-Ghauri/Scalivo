@@ -14,13 +14,12 @@ import { DateTime } from 'luxon';
  */
 
 /** Interpret a local wall-clock time in a business's zone and return a UTC instant. */
-export function wallClockToUtc(
-  isoLocal: string,
-  timezone: string,
-): Date {
+export function wallClockToUtc(isoLocal: string, timezone: string): Date {
   const dt = DateTime.fromISO(isoLocal, { zone: timezone });
   if (!dt.isValid) {
-    throw new Error(`Invalid wall-clock time "${isoLocal}" in zone "${timezone}": ${dt.invalidReason}`);
+    throw new Error(
+      `Invalid wall-clock time "${isoLocal}" in zone "${timezone}": ${dt.invalidReason}`,
+    );
   }
   return dt.toUTC().toJSDate();
 }
@@ -77,4 +76,9 @@ export function occupiedSlots(
   const aligned = alignToGrid(startsAt, incrementMinutes);
   const count = Math.ceil(durationMinutes / incrementMinutes);
   return Array.from({ length: count }, (_, i) => addMinutes(aligned, i * incrementMinutes));
+}
+
+/** Shared boundary check: impossible calendar days must not become internal errors. */
+export function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && DateTime.fromISO(value, { zone: 'UTC' }).isValid;
 }

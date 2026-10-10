@@ -50,6 +50,7 @@ export interface MeAppointment {
   durationMinutes: number;
   priceMinor: number;
   status: BookingStatus;
+  appointmentHolderName?: string | null;
   /** Money still owed on this one; the page links to /pay/<token>. Null otherwise. */
   depositToken: string | null;
 }

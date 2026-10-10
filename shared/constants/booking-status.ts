@@ -1,5 +1,6 @@
 export const BOOKING_STATUS = {
   PENDING: 'pending',
+  AWAITING_APPROVAL: 'awaiting_approval',
   /** Deposit-required booking waiting on payment. Holds a slot; expires with the hold. */
   AWAITING_DEPOSIT: 'awaiting_deposit',
   CONFIRMED: 'confirmed',

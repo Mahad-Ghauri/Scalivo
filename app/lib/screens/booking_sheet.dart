@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../state/auth_controller.dart';
 import '../api/owner_booking_models.dart';
 import 'slot_picker_screen.dart';
@@ -50,14 +52,18 @@ class _BookingSheetState extends State<_BookingSheet> {
   @override
   void initState() {
     super.initState();
-    final wait = entry.startsAt.difference(DateTime.now());
-    if (entry.status == 'confirmed' && wait > Duration.zero) {
-      _startTimer = Timer(wait, () { if (mounted) setState(() {}); });
+    if (entry.status == 'confirmed') {
+      _startTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
     }
   }
-  @override
-  void dispose() { _startTimer?.cancel(); super.dispose(); }
 
+  @override
+  void dispose() {
+    _startTimer?.cancel();
+    super.dispose();
+  }
 
   CalendarEntry get entry => widget.entry;
 
@@ -97,51 +103,97 @@ class _BookingSheetState extends State<_BookingSheet> {
               style: const TextStyle(fontSize: 13.5, color: Sc.slate),
             ),
             const SizedBox(height: 14),
-            _detail(Icons.schedule_rounded,
-                '${relativeDay(entry.startsAt)}, ${hhmm(entry.startsAt)} – ${hhmm(entry.endsAt)}'),
+            _detail(
+              Icons.schedule_rounded,
+              '${relativeDay(entry.startsAt)}, ${hhmm(entry.startsAt)} – ${hhmm(entry.endsAt)}',
+            ),
             _detail(Icons.sell_outlined, money(entry.priceMinor)),
-            if (entry.clientPhone != null) _detail(Icons.phone_outlined, entry.clientPhone!),
+            if (entry.clientPhone != null)
+              _detail(Icons.phone_outlined, entry.clientPhone!),
             const SizedBox(height: 18),
 
             if (entry.isTerminal)
               _settled()
             else ...[
-              if (entry.canMarkOutcomeAt(DateTime.now())) Row(
-                children: [
-                  Expanded(
-                    child: _action(
-                      icon: Icons.check_rounded,
-                      label: 'Completed',
-                      tone: Sc.teal,
-                      onTap: () => _confirmThen(
-                        title: 'Mark this visit complete?',
-                        message: 'This updates the customer’s visit history and cannot be undone.',
-                        confirmLabel: 'MARK COMPLETE',
-                        action: () => widget.controller.complete(entry)),
-                    ),
+              if (entry.status == 'awaiting_approval') ...[
+                const Text(
+                  'Awaiting your approval. Capacity is reserved until the request expires.',
+                  style: TextStyle(color: Sc.slate),
+                ),
+                const SizedBox(height: 10),
+                _action(
+                  icon: Icons.check,
+                  label: 'Accept request',
+                  tone: Sc.teal,
+                  onTap: () => _confirmThen(
+                    title: 'Accept this appointment?',
+                    message: 'The customer will receive a confirmation.',
+                    confirmLabel: 'ACCEPT',
+                    action: () => widget.controller.approve(entry),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _action(
-                      icon: Icons.person_off_outlined,
-                      label: 'No-show',
-                      tone: Sc.warnIcon,
-                      onTap: () => _confirmThen(
-                        title: 'Mark as a no-show?',
-                        // The slot is NOT freed, and the owner has to know that
-                        // before they tap: the time was spent waiting whether or
-                        // not anyone arrived.
-                        message: 'The time stays booked — it was spent waiting. '
-                            "This counts against the customer's profile.",
-                        confirmLabel: 'MARK NO-SHOW',
-                        action: () => widget.controller.noShow(entry),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (entry.canMarkOutcomeAt(DateTime.now()))
+                Row(
+                  children: [
+                    Expanded(
+                      child: _action(
+                        icon: Icons.check_rounded,
+                        label: 'Completed',
+                        tone: Sc.teal,
+                        onTap: entry.canCompleteAt(DateTime.now())
+                            ? () => _confirmThen(
+                                title: 'Mark this visit complete?',
+                                message: 'This updates the customer’s visit history. Corrections require an audit reason.',
+                                confirmLabel: 'MARK COMPLETE',
+                                action: () => widget.controller.complete(entry),
+                              )
+                            : null,
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _action(
+                        icon: Icons.person_off_outlined,
+                        label: 'No-show',
+                        tone: Sc.warnIcon,
+                        onTap: entry.canNoShowAt(DateTime.now())
+                            ? () => _confirmThen(
+                                title: 'Mark as a no-show?',
+                                // The slot is NOT freed, and the owner has to know that
+                                // before they tap: the time was spent waiting whether or
+                                // not anyone arrived.
+                                message:
+                                    'The time stays booked — it was spent waiting. '
+                                    "This counts against the customer's profile.",
+                                confirmLabel: 'MARK NO-SHOW',
+                                action: () => widget.controller.noShow(entry),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              if (!entry.canMarkOutcomeAt(DateTime.now()))
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'Complete is available at the appointment’s end. No-show is available ten minutes after its start.',
+                    style: TextStyle(color: Sc.slate),
                   ),
-                ],
-              ),
-              if (!entry.canMarkOutcomeAt(DateTime.now())) const Padding(
-                padding: EdgeInsets.only(bottom: 10), child: Text('Complete and No-show become available once a confirmed appointment starts.', style: TextStyle(color: Sc.slate))),
+                ),
+              if (entry.status == 'confirmed' &&
+                  !entry.startsAt.isAfter(DateTime.now()) &&
+                  !entry.canCompleteAt(DateTime.now()))
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _correctOutcome(earlyCompletion: true),
+                  child: const Text(
+                    'Treatment finished early? Record completion with a reason',
+                  ),
+                ),
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -161,7 +213,8 @@ class _BookingSheetState extends State<_BookingSheet> {
                       tone: Sc.danger,
                       onTap: () => _confirmThen(
                         title: 'Cancel this appointment?',
-                        message: 'The slot is freed for someone else. '
+                        message:
+                            'The slot is freed for someone else. '
                             'We will try to notify the customer. This cannot be undone.',
                         confirmLabel: 'CANCEL BOOKING',
                         danger: true,
@@ -178,7 +231,10 @@ class _BookingSheetState extends State<_BookingSheet> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2.4, color: Sc.teal),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: Sc.teal,
+                  ),
                 ),
               ),
             ],
@@ -209,13 +265,110 @@ class _BookingSheetState extends State<_BookingSheet> {
             child: Text(
               // Terminal is terminal, on the app as on the server. Offering an
               // action the backend will refuse is worse than offering none.
-              '$what Nothing more to do here.',
-              style: const TextStyle(fontSize: 13, color: Sc.inkMuted, height: 1.4),
+              '$what Corrections require a reason and are recorded in the audit history.',
+              style: const TextStyle(
+                fontSize: 13,
+                color: Sc.inkMuted,
+                height: 1.4,
+              ),
             ),
+          ),
+          IconButton(
+            tooltip: 'Correct outcome',
+            onPressed: _busy ? null : _correctOutcome,
+            icon: const Icon(Icons.edit_note, color: Sc.teal),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _correctOutcome({bool earlyCompletion = false}) async {
+    String reason = '';
+    String status = earlyCompletion ? 'completed' : entry.status;
+    String? error;
+    final choice = await showDialog<({String status, String reason})>(
+      context: context,
+      builder: (dialog) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text(
+            earlyCompletion
+                ? 'Record early completion'
+                : 'Correct appointment outcome',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!earlyCompletion)
+                DropdownButtonFormField<String>(
+                  initialValue: status,
+                  decoration: const InputDecoration(
+                    labelText: 'Correct outcome',
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'completed',
+                      child: Text('Completed'),
+                    ),
+                    DropdownMenuItem(value: 'no_show', child: Text('No-show')),
+                    DropdownMenuItem(
+                      value: 'cancelled',
+                      child: Text('Cancelled'),
+                    ),
+                  ],
+                  onChanged: (value) => update(() => status = value!),
+                ),
+              TextField(
+                onChanged: (value) => reason = value,
+                maxLength: 200,
+                decoration: InputDecoration(
+                  labelText: 'Reason',
+                  errorText: error,
+                ),
+              ),
+              const Text(
+                'This changes customer history and reports. It does not send another confirmation.',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: const Text('Keep outcome'),
+            ),
+            TextButton(
+              onPressed: () {
+                if ((!earlyCompletion && status == entry.status) ||
+                    reason.trim().length < 5) {
+                  update(
+                    () =>
+                        error = 'Choose a different outcome and give a reason',
+                  );
+                  return;
+                }
+                Navigator.pop(dialog, (status: status, reason: reason.trim()));
+              },
+              child: const Text('Record correction'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    setState(() => _busy = true);
+    final failure = earlyCompletion
+        ? await widget.controller.complete(
+            entry,
+            earlyCompletionReason: choice.reason,
+          )
+        : await widget.controller.correct(entry, choice.status, choice.reason);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (failure != null) {
+      _report(failure);
+      return;
+    }
+    Navigator.pop(context);
   }
 
   Widget _detail(IconData icon, String text) {
@@ -226,7 +379,10 @@ class _BookingSheetState extends State<_BookingSheet> {
           Icon(icon, size: 15, color: Sc.slateLight),
           const SizedBox(width: 9),
           Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 13.5, color: Sc.inkMuted)),
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13.5, color: Sc.inkMuted),
+            ),
           ),
         ],
       ),
@@ -237,7 +393,7 @@ class _BookingSheetState extends State<_BookingSheet> {
     required IconData icon,
     required String label,
     required Color tone,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     return Material(
       color: Sc.tealSurface,
@@ -253,11 +409,15 @@ class _BookingSheetState extends State<_BookingSheet> {
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Column(
             children: [
-              Icon(icon, size: 19, color: tone),
+              Icon(icon, size: 19, color: onTap == null ? Sc.slateLight : tone),
               const SizedBox(height: 6),
               Text(
                 label,
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: tone),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: onTap == null ? Sc.slateLight : tone,
+                ),
               ),
             ],
           ),
@@ -269,13 +429,29 @@ class _BookingSheetState extends State<_BookingSheet> {
   Future<void> _pickNewTime() async {
     await widget.controller.ensureCatalogue();
     if (!mounted) return;
-    final slot = await Navigator.of(context).push<AvailableSlot>(MaterialPageRoute(builder: (_) => SlotPickerScreen(
-      serviceId: entry.serviceId, staff: widget.controller.staffList, date: entry.startsAt, staffId: entry.staffId)));
+    final slot = await Navigator.of(context).push<AvailableSlot>(
+      MaterialPageRoute(
+        builder: (_) => SlotPickerScreen(
+          serviceId: entry.serviceId,
+          staff: widget.controller.staffList,
+          date: entry.startsAt,
+          staffId: entry.staffId,
+          bookingId: entry.id,
+        ),
+      ),
+    );
     if (slot == null || !mounted) return;
-    final startsAt = businessTime(slot.startsAt, timezone: context.read<AuthController>().business!.timezone);
+    final startsAt = businessTime(
+      slot.startsAt,
+      timezone: context.read<AuthController>().business!.timezone,
+    );
 
     setState(() => _busy = true);
-    final result = await widget.controller.reschedule(entry, startsAt, staffId: slot.staffId);
+    final result = await widget.controller.reschedule(
+      entry,
+      startsAt,
+      staffId: slot.staffId,
+    );
     if (!mounted) return;
     setState(() => _busy = false);
 
@@ -307,16 +483,27 @@ class _BookingSheetState extends State<_BookingSheet> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           title,
-          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500, color: Sc.ink),
+          style: const TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w500,
+            color: Sc.ink,
+          ),
         ),
         content: Text(
           message,
-          style: const TextStyle(fontSize: 13.5, color: Sc.inkMuted, height: 1.5),
+          style: const TextStyle(
+            fontSize: 13.5,
+            color: Sc.inkMuted,
+            height: 1.5,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('KEEP IT', style: TextStyle(color: Sc.slate, fontSize: 12.5)),
+            child: const Text(
+              'KEEP IT',
+              style: TextStyle(color: Sc.slate, fontSize: 12.5),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),

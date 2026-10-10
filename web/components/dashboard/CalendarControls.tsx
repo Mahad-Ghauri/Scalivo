@@ -9,6 +9,7 @@ import type { Service, Staff, Client } from '@scalivo/shared';
 
 interface CalendarControlsProps {
   businessId: string;
+  timezone: string;
   view: 'day' | 'week';
   currentDate: string; // YYYY-MM-DD
   todayDate: string;
@@ -21,7 +22,19 @@ interface CalendarControlsProps {
   showCancelled: boolean;
 }
 
-export function CalendarControls({ businessId, view, todayDate, prevDate, nextDate, title, services, staff, clients, showCancelled }: CalendarControlsProps) {
+export function CalendarControls({
+  businessId,
+  timezone,
+  view,
+  todayDate,
+  prevDate,
+  nextDate,
+  title,
+  services,
+  staff,
+  clients,
+  showCancelled,
+}: CalendarControlsProps) {
   const basePath = `/dashboard/${businessId}/calendar`;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -42,7 +55,7 @@ export function CalendarControls({ businessId, view, todayDate, prevDate, nextDa
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
       <div className="flex items-center gap-4">
         <h1 className="text-xl font-display font-semibold text-ink min-w-[200px]">{title}</h1>
-        
+
         <div className="flex items-center rounded-md border border-line bg-white shadow-sm">
           <Link
             href={`${basePath}?date=${prevDate}&view=${view}`}
@@ -51,10 +64,15 @@ export function CalendarControls({ businessId, view, todayDate, prevDate, nextDa
           >
             <span className="sr-only">Previous</span>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
           </Link>
-          
+
           <Link
             href={`${basePath}?date=${todayDate}&view=${view}`}
             className="flex h-9 items-center justify-center px-4 text-sm font-medium text-ink hover:bg-surface"
@@ -94,7 +112,7 @@ export function CalendarControls({ businessId, view, todayDate, prevDate, nextDa
             Week
           </Link>
         </div>
-        
+
         <label className="flex items-center gap-2 text-sm font-medium text-ink cursor-pointer bg-white px-3 py-1.5 rounded-md border border-line shadow-sm">
           <input
             type="checkbox"
@@ -104,7 +122,7 @@ export function CalendarControls({ businessId, view, todayDate, prevDate, nextDa
           />
           Show cancelled
         </label>
-        
+
         <button
           ref={buttonRef}
           onClick={() => setIsModalOpen(true)}
@@ -120,6 +138,7 @@ export function CalendarControls({ businessId, view, todayDate, prevDate, nextDa
       {isModalOpen && (
         <NewBookingModal
           businessId={businessId}
+          timezone={timezone}
           services={services}
           staff={staff}
           clients={clients}

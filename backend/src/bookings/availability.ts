@@ -1,3 +1,4 @@
+import type { InferSchemaType } from 'mongoose';
 import type { Redis } from 'ioredis';
 import { ANY_STAFF, type AvailableSlot } from '@scalivo/shared';
 import { BlockedTime } from '../models/BlockedTime.js';
@@ -14,6 +15,7 @@ import {
   wallClockToUtc,
 } from '../lib/time.js';
 import { heldSlots } from './holds.js';
+import { loadResourceCapacity, chooseResources } from './capacity.js';
 
 /**
  * What can still be booked.
@@ -45,6 +47,8 @@ export interface AvailabilityQuery {
   staffId?: string;
   /** Injected so tests can pin "now" instead of racing the clock. */
   now?: Date;
+  /** Set only after the caller has authorized access to this booking. */
+  ignoreBookingId?: string;
 }
 
 export interface Interval {
@@ -77,6 +81,10 @@ export interface BookingContext {
   priceMinor: number;
   /** Null when the service takes no deposit. Also priced from the record, never the request. */
   depositMinor: number | null;
+  resourceRequirements?: { anyOfResourceIds: string[] }[];
+  configRevision?: number;
+  requiresOwnerApproval?: boolean;
+  approvalWindowMinutes?: number;
 }
 
 export async function loadContext(
@@ -95,6 +103,29 @@ export async function loadContext(
   // without it, a caller could price and book another salon's service here.
   if (!business || !service) return null;
 
+  return contextFor(business, service);
+}
+
+export function contextFor(
+  business: Pick<
+    InferSchemaType<typeof Business.schema>,
+    | 'timezone'
+    | 'slotIncrementMinutes'
+    | 'minNoticeMinutes'
+    | 'bookingHorizonDays'
+    | 'bookingConfigRevision'
+  >,
+  service: Pick<
+    InferSchemaType<typeof Service.schema>,
+    | 'durationMinutes'
+    | 'bufferMinutes'
+    | 'requiresOwnerApproval'
+    | 'approvalWindowMinutes'
+    | 'priceMinor'
+    | 'depositRequired'
+    | 'depositAmountMinor'
+  > & { resourceRequirements?: readonly { anyOfResourceIds: readonly string[] }[] },
+): BookingContext {
   const durationMinutes = service.durationMinutes;
   const bufferMinutes = service.bufferMinutes ?? 0;
 
@@ -106,6 +137,12 @@ export async function loadContext(
     durationMinutes,
     bufferMinutes,
     spanMinutes: durationMinutes + bufferMinutes,
+    resourceRequirements: (service.resourceRequirements ?? []).map((group) => ({
+      anyOfResourceIds: [...group.anyOfResourceIds],
+    })),
+    configRevision: business.bookingConfigRevision ?? 0,
+    requiresOwnerApproval: service.requiresOwnerApproval ?? false,
+    approvalWindowMinutes: service.approvalWindowMinutes ?? 30,
     priceMinor: service.priceMinor,
     depositMinor:
       service.depositRequired && service.depositAmountMinor ? service.depositAmountMinor : null,
@@ -159,10 +196,22 @@ export async function getAvailability(
     // hours say. An empty serviceIds means "not configured yet", not "everything".
     serviceIds: query.serviceId,
     ...(wantsAnyone ? {} : { _id: query.staffId }),
-  });
-  if (staff.length === 0) return [];
+  })
+    .limit(101)
+    .maxTimeMS(5000);
+  if (staff.length === 0 || staff.length === 101) return [];
 
   const staffIds = staff.map((s) => String(s._id));
+  const resources = await loadResourceCapacity(
+    redis,
+    query.businessId,
+    ctx.resourceRequirements ?? [],
+    {
+      start: dayStart,
+      end: addMinutes(dayEnd, ctx.spanMinutes),
+    },
+    query.ignoreBookingId,
+  );
 
   // The occupancy window runs past closing because a booking's buffer, and a
   // booking that started yesterday evening, both claim grid points inside today.
@@ -171,15 +220,23 @@ export async function getAvailability(
       businessId: query.businessId,
       staffId: { $in: staffIds },
       slotStart: { $gte: addMinutes(dayStart, -ctx.spanMinutes), $lt: dayEnd },
-    }),
+      ...(query.ignoreBookingId ? { bookingId: { $ne: query.ignoreBookingId } } : {}),
+    })
+      .limit(25001)
+      .maxTimeMS(5000),
     BlockedTime.find({
       businessId: query.businessId,
+      resourceId: null,
       // A null staffId blocks the whole business — a holiday, not a day off.
       $or: [{ staffId: null }, { staffId: { $in: staffIds } }],
       startsAt: { $lt: dayEnd },
       endsAt: { $gt: dayStart },
-    }),
+    })
+      .limit(1001)
+      .maxTimeMS(5000),
   ]);
+
+  if (occupancy.length === 25001 || blocked.length === 1001) return [];
 
   const takenBy = new Map<string, Set<number>>();
   for (const id of staffIds) takenBy.set(id, new Set());
@@ -234,6 +291,11 @@ export async function getAvailability(
       const span = slotsFor(startsAt, ctx);
       const free = span.every((s) => !taken.has(s.getTime()) && !held.has(s.getTime()));
       if (!free) continue;
+      if (
+        chooseResources(ctx.resourceRequirements ?? [], resources, startsAt, ctx.spanMinutes) ===
+        null
+      )
+        continue;
 
       slots.push({ staffId, startsAt, durationMinutes: ctx.durationMinutes });
     }
@@ -293,6 +355,7 @@ export async function isBlocked(
 ): Promise<boolean> {
   const blocked = await BlockedTime.exists({
     businessId,
+    resourceId: null,
     $or: [{ staffId: null }, { staffId }],
     startsAt: { $lt: appointment.end },
     endsAt: { $gt: appointment.start },
@@ -390,8 +453,10 @@ export async function daysWithAvailability(
   const days: { date: string; slots: AvailableSlot[] }[] = [];
 
   for (let offset = 0; offset <= ctx.bookingHorizonDays && days.length < limit; offset++) {
-    const date = toBusinessLocal(new Date(Date.now() + offset * 86_400_000), ctx.timezone)
-      .toISODate();
+    const date = toBusinessLocal(
+      new Date(Date.now() + offset * 86_400_000),
+      ctx.timezone,
+    ).toISODate();
     if (!date) continue;
 
     const slots = await getAvailability(redis, {
@@ -427,8 +492,10 @@ export async function nextAvailable(
   const found: AvailableSlot[] = [];
 
   for (let dayOffset = 0; dayOffset <= ctx.bookingHorizonDays; dayOffset++) {
-    const date = toBusinessLocal(new Date(from.getTime() + dayOffset * 86_400_000), ctx.timezone)
-      .toISODate();
+    const date = toBusinessLocal(
+      new Date(from.getTime() + dayOffset * 86_400_000),
+      ctx.timezone,
+    ).toISODate();
     if (!date) break;
 
     const slots = await getAvailability(redis, {
@@ -446,13 +513,13 @@ export async function nextAvailable(
   return found;
 }
 
-export type AvailabilityReason = 
-  | 'available' 
+export type AvailabilityReason =
+  | 'available'
   | 'invalid_slot'
-  | 'too_soon' 
-  | 'beyond_horizon' 
-  | 'outside_hours' 
-  | 'blocked' 
+  | 'too_soon'
+  | 'beyond_horizon'
+  | 'outside_hours'
+  | 'blocked'
   | 'slot_taken';
 
 export interface AvailabilityResult {
@@ -462,13 +529,13 @@ export interface AvailabilityResult {
 
 /**
  * ADVISORY availability check for a specific interval and a specific staff member.
- * 
- * IMPORTANT: This function is ADVISORY, not authoritative! A concurrent request 
+ *
+ * IMPORTANT: This function is ADVISORY, not authoritative! A concurrent request
  * can claim the exact same interval a millisecond after this function returns `available`.
- * The absolute authority remains the unique compound index on the SlotOccupancy collection, 
+ * The absolute authority remains the unique compound index on the SlotOccupancy collection,
  * which guarantees no double bookings during the final transactional commit.
- * 
- * NOTE: ANY_STAFF resolution is strictly out of scope for this function. Callers are 
+ *
+ * NOTE: ANY_STAFF resolution is strictly out of scope for this function. Callers are
  * responsible for iterating over candidates and evaluating them individually.
  */
 export async function checkIntervalAvailability(

@@ -5,6 +5,11 @@ WhatsApp-native booking, CRM, retention, and marketplace for service SMEs.
 Team: Muhammad Mahad Ghauri (233523) · Mahateer Muhammad (233539)
 Supervisor: Sir Rashaf Jamil · Air University Multan Campus
 
+## Latest feature changes
+
+See [Features added: booking-flow improvements](FEATURES_ADDED.md) for the owner
+setup guide, app/web/WhatsApp changes, test results, and deferred work.
+
 ## Getting started
 
 ```sh
@@ -26,13 +31,13 @@ VPS; for local work, run the spike stack in `../open-wa` and point
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `shared/` | The API contract — types and constants imported by backend and web |
-| `backend/` | Node.js + Express. All clients call this one API |
-| `web/` | Next.js — marketplace, business profiles, customer PWA (Phase 2) |
-| `app/` | Flutter owner/staff app (scaffolded Phase 1.1) |
-| `docs/` | Project plan, feature spec, execution plan, FSM design, data model |
+| Path       | What                                                               |
+| ---------- | ------------------------------------------------------------------ |
+| `shared/`  | The API contract — types and constants imported by backend and web |
+| `backend/` | Node.js + Express. All clients call this one API                   |
+| `web/`     | Next.js — marketplace, business profiles, customer PWA (Phase 2)   |
+| `app/`     | Flutter owner/staff app (scaffolded Phase 1.1)                     |
+| `docs/`    | Project plan, feature spec, execution plan, FSM design, data model |
 
 ## Things that will bite you
 
@@ -43,7 +48,7 @@ theory. Each one contradicts something a reasonable person would assume.
    The phone comes from `data.senderPhone`, which only exists when OpenWA runs
    with `RESOLVE_LID_TO_PHONE=true`. Always store the LID alongside.
 2. **A phone-side unlink never emits `disconnected`.** It goes straight to
-   `qr_ready`. Session Health alarms on an *unsolicited* `qr_ready` — see
+   `qr_ready`. Session Health alarms on an _unsolicited_ `qr_ready` — see
    `shared/constants/session-status.ts`.
 3. **A successful send response does not mean delivered.** Only a `message.ack`
    reaching `delivered` does.

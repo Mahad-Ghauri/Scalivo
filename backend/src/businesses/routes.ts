@@ -2,12 +2,17 @@ import express, { type Router } from 'express';
 import { z } from 'zod';
 import { type MessagingProvider, SESSION_INTENT, SESSION_STATUS } from '@scalivo/shared';
 import { Business } from '../models/Business.js';
+import { configureBooking, ConfigurationConflict } from '../bookings/configuration.js';
 import { SlotOccupancy } from '../models/SlotOccupancy.js';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { setupChecklist } from '../onboarding/readiness.js';
-import { connectedPhone, provisionSession, type ProvisionFailure } from '../onboarding/provision.js';
+import {
+  connectedPhone,
+  provisionSession,
+  type ProvisionFailure,
+} from '../onboarding/provision.js';
 
 /** How a provisioning refusal reaches the app. */
 const PROVISION_STATUS: Record<ProvisionFailure, number> = {
@@ -30,7 +35,8 @@ const PROVISION_MESSAGE: Record<ProvisionFailure, string> = {
    * answering perfectly well. Saying so is what stops the next person checking
    * their network for an hour. The precise cause is in the logs.
    */
-  gateway_unreachable: 'the messaging gateway did not accept this — it is unreachable, or our credentials are wrong',
+  gateway_unreachable:
+    'the messaging gateway did not accept this — it is unreachable, or our credentials are wrong',
   webhook_rejected: 'the gateway would not accept our webhook address',
 };
 
@@ -66,7 +72,11 @@ const settingsBody = z
     // divide an hour — a 7-minute increment would misalign every existing
     // occupancy row against every new one.
     slotIncrementMinutes: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]),
-    minNoticeMinutes: z.number().int().min(0).max(60 * 24 * 7),
+    minNoticeMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(60 * 24 * 7),
     bookingHorizonDays: z.number().int().min(1).max(365),
 
     /**
@@ -79,13 +89,21 @@ const settingsBody = z
      * reported on. Duplicates are dropped rather than refused — two entries of
      * 1440 is a slip, not a request for two identical reminders.
      */
-    reminders: z.object({
-      enabled: z.boolean(),
-      leadMinutes: z
-        .array(z.number().int().min(5).max(60 * 24 * 7))
-        .max(4)
-        .transform((list) => [...new Set(list)].sort((a, b) => b - a)),
-    }).partial(),
+    reminders: z
+      .object({
+        enabled: z.boolean(),
+        leadMinutes: z
+          .array(
+            z
+              .number()
+              .int()
+              .min(5)
+              .max(60 * 24 * 7),
+          )
+          .max(4)
+          .transform((list) => [...new Set(list)].sort((a, b) => b - a)),
+      })
+      .partial(),
 
     /**
      * The public profile. Presentation only, so the rules are about what ends
@@ -98,18 +116,23 @@ const settingsBody = z
      * storing '' — the profile page tests for presence, and '' would render an
      * empty address line.
      */
-    profile: z.object({
-      tagline: z.string().trim().max(120),
-      about: z.string().trim().max(2000),
-      neighbourhood: optionalText(80),
-      addressLine: optionalText(200),
-      logoUrl: optionalImageUrl,
-      coverUrl: optionalImageUrl,
-      themeColor: z
-        .union([z.literal(''), z.string().regex(/^#[0-9a-f]{6}$/i, 'must be a colour like #1a2b3c')])
-        .nullable()
-        .transform((value) => (value ? value.toLowerCase() : null)),
-    }).partial(),
+    profile: z
+      .object({
+        tagline: z.string().trim().max(120),
+        about: z.string().trim().max(2000),
+        neighbourhood: optionalText(80),
+        addressLine: optionalText(200),
+        logoUrl: optionalImageUrl,
+        coverUrl: optionalImageUrl,
+        themeColor: z
+          .union([
+            z.literal(''),
+            z.string().regex(/^#[0-9a-f]{6}$/i, 'must be a colour like #1a2b3c'),
+          ])
+          .nullable()
+          .transform((value) => (value ? value.toLowerCase() : null)),
+      })
+      .partial(),
 
     published: z.boolean(),
   })
@@ -263,7 +286,31 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
       update[`profile.${key}`] = value;
     }
 
-    const updated = await Business.findByIdAndUpdate(businessId, { $set: update }, { new: true });
+    let updated;
+    try {
+      updated = await configureBooking(businessId, async (session) => {
+        if (parsed.data.slotIncrementMinutes !== undefined) {
+          const current = await Business.findById(businessId).session(session);
+          if (
+            current?.slotIncrementMinutes !== parsed.data.slotIncrementMinutes &&
+            (await SlotOccupancy.exists({ businessId, slotStart: { $gte: new Date() } }).session(
+              session,
+            ))
+          ) {
+            throw new ConfigurationConflict(
+              'Cannot change the slot size while there are upcoming bookings',
+            );
+          }
+        }
+        return Business.findByIdAndUpdate(businessId, { $set: update }, { new: true, session });
+      });
+    } catch (error) {
+      if (error instanceof ConfigurationConflict) {
+        res.status(409).json({ error: error.reason });
+        return;
+      }
+      throw error;
+    }
     if (!updated) {
       res.status(404).json({ error: 'not found' });
       return;

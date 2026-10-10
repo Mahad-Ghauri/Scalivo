@@ -26,6 +26,8 @@ export interface CalendarEntry {
   endsAt: Date;
   durationMinutes: number;
   status: BookingStatus;
+  revision?: number;
+  approvalExpiresAt?: Date | null;
   priceMinor: number;
   source: Booking['source'];
 }

@@ -16,11 +16,15 @@ class SlotPickerScreen extends StatefulWidget {
     required this.staff,
     required this.date,
     this.staffId,
+    this.bookingId,
+    this.additionalServices = const [],
   });
   final String serviceId;
   final List<StaffSummary> staff;
   final DateTime date;
   final String? staffId;
+  final String? bookingId;
+  final List<Map<String, String>> additionalServices;
   @override
   State<SlotPickerScreen> createState() => _SlotPickerScreenState();
 }
@@ -67,6 +71,8 @@ class _SlotPickerScreenState extends State<SlotPickerScreen> {
         serviceId: widget.serviceId,
         date: isoDate(_date),
         staffId: _staffId!,
+        bookingId: widget.bookingId,
+        additionalServices: widget.additionalServices,
       );
       if (!mounted || version != _version) return;
       setState(() {

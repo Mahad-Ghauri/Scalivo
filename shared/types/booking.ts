@@ -14,6 +14,11 @@ export interface Booking {
   startsAt: Date;
   durationMinutes: number;
   status: BookingStatus;
+  resourceIds?: string[];
+  appointmentHolderId?: string | null;
+  appointmentHolderName?: string | null;
+  approvalExpiresAt?: Date | null;
+  revision?: number;
   priceMinor: number;
   /** Which surface created it — a headline evaluation metric (WhatsApp vs web). */
   source: 'whatsapp' | 'web' | 'owner';
@@ -96,6 +101,7 @@ export interface BookingRequest {
   businessId: string;
   staffId: string;
   clientId: string;
+  appointmentHolderId?: string | undefined;
   serviceId: string;
   startsAt: Date;
   source: Booking['source'];
@@ -117,3 +123,10 @@ export type BookingResult =
         | 'beyond_horizon'
         | 'no_staff';
     };
+
+/** Transport shape for a consecutive visit; every leg has already passed availability checks. */
+export interface SequenceSlot {
+  staffId: string;
+  startsAt: string;
+  appointments: { serviceId: string; staffId: string; startsAt: string; durationMinutes: number }[];
+}

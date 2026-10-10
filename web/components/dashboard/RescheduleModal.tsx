@@ -7,6 +7,7 @@ import { getAvailabilityAction, rescheduleBookingAction } from '@/lib/actions/bo
 
 interface RescheduleModalProps {
   businessId: string;
+  timezone: string;
   entry: CalendarEntry;
   services: Service[];
   staff: Staff[];
@@ -15,6 +16,7 @@ interface RescheduleModalProps {
 
 export function RescheduleModal({
   businessId,
+  timezone,
   entry,
   services,
   staff,
@@ -27,7 +29,7 @@ export function RescheduleModal({
   const [date, setDate] = useState(() => {
     // Current date in local format string YYYY-MM-DD
     const d = new Date(entry.startsAt);
-    return d.toISOString().split('T')[0]!;
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(d);
   });
   const [timeStr, setTimeStr] = useState('');
 
@@ -37,7 +39,10 @@ export function RescheduleModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const service = services.find(s => s.id === entry.serviceId) || { name: entry.serviceName, id: entry.serviceId };
+  const service = services.find((s) => s.id === entry.serviceId) || {
+    name: entry.serviceName,
+    id: entry.serviceId,
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,7 +64,7 @@ export function RescheduleModal({
       setAvailableSlots([]);
       setTimeStr('');
       try {
-        const slots = await getAvailabilityAction(businessId, service.id, date, staffId);
+        const slots = await getAvailabilityAction(businessId, service.id, date, staffId, entry.id);
         if (active) {
           setAvailableSlots(slots);
         }
@@ -70,7 +75,9 @@ export function RescheduleModal({
       }
     }
     loadSlots();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [businessId, service.id, staffId, date]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -89,8 +96,10 @@ export function RescheduleModal({
       router.refresh();
       onClose();
     } else {
-      if (res.error === 'slot_taken') setErrorMessage('That time was just taken, please pick another.');
-      else if (res.error === 'already_terminal') setErrorMessage('Booking is already cancelled or completed.');
+      if (res.error === 'slot_taken')
+        setErrorMessage('That time was just taken, please pick another.');
+      else if (res.error === 'already_terminal')
+        setErrorMessage('Booking is already cancelled or completed.');
       else setErrorMessage('Could not reschedule. Please try again.');
     }
   };
@@ -106,12 +115,15 @@ export function RescheduleModal({
         className="w-full max-w-md bg-white rounded-2xl shadow-xl flex flex-col max-h-full overflow-hidden"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-line">
-          <h2 className="text-[24px] font-bold tracking-[-0.02em]">
-            Reschedule Booking
-          </h2>
+          <h2 className="text-[24px] font-bold tracking-[-0.02em]">Reschedule Booking</h2>
           <button onClick={onClose} className="text-muted hover:text-ink p-1 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -123,15 +135,19 @@ export function RescheduleModal({
                 {errorMessage}
               </div>
             )}
-            
+
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Customer & Service</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
+                Customer & Service
+              </p>
               <p className="text-sm font-medium text-ink">{entry.clientName || 'Walk-in'}</p>
               <p className="text-sm text-muted">{service.name}</p>
             </div>
 
             <div className="flex flex-col gap-1">
-              <label htmlFor="resched-staffId" className="text-[14px] font-semibold text-ink">Staff</label>
+              <label htmlFor="resched-staffId" className="text-[14px] font-semibold text-ink">
+                Staff
+              </label>
               <select
                 id="resched-staffId"
                 value={staffId}
@@ -139,15 +155,19 @@ export function RescheduleModal({
                 className="h-11 w-full rounded-lg border border-line bg-white px-3 py-2 text-[15px] outline-none transition-colors hover:border-ink/20 focus:border-ink focus:ring-1 focus:ring-ink"
               >
                 <option value="any">Any Available Staff</option>
-                {staff.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
-                <label htmlFor="resched-date" className="text-[14px] font-semibold text-ink">Date</label>
+                <label htmlFor="resched-date" className="text-[14px] font-semibold text-ink">
+                  Date
+                </label>
                 <input
                   type="date"
                   id="resched-date"
@@ -160,7 +180,8 @@ export function RescheduleModal({
 
               <div className="flex flex-col gap-1">
                 <label htmlFor="resched-timeStr" className="text-[14px] font-semibold text-ink">
-                  Time {isLoadingSlots && <span className="text-xs text-neutral-400">(Loading...)</span>}
+                  Time{' '}
+                  {isLoadingSlots && <span className="text-xs text-neutral-400">(Loading...)</span>}
                 </label>
                 <select
                   id="resched-timeStr"
@@ -176,10 +197,11 @@ export function RescheduleModal({
                   {availableSlots.map((slot) => {
                     const d = new Date(slot.startsAt);
                     const timeFormatted = new Intl.DateTimeFormat('en-US', {
+                      timeZone: timezone,
                       hour: 'numeric',
                       minute: '2-digit',
                     }).format(d);
-                    
+
                     return (
                       <option key={d.toISOString()} value={d.toISOString()}>
                         {timeFormatted}

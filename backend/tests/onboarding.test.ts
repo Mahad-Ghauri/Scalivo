@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { MessagingProvider, SendResult, SessionStatus } from '@scalivo/shared';
@@ -144,7 +145,6 @@ describe('working hours validation', () => {
   });
 });
 
-
 const infraUp = await infraReady();
 
 describe.skipIf(!infraUp)('onboarding', () => {
@@ -153,8 +153,7 @@ describe.skipIf(!infraUp)('onboarding', () => {
 
   const business = () => Business.findById(businessId);
   const checklist = () => setupChecklist(businessId);
-  const stepFor = async (id: SetupStepId) =>
-    (await checklist()).steps.find((s) => s.id === id)!;
+  const stepFor = async (id: SetupStepId) => (await checklist()).steps.find((s) => s.id === id)!;
 
   afterAll(async () => {
     await mongoose.disconnect();
@@ -181,6 +180,7 @@ describe.skipIf(!infraUp)('onboarding', () => {
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
     ]);
   });
 
@@ -193,9 +193,9 @@ describe.skipIf(!infraUp)('onboarding', () => {
       expect(result.bookable).toBe(false);
       // Coverage is excluded: it is vacuously satisfied with no services, which
       // is the point of the "no services at all" test below.
-      expect(
-        result.steps.filter((s) => s.id !== SETUP_STEP.COVERAGE).every((s) => !s.done),
-      ).toBe(true);
+      expect(result.steps.filter((s) => s.id !== SETUP_STEP.COVERAGE).every((s) => !s.done)).toBe(
+        true,
+      );
       // Every unfinished step says what to do about it.
       expect(result.steps.filter((s) => !s.done).every((s) => s.detail)).toBe(true);
     });

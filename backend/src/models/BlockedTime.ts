@@ -19,6 +19,7 @@ const blockedTimeSchema = new Schema(
 
     /** null blocks the whole business — a holiday, not one person's day off. */
     staffId: { type: String, default: null },
+    resourceId: { type: String, default: null },
 
     /** UTC half-open interval: [startsAt, endsAt). */
     startsAt: { type: Date, required: true },
@@ -31,5 +32,6 @@ const blockedTimeSchema = new Schema(
 
 // Availability asks "what blocks this day?" — a range scan over one business.
 blockedTimeSchema.index({ businessId: 1, startsAt: 1, endsAt: 1 });
+blockedTimeSchema.index({ businessId: 1, resourceId: 1, startsAt: 1, endsAt: 1 });
 
 export const BlockedTime = model('BlockedTime', blockedTimeSchema);

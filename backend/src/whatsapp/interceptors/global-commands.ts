@@ -4,6 +4,8 @@ import { logger } from '../../lib/logger.js';
 import * as copy from '../messages.js';
 import { CONVERSATION_STATE, type Conversation } from '../fsm/states.js';
 import { upcomingBookings } from '../fsm/machine.js';
+import { meTokenFor } from '../../me/token.js';
+import { env } from '../../config/env.js';
 
 /**
  * Commands that win from ANY state, before the FSM runs.
@@ -49,6 +51,17 @@ export interface CommandResult {
 /** Returns null when the message is not a global command — the FSM then runs. */
 export async function handleGlobalCommand(ctx: CommandContext): Promise<CommandResult | null> {
   const text = ctx.text.trim();
+  if (/^(my appointments|my bookings|appointments link)$/i.test(text)) {
+    const token = await meTokenFor(ctx.businessId, ctx.clientId);
+    return {
+      replies: [
+        token
+          ? `Your private appointments page: ${env.WEB_URL}/me/${token}. Keep this link private.`
+          : 'No appointment history yet. Tell me which service you would like to book.',
+      ],
+      conversation: null,
+    };
+  }
 
   // STOP is scoped to the business whose number they messaged, not to the
   // platform. A Client row is a PERSON, global across every business — writing

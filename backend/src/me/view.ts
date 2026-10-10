@@ -111,6 +111,7 @@ export async function meView(businessId: string, clientId: string): Promise<MeVi
     durationMinutes: doc.durationMinutes,
     priceMinor: doc.priceMinor,
     status: doc.status,
+    appointmentHolderName: doc.appointmentHolderName ?? null,
     depositToken: owesDeposit(doc.depositStatus) ? (doc.depositToken ?? null) : null,
   });
 
@@ -177,9 +178,9 @@ async function usualFor(
      * rather than a booking that cannot be made.
      */
     const qualified = new Set(
-      (
-        await Staff.find({ businessId, active: true, serviceIds: serviceId }).select('_id')
-      ).map((s) => String(s._id)),
+      (await Staff.find({ businessId, active: true, serviceIds: serviceId }).select('_id')).map(
+        (s) => String(s._id),
+      ),
     );
 
     const preferredId = [...staffCounts.entries()]
@@ -187,9 +188,7 @@ async function usualFor(
       .map(([id]) => id)
       .find((id) => qualified.has(id));
 
-    const preferred = preferredId
-      ? await Staff.findById(preferredId).select('name')
-      : null;
+    const preferred = preferredId ? await Staff.findById(preferredId).select('name') : null;
 
     return {
       serviceId: String(service._id),
@@ -234,9 +233,10 @@ async function pendingReviewFor(
 
   const rated = new Set(
     (
-      await Review.find({ businessId, bookingId: { $in: recent.map((b) => String(b._id)) } }).select(
-        'bookingId',
-      )
+      await Review.find({
+        businessId,
+        bookingId: { $in: recent.map((b) => String(b._id)) },
+      }).select('bookingId')
     ).map((r) => r.bookingId),
   );
 

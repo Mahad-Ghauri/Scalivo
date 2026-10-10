@@ -2,18 +2,34 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Service } from '@scalivo/shared';
+import type { Service, Resource } from '@scalivo/shared';
 import { formatPrice, formatDuration } from '@/lib/format';
+import { ResourceManager } from './ResourceManager';
 import { ServiceModal } from './ServiceModal';
 
 interface ServiceManagerProps {
   businessId: string;
   services: Service[];
+  resources?: Resource[];
+  resourceBlocks?: {
+    id: string;
+    resourceId: string;
+    startsAt: string;
+    endsAt: string;
+    reason: string | null;
+  }[];
+  timezone: string;
 }
 
-export function ServiceManager({ businessId, services }: ServiceManagerProps) {
+export function ServiceManager({
+  businessId,
+  services,
+  resources = [],
+  resourceBlocks = [],
+  timezone,
+}: ServiceManagerProps) {
   const router = useRouter();
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
@@ -51,8 +67,18 @@ export function ServiceManager({ businessId, services }: ServiceManagerProps) {
       {services.length === 0 ? (
         <div className="rounded-lg border border-line bg-white p-12 text-center shadow-sm">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-surface">
-            <svg className="h-6 w-6 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <svg
+              className="h-6 w-6 text-muted"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
             </svg>
           </div>
           <h2 className="mt-4 text-lg font-medium text-ink">No services yet</h2>
@@ -71,19 +97,34 @@ export function ServiceManager({ businessId, services }: ServiceManagerProps) {
           <table className="min-w-full divide-y divide-line">
             <thead className="bg-surface">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
+                >
                   Service
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
+                >
                   Duration
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
+                >
                   Price
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
+                >
                   Deposit
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
+                >
                   Status
                 </th>
                 <th scope="col" className="relative px-6 py-3">
@@ -98,7 +139,9 @@ export function ServiceManager({ businessId, services }: ServiceManagerProps) {
                     <div className="text-sm font-medium text-ink">{service.name}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-ink">{formatDuration(service.durationMinutes)}</div>
+                    <div className="text-sm text-ink">
+                      {formatDuration(service.durationMinutes)}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-ink">{formatPrice(service.priceMinor)}</div>
@@ -136,10 +179,18 @@ export function ServiceManager({ businessId, services }: ServiceManagerProps) {
         </div>
       )}
 
+      <ResourceManager
+        businessId={businessId}
+        resources={resources}
+        blocks={resourceBlocks}
+        timezone={timezone}
+      />
+
       {isModalOpen && (
         <ServiceModal
           businessId={businessId}
           existingService={selectedService}
+          resources={resources}
           onClose={() => setIsModalOpen(false)}
           onSuccess={handleSuccess}
         />

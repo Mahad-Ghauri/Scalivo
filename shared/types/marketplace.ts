@@ -54,7 +54,14 @@ export interface IndexableBusiness {
  */
 export type PublicService = Pick<
   Service,
-  'id' | 'name' | 'durationMinutes' | 'priceMinor' | 'depositRequired' | 'depositAmountMinor' | 'displayOrder'
+  | 'id'
+  | 'name'
+  | 'durationMinutes'
+  | 'priceMinor'
+  | 'requiresOwnerApproval'
+  | 'depositRequired'
+  | 'depositAmountMinor'
+  | 'displayOrder'
 > & {
   description: string | null;
 };
@@ -168,6 +175,8 @@ export interface PublicBookingReceipt {
   serviceName: string;
   staffName: string;
   status: string;
+  delivery?: string;
+  customerToken?: string | null;
   /**
    * Set when the booking is held pending a deposit: the page goes straight to
    * /pay/:token, because the booking does not exist in any useful sense until
@@ -186,5 +195,3 @@ export type PublicBookingError =
   | 'no_staff'
   | 'invalid_phone'
   | 'rate_limited';
-
-

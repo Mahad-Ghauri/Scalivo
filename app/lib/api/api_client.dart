@@ -62,8 +62,8 @@ String defaultBaseUrl() {
 
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ?? defaultBaseUrl(),
-        _client = client ?? http.Client();
+    : baseUrl = baseUrl ?? defaultBaseUrl(),
+      _client = client ?? http.Client();
 
   final String baseUrl;
   final http.Client _client;
@@ -78,17 +78,23 @@ class ApiClient {
   String _businessInstant(DateTime value) {
     if (value.isUtc) return value.toIso8601String();
     final local = businessDate(value, timezone: businessTimezone);
-    if (local.hour != value.hour || local.minute != value.minute || local.day != value.day) {
-      throw const ApiException(ApiErrorKind.validation, 'That time does not exist in the business timezone. Pick another time.');
+    if (local.hour != value.hour ||
+        local.minute != value.minute ||
+        local.day != value.day) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'That time does not exist in the business timezone. Pick another time.',
+      );
     }
     return local.toUtc().toIso8601String();
   }
 
   Future<AuthResult> login(String email, String password) async {
-    final json = await _send('POST', '/auth/login', body: {
-      'email': email,
-      'password': password,
-    });
+    final json = await _send(
+      'POST',
+      '/auth/login',
+      body: {'email': email, 'password': password},
+    );
     return AuthResult.fromJson(json);
   }
 
@@ -100,14 +106,18 @@ class ApiClient {
     required String email,
     required String password,
   }) async {
-    final json = await _send('POST', '/auth/register', body: {
-      'businessName': businessName,
-      'category': category,
-      'city': city,
-      'ownerName': ownerName,
-      'email': email,
-      'password': password,
-    });
+    final json = await _send(
+      'POST',
+      '/auth/register',
+      body: {
+        'businessName': businessName,
+        'category': category,
+        'city': city,
+        'ownerName': ownerName,
+        'email': email,
+        'password': password,
+      },
+    );
     return AuthResult.fromJson(json);
   }
 
@@ -120,8 +130,13 @@ class ApiClient {
       _send('DELETE', '/auth/device', body: {'fcmToken': fcmToken});
 
   Future<LinkResult> linkWhatsApp(String businessId) async =>
-      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/link',
-          maxResponseBytes: 180000));
+      LinkResult.fromJson(
+        await _send(
+          'POST',
+          '/businesses/$businessId/whatsapp/link',
+          maxResponseBytes: 180000,
+        ),
+      );
 
   /// Creates the messaging session this business does not have yet.
   ///
@@ -130,8 +145,13 @@ class ApiClient {
   /// session on the gateway and registers our webhook, so it stays an explicit
   /// action rather than something a screen does on open.
   Future<LinkResult> provisionWhatsApp(String businessId) async =>
-      LinkResult.fromJson(await _send('POST', '/businesses/$businessId/whatsapp/session',
-          maxResponseBytes: 180000));
+      LinkResult.fromJson(
+        await _send(
+          'POST',
+          '/businesses/$businessId/whatsapp/session',
+          maxResponseBytes: 180000,
+        ),
+      );
 
   /// Read the rotating code without restarting the session that offers it.
   Future<String?> whatsappQr(String businessId) async {
@@ -146,21 +166,43 @@ class ApiClient {
     final qr = json['qrCode'];
     if (!json.containsKey('qrCode') ||
         (qr != null && (qr is! String || qr.length > 175000))) {
-      throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      );
     }
     return qr as String?;
   }
 
-  Future<BusinessSummary> whatsappState(String businessId, BusinessSummary current) async {
-    final json = await _send('GET', '/businesses/$businessId/whatsapp', maxResponseBytes: 4096);
+  Future<BusinessSummary> whatsappState(
+    String businessId,
+    BusinessSummary current,
+  ) async {
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/whatsapp',
+      maxResponseBytes: 4096,
+    );
     const statuses = {
-      null, 'created', 'initializing', 'qr_ready', 'authenticating',
-      'ready', 'disconnected', 'action_required', 'failed',
+      null,
+      'created',
+      'initializing',
+      'qr_ready',
+      'authenticating',
+      'ready',
+      'disconnected',
+      'action_required',
+      'failed',
     };
     const intents = {null, 'linking', 'live', 'stopped'};
-    if (!json.containsKey('status') || !json.containsKey('intent') ||
-        !statuses.contains(json['status']) || !intents.contains(json['intent'])) {
-      throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+    if (!json.containsKey('status') ||
+        !json.containsKey('intent') ||
+        !statuses.contains(json['status']) ||
+        !intents.contains(json['intent'])) {
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      );
     }
     return BusinessSummary(
       id: current.id,
@@ -202,15 +244,24 @@ class ApiClient {
     String? name,
     String? phone,
     String? clientId,
-  }) =>
-      _send('POST', '/businesses/$businessId/walk-ins', body: {
-        'serviceId': serviceId,
-        'staffId': staffId,
-        'startsAt': _businessInstant(startsAt),
-        if (name != null && name.isNotEmpty) 'name': name,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
-        'clientId': ?clientId,
-      });
+    String? appointmentHolderId,
+    List<Map<String, String>>? additionalServices,
+    String? requestId,
+  }) => _send(
+    'POST',
+    '/businesses/$businessId/walk-ins',
+    body: {
+      'serviceId': serviceId,
+      'staffId': staffId,
+      'startsAt': _businessInstant(startsAt),
+      if (name != null && name.isNotEmpty) 'name': name,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      'clientId': ?clientId,
+      'appointmentHolderId': ?appointmentHolderId,
+      'additionalServices': ?additionalServices,
+      'requestId': ?requestId,
+    },
+  );
 
   Future<RescheduleOutcome> reschedule(
     String businessId,
@@ -218,23 +269,49 @@ class ApiClient {
     required DateTime startsAt,
     String? staffId,
     bool override = false,
-  }) async =>
-      RescheduleOutcome.fromJson(
-        await _send('POST', '/businesses/$businessId/bookings/$bookingId/reschedule', body: {
-          'startsAt': _businessInstant(startsAt),
-          'staffId': ?staffId,
-          'override': override,
-        }),
-      );
+  }) async => RescheduleOutcome.fromJson(
+    await _send(
+      'POST',
+      '/businesses/$businessId/bookings/$bookingId/reschedule',
+      body: {
+        'startsAt': _businessInstant(startsAt),
+        'staffId': ?staffId,
+        'override': override,
+      },
+    ),
+  );
 
   /// `outcome` is 'completed' or 'no_show'. Cancelling has its own route
   /// because it is the only one that frees the slot.
-  Future<void> setOutcome(String businessId, String bookingId, String outcome) =>
-      _send('POST', '/businesses/$businessId/bookings/$bookingId/outcome',
-          body: {'outcome': outcome});
+  Future<void> setOutcome(
+    String businessId,
+    String bookingId,
+    String outcome, {
+    String? earlyCompletionReason,
+  }) => _send(
+    'POST',
+    '/businesses/$businessId/bookings/$bookingId/outcome',
+    body: {'outcome': outcome, 'earlyCompletionReason': ?earlyCompletionReason},
+  );
 
   Future<void> cancelBooking(String businessId, String bookingId) =>
       _send('POST', '/businesses/$businessId/bookings/$bookingId/cancel');
+
+  Future<void> approveBooking(String businessId, String bookingId) =>
+      _growth(businessId, 'POST', '/bookings/$bookingId/confirm', (_) {});
+
+  Future<void> correctOutcome(
+    String businessId,
+    CalendarEntry entry,
+    String outcome,
+    String reason,
+  ) => _growth(
+    businessId,
+    'POST',
+    '/bookings/${entry.id}/correction',
+    (_) {},
+    body: {'outcome': outcome, 'reason': reason, 'revision': entry.revision},
+  );
 
   // ── Catalogue ────────────────────────────────────────────────────────────
 
@@ -260,8 +337,11 @@ class ApiClient {
   /// the only delete this system has, so un-retiring is the only undo, and a
   /// list that hides them offers no way back.
   Future<List<ServiceItem>> allServices(String businessId) async {
-    final json = await _send('GET', '/businesses/$businessId/services',
-        query: {'includeInactive': 'true'});
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/services',
+      query: {'includeInactive': 'true'},
+    );
     return (json['services'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(ServiceItem.fromJson)
@@ -269,8 +349,11 @@ class ApiClient {
   }
 
   Future<List<StaffMember>> allStaff(String businessId) async {
-    final json =
-        await _send('GET', '/businesses/$businessId/staff', query: {'includeInactive': 'true'});
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/staff',
+      query: {'includeInactive': 'true'},
+    );
     return (json['staff'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(StaffMember.fromJson)
@@ -279,6 +362,7 @@ class ApiClient {
 
   Future<ServiceItem> saveService(
     String businessId, {
+
     /// Null creates; an id edits. One method because the form is identical and
     /// two would drift on the next field either of them grows.
     String? serviceId,
@@ -286,25 +370,46 @@ class ApiClient {
     required int durationMinutes,
     required int bufferMinutes,
     required int priceMinor,
+    List<List<String>>? resourceRequirements,
+    bool? requiresOwnerApproval,
+    int? approvalWindowMinutes,
   }) async {
     final body = {
       'name': name,
       'durationMinutes': durationMinutes,
       'bufferMinutes': bufferMinutes,
       'priceMinor': priceMinor,
+      if (resourceRequirements != null)
+        'resourceRequirements': [
+          for (final group in resourceRequirements) {'anyOfResourceIds': group},
+        ],
+      'requiresOwnerApproval': ?requiresOwnerApproval,
+      'approvalWindowMinutes': ?approvalWindowMinutes,
     };
 
     final json = serviceId == null
         ? await _send('POST', '/businesses/$businessId/services', body: body)
-        : await _send('PATCH', '/businesses/$businessId/services/$serviceId', body: body);
+        : await _send(
+            'PATCH',
+            '/businesses/$businessId/services/$serviceId',
+            body: body,
+          );
 
     return ServiceItem.fromJson(json);
   }
 
   /// Retire, or bring back. There is no hard delete: bookings reference the id,
   /// and removing the row would blank out finished appointments.
-  Future<void> setServiceActive(String businessId, String serviceId, bool active) => active
-      ? _send('PATCH', '/businesses/$businessId/services/$serviceId', body: {'active': true})
+  Future<void> setServiceActive(
+    String businessId,
+    String serviceId,
+    bool active,
+  ) => active
+      ? _send(
+          'PATCH',
+          '/businesses/$businessId/services/$serviceId',
+          body: {'active': true},
+        )
       : _send('DELETE', '/businesses/$businessId/services/$serviceId');
 
   Future<StaffMember> saveStaff(
@@ -322,36 +427,103 @@ class ApiClient {
 
     final json = staffId == null
         ? await _send('POST', '/businesses/$businessId/staff', body: body)
-        : await _send('PATCH', '/businesses/$businessId/staff/$staffId', body: body);
+        : await _send(
+            'PATCH',
+            '/businesses/$businessId/staff/$staffId',
+            body: body,
+          );
 
     return StaffMember.fromJson(json);
   }
 
   /// Deactivating does NOT cancel their upcoming bookings — those still exist
   /// and still hold their slots. The owner has to deal with them deliberately.
-  Future<void> setStaffActive(String businessId, String staffId, bool active) => active
-      ? _send('PATCH', '/businesses/$businessId/staff/$staffId', body: {'active': true})
+  Future<void> setStaffActive(String businessId, String staffId, bool active) =>
+      active
+      ? _send(
+          'PATCH',
+          '/businesses/$businessId/staff/$staffId',
+          body: {'active': true},
+        )
       : _send('DELETE', '/businesses/$businessId/staff/$staffId');
 
   // ── Blocked time ─────────────────────────────────────────────────────────
+  Future<List<ResourceItem>> resources(String businessId) async {
+    return _growth(
+      businessId,
+      'GET',
+      '/resources',
+      (json) => wireList(json['resources'], ResourceItem.fromJson, 200),
+    );
+  }
+
+  Future<List<CalendarBlock>> resourceBlocks(String businessId) => _growth(
+    businessId,
+    'GET',
+    '/resource-blocks',
+    (json) => wireList(
+      json['blocks'],
+      (row) => CalendarBlock.fromJson(row, timezone: businessTimezone),
+      100,
+    ),
+  );
+
+  Future<void> saveResource(
+    String businessId, {
+    String? resourceId,
+    required String name,
+    required String kind,
+    String? fixedRoomId,
+    bool active = true,
+    int quantity = 1,
+  }) => _growth(
+    businessId,
+    resourceId == null ? 'POST' : 'PATCH',
+    '/resources${resourceId == null ? '' : '/$resourceId'}',
+    (_) {},
+    body: {
+      'name': name,
+      'kind': kind,
+      'fixedRoomId': fixedRoomId,
+      'active': active,
+      'quantity': quantity,
+    },
+  );
+
+  Future<void> setResourceActive(
+    String businessId,
+    String resourceId,
+    bool active,
+  ) => _growth(
+    businessId,
+    'PATCH',
+    '/resources/$resourceId',
+    (_) {},
+    body: {'active': active},
+  );
 
   /// A null [staffId] closes the whole business — a holiday, not one person's
   /// afternoon.
   Future<BlockResult> createBlock(
     String businessId, {
     String? staffId,
+    String? resourceId,
     required DateTime startsAt,
     required DateTime endsAt,
     String? reason,
-  }) async =>
-      BlockResult.fromJson(
-        await _send('POST', '/businesses/$businessId/blocked-time', body: {
-          'staffId': staffId,
-          'startsAt': _businessInstant(startsAt),
-          'endsAt': _businessInstant(endsAt),
-          if (reason != null && reason.isNotEmpty) 'reason': reason,
-        }),
-      );
+  }) async => BlockResult.fromJson(
+    await _send(
+      'POST',
+      '/businesses/$businessId/blocked-time',
+      body: {
+        'staffId': staffId,
+        'resourceId': ?resourceId,
+        'startsAt': _businessInstant(startsAt),
+        'endsAt': _businessInstant(endsAt),
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      },
+    ),
+  );
 
   Future<void> deleteBlock(String businessId, String blockId) =>
       _send('DELETE', '/businesses/$businessId/blocked-time/$blockId');
@@ -365,12 +537,16 @@ class ApiClient {
     int skip = 0,
     int limit = 50,
   }) async {
-    final json = await _send('GET', '/businesses/$businessId/clients', query: {
-      if (q != null && q.isNotEmpty) 'q': q,
-      'tag': ?tag,
-      'skip': '$skip',
-      'limit': '$limit',
-    });
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/clients',
+      query: {
+        if (q != null && q.isNotEmpty) 'q': q,
+        'tag': ?tag,
+        'skip': '$skip',
+        'limit': '$limit',
+      },
+    );
 
     return (
       clients: (json['clients'] as List<dynamic>? ?? const [])
@@ -381,14 +557,20 @@ class ApiClient {
     );
   }
 
-  Future<ClientProfileDetail> clientProfile(String businessId, String clientId) async =>
-      ClientProfileDetail.fromJson(
-        await _send('GET', '/businesses/$businessId/clients/$clientId'),
+  Future<ClientProfileDetail> clientProfile(
+    String businessId,
+    String clientId,
+  ) async => ClientProfileDetail.fromJson(
+    await _send('GET', '/businesses/$businessId/clients/$clientId'),
     timezone: businessTimezone,
-      );
+  );
 
   Future<void> saveNotes(String businessId, String clientId, String notes) =>
-      _send('PUT', '/businesses/$businessId/clients/$clientId/notes', body: {'notes': notes});
+      _send(
+        'PUT',
+        '/businesses/$businessId/clients/$clientId/notes',
+        body: {'notes': notes},
+      );
 
   /// Rebuild the counters from the bookings.
   ///
@@ -398,6 +580,31 @@ class ApiClient {
   Future<void> recomputeProfile(String businessId, String clientId) =>
       _send('POST', '/businesses/$businessId/clients/$clientId/recompute');
 
+  Future<List<AppointmentHolderItem>> appointmentHolders(
+    String businessId,
+    String clientId,
+  ) => _growth(
+    businessId,
+    'GET',
+    '/clients/$clientId/holders',
+    (json) => wireList(json['holders'], AppointmentHolderItem.fromJson, 20),
+  );
+  Future<void> saveAppointmentHolder(
+    String businessId,
+    String clientId,
+    String name, {
+    String? holderId,
+    bool active = true,
+  }) => _growth(
+    businessId,
+    holderId == null ? 'POST' : 'PATCH',
+    '/clients/$clientId/holders${holderId == null ? '' : '/$holderId'}',
+    (_) {},
+    body: {'name': name, 'active': active},
+  );
+  Future<void> revokeCustomerLink(String businessId, String clientId) =>
+      _growth(businessId, 'POST', '/clients/$clientId/revoke-link', (_) {});
+
   // ── Settings ─────────────────────────────────────────────────────────────
 
   Future<BusinessSettings> settings(String businessId) async =>
@@ -406,7 +613,9 @@ class ApiClient {
   /// What still stands between this business and a real booking. See
   /// [SetupChecklist] for why it is not optional decoration.
   Future<SetupChecklist> setupChecklist(String businessId) async =>
-      SetupChecklist.fromJson(await _send('GET', '/businesses/$businessId/setup'));
+      SetupChecklist.fromJson(
+        await _send('GET', '/businesses/$businessId/setup'),
+      );
 
   /// Only the keys passed are sent. The backend flattens `reminders` to dotted
   /// paths, so sending the toggle alone does not wipe the lead times.
@@ -423,11 +632,15 @@ class ApiClient {
     };
 
     return BusinessSettings.fromJson(
-      await _send('PATCH', '/businesses/$businessId', body: {
-        'minNoticeMinutes': ?minNoticeMinutes,
-        'bookingHorizonDays': ?bookingHorizonDays,
-        if (reminders.isNotEmpty) 'reminders': reminders,
-      }),
+      await _send(
+        'PATCH',
+        '/businesses/$businessId',
+        body: {
+          'minNoticeMinutes': ?minNoticeMinutes,
+          'bookingHorizonDays': ?bookingHorizonDays,
+          if (reminders.isNotEmpty) 'reminders': reminders,
+        },
+      ),
     );
   }
 
@@ -479,59 +692,215 @@ class ApiClient {
     return {'from': isoDate(from), 'to': isoDate(to)};
   }
 
-  Future<List<AvailableSlot>> availability(String businessId, {required String serviceId, required String date, required String staffId}) {
-    if (![serviceId, staffId].every((id) => RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) ||
-        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) || DateTime.tryParse(date) == null || isoDate(DateTime.parse(date)) != date) {
-      throw const ApiException(ApiErrorKind.validation, 'Invalid availability request');
+  Future<List<AvailableSlot>> availability(
+    String businessId, {
+    required String serviceId,
+    required String date,
+    required String staffId,
+    String? bookingId,
+    List<Map<String, String>> additionalServices = const [],
+  }) {
+    if (additionalServices.length > 4 ||
+        additionalServices.any(
+          (step) => ![step['serviceId'], step['staffId']].every(
+            (id) => id != null && RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(id),
+          ),
+        ))
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Choose valid treatments and staff',
+      );
+    if (![
+          serviceId,
+          staffId,
+        ].every((id) => RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) ||
+        DateTime.tryParse(date) == null ||
+        isoDate(DateTime.parse(date)) != date) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Invalid availability request',
+      );
     }
-    return _growth(businessId, 'GET', '/availability', (json) {
-      final slots = wireList(json['slots'], AvailableSlot.fromJson, 300);
-      if (slots.any((slot) => slot.staffId != staffId || isoDate(businessTime(slot.startsAt, timezone: businessTimezone)) != date)) {
-        throw const FormatException('Invalid availability response');
-      }
-      return slots;
-    },
-      query: {'serviceId': serviceId, 'date': date, 'staffId': staffId});
+    return _growth(
+      businessId,
+      additionalServices.isEmpty ? 'GET' : 'POST',
+      additionalServices.isEmpty ? '/availability' : '/sequences/availability',
+      (json) {
+        final slots = wireList(json['slots'], AvailableSlot.fromJson, 300);
+        if (additionalServices.isNotEmpty &&
+            slots.any(
+              (slot) =>
+                  slot.appointments.length != additionalServices.length + 1 ||
+                  slot.appointments.first.serviceId != serviceId ||
+                  slot.appointments.first.staffId != staffId ||
+                  slot.appointments.first.startsAt != slot.startsAt,
+            ))
+          throw const FormatException('Invalid consecutive visit');
+        if (slots.any(
+          (slot) =>
+              slot.staffId != staffId ||
+              isoDate(
+                    businessTime(slot.startsAt, timezone: businessTimezone),
+                  ) !=
+                  date,
+        )) {
+          throw const FormatException('Invalid availability response');
+        }
+        return slots;
+      },
+      query: additionalServices.isEmpty
+          ? {
+              'serviceId': serviceId,
+              'date': date,
+              'staffId': staffId,
+              'bookingId': ?bookingId,
+            }
+          : null,
+      body: additionalServices.isEmpty
+          ? null
+          : {
+              'date': date,
+              'steps': [
+                {'serviceId': serviceId, 'staffId': staffId},
+                ...additionalServices,
+              ],
+            },
+    );
   }
 
-  Future<AppointmentPage> appointments(String businessId, {String? q, String? status, String? staffId, String? serviceId, String? from, String? to, int skip = 0}) {
-    if (skip < 0 || skip > 100000 || (q?.length ?? 0) > 120 ||
+  Future<AppointmentPage> appointments(
+    String businessId, {
+    String? q,
+    String? status,
+    String? staffId,
+    String? serviceId,
+    String? from,
+    String? to,
+    int skip = 0,
+  }) {
+    if (skip < 0 ||
+        skip > 100000 ||
+        (q?.length ?? 0) > 120 ||
         (status != null && !appointmentStatuses.contains(status)) ||
-        [staffId, serviceId].whereType<String>().any((id) => !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) ||
-        [from, to].whereType<String>().any((date) => !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) || DateTime.tryParse(date) == null || isoDate(DateTime.parse(date)) != date) ||
+        [staffId, serviceId].whereType<String>().any(
+          (id) => !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id),
+        ) ||
+        [from, to].whereType<String>().any(
+          (date) =>
+              !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) ||
+              DateTime.tryParse(date) == null ||
+              isoDate(DateTime.parse(date)) != date,
+        ) ||
         (from != null && to != null && from.compareTo(to) > 0)) {
-      throw const ApiException(ApiErrorKind.validation, 'Check appointment filters');
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Check appointment filters',
+      );
     }
-    return _growth(businessId, 'GET', '/bookings', (json) => AppointmentPage.fromJson(json, businessTimezone),
-      query: {'limit': '20', 'skip': '$skip', 'sort': 'desc', if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
-        'status': ?status, 'staffId': ?staffId, 'serviceId': ?serviceId, 'from': ?from, 'to': ?to});
+    return _growth(
+      businessId,
+      'GET',
+      '/bookings',
+      (json) => AppointmentPage.fromJson(json, businessTimezone),
+      query: {
+        'limit': '20',
+        'skip': '$skip',
+        'sort': 'desc',
+        if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+        'status': ?status,
+        'staffId': ?staffId,
+        'serviceId': ?serviceId,
+        'from': ?from,
+        'to': ?to,
+      },
+    );
   }
 
-  Future<BusinessProfile> businessProfile(String businessId) => _growth(businessId, 'GET', '', BusinessProfile.fromJson);
+  Future<BusinessProfile> businessProfile(String businessId) =>
+      _growth(businessId, 'GET', '', BusinessProfile.fromJson);
 
-  Future<BusinessProfile> saveBusinessProfile(String businessId, {required String name, required String city, required String timezone, required int slotIncrementMinutes, required Map<String, String> profile}) {
-    const bounds = {'tagline': 120, 'about': 2000, 'neighbourhood': 80, 'addressLine': 200, 'logoUrl': 2000, 'coverUrl': 2000, 'themeColor': 7};
-    if (name.trim().isEmpty || name.length > 120 || city.trim().isEmpty || city.length > 80 || timezone.isEmpty || timezone.length > 80 ||
-        ![5, 10, 15, 30].contains(slotIncrementMinutes) || profile.entries.any((e) => !bounds.containsKey(e.key) || e.value.length > bounds[e.key]!)) {
-      throw const ApiException(ApiErrorKind.validation, 'Check business details');
+  Future<BusinessProfile> saveBusinessProfile(
+    String businessId, {
+    required String name,
+    required String city,
+    required String timezone,
+    required int slotIncrementMinutes,
+    required Map<String, String> profile,
+  }) {
+    const bounds = {
+      'tagline': 120,
+      'about': 2000,
+      'neighbourhood': 80,
+      'addressLine': 200,
+      'logoUrl': 2000,
+      'coverUrl': 2000,
+      'themeColor': 7,
+    };
+    if (name.trim().isEmpty ||
+        name.length > 120 ||
+        city.trim().isEmpty ||
+        city.length > 80 ||
+        timezone.isEmpty ||
+        timezone.length > 80 ||
+        ![5, 10, 15, 30].contains(slotIncrementMinutes) ||
+        profile.entries.any(
+          (e) => !bounds.containsKey(e.key) || e.value.length > bounds[e.key]!,
+        )) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Check business details',
+      );
     }
     for (final key in ['logoUrl', 'coverUrl']) {
       final value = profile[key] ?? '';
       final uri = Uri.tryParse(value);
-      if (value.isNotEmpty && (uri == null || uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty)) {
-        throw const ApiException(ApiErrorKind.validation, 'Image links must use HTTPS');
+      if (value.isNotEmpty &&
+          (uri == null ||
+              uri.scheme != 'https' ||
+              uri.host.isEmpty ||
+              uri.userInfo.isNotEmpty)) {
+        throw const ApiException(
+          ApiErrorKind.validation,
+          'Image links must use HTTPS',
+        );
       }
     }
     final colour = profile['themeColor'] ?? '';
-    if (colour.isNotEmpty && !RegExp(r'^#[a-fA-F0-9]{6}$').hasMatch(colour)) throw const ApiException(ApiErrorKind.validation, 'Use a colour such as #1a2b3c');
-    return _growth(businessId, 'PATCH', '', BusinessProfile.fromJson, body: {'name': name.trim(), 'city': city.trim(), 'timezone': timezone,
-      'slotIncrementMinutes': slotIncrementMinutes, 'profile': profile});
+    if (colour.isNotEmpty && !RegExp(r'^#[a-fA-F0-9]{6}$').hasMatch(colour))
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Use a colour such as #1a2b3c',
+      );
+    return _growth(
+      businessId,
+      'PATCH',
+      '',
+      BusinessProfile.fromJson,
+      body: {
+        'name': name.trim(),
+        'city': city.trim(),
+        'timezone': timezone,
+        'slotIncrementMinutes': slotIncrementMinutes,
+        'profile': profile,
+      },
+    );
   }
 
-  Future<BusinessProfile> setPublished(String businessId, bool published) => _growth(businessId, 'PATCH', '', BusinessProfile.fromJson, body: {'published': published});
+  Future<BusinessProfile> setPublished(String businessId, bool published) =>
+      _growth(
+        businessId,
+        'PATCH',
+        '',
+        BusinessProfile.fromJson,
+        body: {'published': published},
+      );
 
   Future<BriefingFeed> briefings(String businessId) => _growth(
-    businessId, 'GET', '/agent/briefings', BriefingFeed.fromJson,
+    businessId,
+    'GET',
+    '/agent/briefings',
+    BriefingFeed.fromJson,
     query: {'limit': '20'},
   );
 
@@ -539,16 +908,30 @@ class ApiClient {
     if (!RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(briefingId)) {
       throw const ApiException(ApiErrorKind.validation, 'Invalid briefing');
     }
-    return _growth(businessId, 'POST', '/agent/briefings/$briefingId/read', (json) {
+    return _growth(businessId, 'POST', '/agent/briefings/$briefingId/read', (
+      json,
+    ) {
       if (json['readAt'] != null) wireDate(json['readAt']);
     });
   }
 
-  Future<AgentSettings> updateAgentSettings(String businessId, {bool? enabled, int? hour}) {
-    if ((enabled == null && hour == null) || (hour != null && (hour < 5 || hour > 11))) {
-      throw const ApiException(ApiErrorKind.validation, 'Choose a briefing time between 5 AM and 11 AM');
+  Future<AgentSettings> updateAgentSettings(
+    String businessId, {
+    bool? enabled,
+    int? hour,
+  }) {
+    if ((enabled == null && hour == null) ||
+        (hour != null && (hour < 5 || hour > 11))) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Choose a briefing time between 5 AM and 11 AM',
+      );
     }
-    return _growth(businessId, 'PATCH', '/agent/settings', AgentSettings.fromJson,
+    return _growth(
+      businessId,
+      'PATCH',
+      '/agent/settings',
+      AgentSettings.fromJson,
       body: {'enabled': ?enabled, 'hour': ?hour},
     );
   }
@@ -755,8 +1138,9 @@ class ApiClient {
   }) async {
     // Built through Uri rather than string concatenation: a customer search for
     // "R&B" or a name with a space would otherwise truncate the query silently.
-    final uri = Uri.parse('$baseUrl$path').replace(
-      queryParameters: (query == null || query.isEmpty) ? null : query);
+    final uri = Uri.parse(
+      '$baseUrl$path',
+    ).replace(queryParameters: (query == null || query.isEmpty) ? null : query);
 
     final sentToken = token;
 
@@ -773,29 +1157,41 @@ class ApiClient {
     StreamIterator<List<int>>? responseChunks;
     var timedOut = false;
     try {
-      response = await (() async {
-        final streamed = await _client.send(request);
-        if (timedOut) {
-          // Headers can arrive after timeout; release that late body too.
-          await streamed.stream.listen(null).cancel();
-          throw TimeoutException('Request timed out');
-        }
-        if (maxResponseBytes == null) return http.Response.fromStream(streamed);
-        final chunks = StreamIterator(streamed.stream);
-        responseChunks = chunks;
-        final bytes = <int>[];
-        while (await chunks.moveNext()) {
-          final chunk = chunks.current;
-          if (bytes.length + chunk.length > maxResponseBytes) {
-            throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
-          }
-          bytes.addAll(chunk);
-        }
-        return http.Response.bytes(bytes, streamed.statusCode, headers: streamed.headers);
-      })().timeout(_timeout, onTimeout: () {
-        timedOut = true;
-        throw TimeoutException('Request timed out');
-      });
+      response =
+          await (() async {
+            final streamed = await _client.send(request);
+            if (timedOut) {
+              // Headers can arrive after timeout; release that late body too.
+              await streamed.stream.listen(null).cancel();
+              throw TimeoutException('Request timed out');
+            }
+            if (maxResponseBytes == null)
+              return http.Response.fromStream(streamed);
+            final chunks = StreamIterator(streamed.stream);
+            responseChunks = chunks;
+            final bytes = <int>[];
+            while (await chunks.moveNext()) {
+              final chunk = chunks.current;
+              if (bytes.length + chunk.length > maxResponseBytes) {
+                throw const ApiException(
+                  ApiErrorKind.server,
+                  'Something went wrong. Try again.',
+                );
+              }
+              bytes.addAll(chunk);
+            }
+            return http.Response.bytes(
+              bytes,
+              streamed.statusCode,
+              headers: streamed.headers,
+            );
+          })().timeout(
+            _timeout,
+            onTimeout: () {
+              timedOut = true;
+              throw TimeoutException('Request timed out');
+            },
+          );
     } on ApiException {
       rethrow;
     } on Object {
@@ -823,7 +1219,8 @@ class ApiClient {
     }
 
     if (response.statusCode == 204 || response.body.isEmpty) {
-      if (response.statusCode >= 400) throw _errorFor(response.statusCode, const {});
+      if (response.statusCode >= 400)
+        throw _errorFor(response.statusCode, const {});
       return const {};
     }
 
@@ -831,7 +1228,10 @@ class ApiClient {
     try {
       json = jsonDecode(response.body) as Map<String, dynamic>;
     } on Object {
-      throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      );
     }
 
     if (response.statusCode >= 400) {
@@ -839,34 +1239,46 @@ class ApiClient {
       final serverMessage = json['error'];
       if ((rawFields != null && rawFields is! Map<String, dynamic>) ||
           (serverMessage != null && serverMessage is! String)) {
-        throw const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.');
+        throw const ApiException(
+          ApiErrorKind.server,
+          'Something went wrong. Try again.',
+        );
       }
-      final fields = (rawFields as Map<String, dynamic>? ?? const {})
-          .map((k, v) => MapEntry(k, v.toString()));
+      final fields = (rawFields as Map<String, dynamic>? ?? const {}).map(
+        (k, v) => MapEntry(k, v.toString()),
+      );
       throw _errorFor(response.statusCode, fields, serverMessage as String?);
     }
 
     return json;
   }
 
-  ApiException _errorFor(int status, Map<String, String> fields, [String? serverMessage]) {
+  ApiException _errorFor(
+    int status,
+    Map<String, String> fields, [
+    String? serverMessage,
+  ]) {
     return switch (status) {
-      401 => const ApiException(ApiErrorKind.unauthorized,
+      401 => const ApiException(
+        ApiErrorKind.unauthorized,
         'Your session expired. Please sign in again.',
       ),
       // The server's message is safe to show here: 400 and 409 are both
       // validation outcomes phrased for a person, not internal detail.
       400 => ApiException(
-          ApiErrorKind.validation,
-          serverMessage ?? 'Check the highlighted fields',
-          fieldErrors: fields,
-        ),
+        ApiErrorKind.validation,
+        serverMessage ?? 'Check the highlighted fields',
+        fieldErrors: fields,
+      ),
       409 => ApiException(
-          ApiErrorKind.conflict,
-          serverMessage ?? 'That is already taken',
-          fieldErrors: fields,
-        ),
-      _ => const ApiException(ApiErrorKind.server, 'Something went wrong. Try again.'),
+        ApiErrorKind.conflict,
+        serverMessage ?? 'That is already taken',
+        fieldErrors: fields,
+      ),
+      _ => const ApiException(
+        ApiErrorKind.server,
+        'Something went wrong. Try again.',
+      ),
     };
   }
 }

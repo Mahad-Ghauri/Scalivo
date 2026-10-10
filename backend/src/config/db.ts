@@ -3,6 +3,12 @@ import { Redis } from 'ioredis';
 import { Pool } from 'pg';
 import { env } from './env.js';
 import { logger } from '../lib/logger.js';
+import { CapacityOccupancy } from '../models/CapacityOccupancy.js';
+import { Resource } from '../models/Resource.js';
+import { AppointmentHolder } from '../models/AppointmentHolder.js';
+import { Booking } from '../models/Booking.js';
+import { BlockedTime } from '../models/BlockedTime.js';
+import { BookingAudit } from '../models/BookingAudit.js';
 
 mongoose.set('maxTimeMS', 10000);
 
@@ -32,6 +38,15 @@ export async function connectAll(): Promise<void> {
     postgres.query('SELECT 1'),
   ]);
   await assertReplicaSet();
+  // Additive index creation; reservations must not start without their arbiters.
+  await Promise.all([
+    CapacityOccupancy.createIndexes(),
+    Resource.createIndexes(),
+    AppointmentHolder.createIndexes(),
+    BookingAudit.createIndexes(),
+    Booking.createIndexes(),
+    BlockedTime.createIndexes(),
+  ]);
   logger.info('all datastores connected');
 }
 

@@ -1,5 +1,9 @@
-import { randomBytes } from 'node:crypto';
-import mongoose, { type HydratedDocument, type InferSchemaType } from 'mongoose';
+import { createHash, randomBytes } from 'node:crypto';
+import mongoose, {
+  type ClientSession,
+  type HydratedDocument,
+  type InferSchemaType,
+} from 'mongoose';
 import type { Redis } from 'ioredis';
 import {
   ANY_STAFF,
@@ -30,7 +34,17 @@ import {
   slotsFor,
   windowCheck,
 } from './availability.js';
-import { acquireHold, releaseHold, verifyHold } from './holds.js';
+import { acquireHold, releaseHold, verifyHold, heldPlan, verifyHeldPlan } from './holds.js';
+import {
+  CapacityConflict,
+  chooseResources,
+  resourceConflicts,
+  resourceIdsForBooking,
+  loadResourceCapacity,
+  resolveHolder,
+  claimCapacity,
+  fenceBooking,
+} from './capacity.js';
 import { setBookingOutcome } from './outcome.js';
 import type { OutcomeActor } from '../payments/settle.js';
 import { recordBooking } from '../crm/profile.js';
@@ -80,6 +94,11 @@ export function toBooking(
     startsAt: doc.startsAt,
     durationMinutes: doc.durationMinutes,
     status: doc.status,
+    resourceIds: [...doc.resourceIds],
+    appointmentHolderId: doc.appointmentHolderId ?? null,
+    appointmentHolderName: doc.appointmentHolderName ?? null,
+    approvalExpiresAt: doc.approvalExpiresAt ?? null,
+    revision: doc.revision,
     priceMinor: doc.priceMinor,
     source: doc.source,
     depositMinor: doc.depositMinor ?? null,
@@ -100,7 +119,16 @@ export interface HoldRequest {
 
 export type HoldOutcome =
   | { ok: true; hold: Hold }
-  | { ok: false; reason: 'slot_taken' | 'invalid_slot' | 'outside_hours' | 'too_soon' | 'beyond_horizon' | 'no_staff' };
+  | {
+      ok: false;
+      reason:
+        | 'slot_taken'
+        | 'invalid_slot'
+        | 'outside_hours'
+        | 'too_soon'
+        | 'beyond_horizon'
+        | 'no_staff';
+    };
 
 /**
  * Reserve a span while the customer decides.
@@ -168,8 +196,26 @@ export async function holdSlot(redis: Redis, request: HoldRequest): Promise<Hold
   const ttl = request.source === 'whatsapp' ? HOLD_TTL_SECONDS.WHATSAPP : HOLD_TTL_SECONDS.WEB;
 
   let bookable = false;
+  const resourceCapacity = await loadResourceCapacity(
+    redis,
+    request.businessId,
+    ctx.resourceRequirements ?? [],
+    {
+      start: startsAt,
+      end: addMinutes(startsAt, ctx.spanMinutes),
+    },
+  );
+  const resourceIds = chooseResources(
+    ctx.resourceRequirements ?? [],
+    resourceCapacity,
+    startsAt,
+    ctx.spanMinutes,
+  );
+  if (!resourceIds) return { ok: false, reason: 'slot_taken' };
   for (const staffId of candidates) {
-    if (!(await isWithinWorkingHours(request.businessId, staffId, request.serviceId, startsAt, ctx))) {
+    if (
+      !(await isWithinWorkingHours(request.businessId, staffId, request.serviceId, startsAt, ctx))
+    ) {
       continue;
     }
     bookable = true;
@@ -183,7 +229,14 @@ export async function holdSlot(redis: Redis, request: HoldRequest): Promise<Hold
     });
     if (taken) continue;
 
-    const handle = await acquireHold(redis, request.businessId, staffId, slots, ttl);
+    const handle = await acquireHold(redis, request.businessId, staffId, slots, ttl, {
+      resourceIds,
+      conflictingResourceIds: resourceConflicts(resourceCapacity, resourceIds),
+      serviceId: request.serviceId,
+      startsAt: startsAt.getTime(),
+      configRevision: ctx.configRevision ?? 0,
+      spanMinutes: ctx.spanMinutes,
+    });
     if (!handle) continue;
 
     return {
@@ -237,14 +290,22 @@ function deposition(
   request: { source: 'whatsapp' | 'web' | 'owner'; rescheduledDeposit?: 'carry' | 'waive' },
   now: Date,
 ): { status: BookingStatus; fields: Record<string, unknown> } {
-  if (ctx.depositMinor === null || request.source === 'owner' || request.rescheduledDeposit === 'waive') {
+  if (
+    ctx.depositMinor === null ||
+    request.source === 'owner' ||
+    request.rescheduledDeposit === 'waive'
+  ) {
     return { status: BOOKING_STATUS.PENDING, fields: {} };
   }
 
   if (request.rescheduledDeposit === 'carry') {
     return {
       status: BOOKING_STATUS.PENDING,
-      fields: { depositMinor: ctx.depositMinor, depositStatus: DEPOSIT_STATUS.PAID, depositPaidAt: now },
+      fields: {
+        depositMinor: ctx.depositMinor,
+        depositStatus: DEPOSIT_STATUS.PAID,
+        depositPaidAt: now,
+      },
     };
   }
 
@@ -295,6 +356,25 @@ export async function createBooking(
     channel?: GrowChannel | null;
   },
 ): Promise<BookingResult> {
+  const requestKey = createHash('sha256').update(request.holdToken).digest('hex');
+  const replay = async (): Promise<BookingResult | null> => {
+    const retry = await Booking.findOne({
+      businessId: request.businessId,
+      clientId: request.clientId,
+      requestKey,
+    }).maxTimeMS(5000);
+    if (!retry) return null;
+    return retry.serviceId === request.serviceId &&
+      retry.staffId === request.staffId &&
+      retry.startsAt.getTime() === request.startsAt.getTime() &&
+      (retry.appointmentHolderId ?? retry.clientId) ===
+        (request.appointmentHolderId ?? request.clientId)
+      ? { ok: true, booking: toBooking(retry) }
+      : { ok: false, reason: 'invalid_slot' };
+  };
+  const previous = await replay();
+  if (previous) return previous;
+
   const ctx = await loadContext(request.businessId, request.serviceId);
   if (!ctx) return { ok: false, reason: 'invalid_slot' };
 
@@ -314,11 +394,65 @@ export async function createBooking(
   if (window === 'too_soon' && !request.override) return { ok: false, reason: 'too_soon' };
 
   const slots = slotsFor(startsAt, ctx);
+  const plan = await heldPlan(redis, request.holdToken);
+  if (
+    plan &&
+    (plan.businessId !== request.businessId ||
+      plan.serviceId !== request.serviceId ||
+      plan.staffId !== staffId ||
+      plan.startsAt !== startsAt.getTime() ||
+      plan.configRevision !== (ctx.configRevision ?? 0))
+  )
+    return (await replay()) ?? { ok: false, reason: 'hold_expired' };
+  if (!plan && (ctx.resourceRequirements?.length ?? 0) > 0)
+    return (await replay()) ?? { ok: false, reason: 'hold_expired' };
+  if (plan && !(await verifyHeldPlan(redis, request.holdToken, plan.keys)))
+    return (await replay()) ?? { ok: false, reason: 'hold_expired' };
+  const holder = await resolveHolder(
+    request.businessId,
+    request.clientId,
+    request.appointmentHolderId,
+  );
+  if (!holder) return { ok: false, reason: 'invalid_slot' };
+  const resourceIds = plan?.resourceIds ?? [];
+  const resourceCapacity = await loadResourceCapacity(
+    redis,
+    request.businessId,
+    ctx.resourceRequirements ?? [],
+    {
+      start: startsAt,
+      end: addMinutes(startsAt, ctx.spanMinutes),
+    },
+    undefined,
+    request.holdToken,
+  );
+  const allocation = chooseResources(
+    ctx.resourceRequirements ?? [],
+    resourceCapacity,
+    startsAt,
+    ctx.spanMinutes,
+    new Set(resourceIds),
+  );
+  if (
+    !allocation ||
+    resourceIds.length !== allocation.length ||
+    !resourceIds.every((id) => allocation.includes(id))
+  ) {
+    return (
+      (await replay()) ?? {
+        ok: false,
+        reason: 'slot_taken',
+        alternatives: await nextAvailable(redis, request.businessId, request.serviceId, {
+          from: startsAt,
+        }),
+      }
+    );
+  }
 
   // A hold that partly expired is expired: verifyHold requires our token on
   // EVERY increment. Half a hold reserves nothing.
   if (!(await verifyHold(redis, request.businessId, staffId, slots, request.holdToken))) {
-    return { ok: false, reason: 'hold_expired' };
+    return (await replay()) ?? { ok: false, reason: 'hold_expired' };
   }
 
   if (!(await allowedToWork(request, staffId, startsAt, ctx))) {
@@ -342,46 +476,39 @@ export async function createBooking(
    * Owner-entered bookings are exempt. A walk-in at the desk pays the deposit,
    * if at all, in cash to the person entering it.
    */
-  const deposit = deposition(ctx, request, now);
-
   const session = await mongoose.startSession();
   try {
-    await session.withTransaction(async () => {
-      await SlotOccupancy.insertMany(
-        slots.map((slotStart) => ({
-          businessId: request.businessId,
-          staffId,
-          slotStart,
-          bookingId: String(bookingId),
-        })),
-        { session, ordered: true },
-      );
-
-      await Booking.create(
-        [
-          {
-            _id: bookingId,
-            businessId: request.businessId,
-            staffId,
-            clientId: request.clientId,
-            serviceId: request.serviceId,
-            startsAt,
-            durationMinutes: ctx.durationMinutes,
-            status: deposit.status,
-            priceMinor: ctx.priceMinor,
-            source: request.source,
-            channel: request.channel ?? null,
-            ...deposit.fields,
-          },
-        ],
-        { session },
-      );
-    });
+    await session.withTransaction(
+      async () => {
+        await fenceBooking(request.businessId, ctx.configRevision ?? 0, session);
+        await writeReservation(session, {
+          request,
+          ctx,
+          holder,
+          resourceIds,
+          conflictingResourceIds: resourceConflicts(resourceCapacity, resourceIds),
+          slots,
+          now,
+          bookingId,
+          requestKey,
+        });
+      },
+      { maxCommitTimeMS: 5000 },
+    );
   } catch (err) {
-    if (isDuplicateKey(err)) {
-      // Someone else committed first. The transaction rolled back, so no partial
-      // occupancy is left behind — and the hold is theirs now, not ours, so it
-      // is deliberately NOT released here.
+    if (isDuplicateKey(err) || err instanceof CapacityConflict) {
+      const committed = await replay();
+      if (committed) return committed;
+
+      await releaseHold(redis, {
+        token: request.holdToken,
+        staffId,
+        keys:
+          plan?.keys ??
+          slots.map((slot) => `hold:${request.businessId}:${staffId}:${slot.getTime()}`),
+        expiresAt: now,
+      });
+      // The transaction rolled back without partial occupancy. The release above only deletes our own hold keys.
       logger.info(
         { businessId: request.businessId, staffId, startsAt },
         'booking lost the slot race',
@@ -404,9 +531,14 @@ export async function createBooking(
   await releaseHold(redis, {
     token: request.holdToken,
     staffId,
-    keys: slots.map((s) => `hold:${request.businessId}:${staffId}:${s.getTime()}`),
+    keys: plan?.keys ?? slots.map((s) => `hold:${request.businessId}:${staffId}:${s.getTime()}`),
     expiresAt: now,
-  });
+  }).catch((err) =>
+    logger.error(
+      { err, businessId: request.businessId, bookingId: String(bookingId) },
+      'could not release committed booking hold',
+    ),
+  );
 
   const doc = await Booking.findById(bookingId);
   if (!doc) throw new Error(`booking ${bookingId} committed but could not be read back`);
@@ -430,6 +562,96 @@ export async function createBooking(
   );
 
   return { ok: true, booking: toBooking(doc) };
+}
+
+/** Single and consecutive appointments use the same transactional writes. */
+export async function writeReservation(
+  session: ClientSession,
+  input: {
+    request: BookingRequest & {
+      sequenceId?: string;
+      rescheduledDeposit?: 'carry' | 'waive';
+      channel?: GrowChannel | null;
+    };
+    ctx: BookingContext;
+    holder: { id: string; name: string | null };
+    resourceIds: string[];
+    conflictingResourceIds?: string[];
+    slots: Date[];
+    now: Date;
+    bookingId: mongoose.Types.ObjectId;
+    requestKey: string;
+  },
+): Promise<void> {
+  const { request, ctx, holder, resourceIds, slots, now, bookingId, requestKey } = input;
+  const { staffId, startsAt } = request;
+  const deposit = deposition(ctx, request, now);
+  await claimCapacity(
+    {
+      businessId: request.businessId,
+      bookingId: String(bookingId),
+      clientId: request.clientId,
+      holderId: holder.id,
+      resourceIds,
+      ...(input.conflictingResourceIds
+        ? { conflictingResourceIds: input.conflictingResourceIds }
+        : {}),
+      startsAt,
+      durationMinutes: ctx.durationMinutes,
+      spanMinutes: ctx.spanMinutes,
+    },
+    session,
+  );
+  await SlotOccupancy.insertMany(
+    slots.map((slotStart) => ({
+      businessId: request.businessId,
+      staffId,
+      slotStart,
+      bookingId: String(bookingId),
+    })),
+    { session, ordered: true },
+  );
+
+  await Booking.create(
+    [
+      {
+        _id: bookingId,
+        requestKey,
+        sequenceId: request.sequenceId ?? null,
+        businessId: request.businessId,
+        staffId,
+        clientId: request.clientId,
+        serviceId: request.serviceId,
+        startsAt,
+        durationMinutes: ctx.durationMinutes,
+        bufferMinutes: ctx.bufferMinutes,
+        resourceIds: resourceIdsForBooking(resourceIds),
+        appointmentHolderId: holder.id,
+        appointmentHolderName: holder.name,
+        status:
+          ctx.requiresOwnerApproval &&
+          request.source !== 'owner' &&
+          deposit.status === BOOKING_STATUS.PENDING
+            ? BOOKING_STATUS.AWAITING_APPROVAL
+            : deposit.status,
+        approvalExpiresAt:
+          ctx.requiresOwnerApproval && request.source !== 'owner'
+            ? new Date(
+                Math.min(
+                  startsAt.getTime(),
+                  now.getTime() + (ctx.approvalWindowMinutes ?? 30) * 60000,
+                ),
+              )
+            : null,
+        approvalRequired: Boolean(ctx.requiresOwnerApproval && request.source !== 'owner'),
+        priceMinor: ctx.priceMinor,
+        source: request.source,
+        channel: request.channel ?? null,
+        ...deposit.fields,
+      },
+    ],
+    { session },
+  );
 }
 
 /**
@@ -460,7 +682,8 @@ export async function cancelBooking(
   businessId: string,
   actor: OutcomeActor = 'business',
 ): Promise<boolean> {
-  const result = await setBookingOutcome(bookingId, businessId, BOOKING_STATUS.CANCELLED, { actor });
+  const result = await setBookingOutcome(bookingId, businessId, BOOKING_STATUS.CANCELLED, {
+    actor,
+  });
   return result.ok || result.reason === 'already_terminal';
 }
-

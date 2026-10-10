@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -103,16 +104,19 @@ describe.skipIf(!infraUp)('business settings', () => {
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
     ]);
   });
 
   it('exposes the configured booking URL only after publication', async () => {
-    const get = () => fetch(`${serverUrl}/businesses/${businessId}`, {
-      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000),
-    });
-    expect((await (await get()).json() as { bookingUrl: string | null }).bookingUrl).toBeNull();
+    const get = () =>
+      fetch(`${serverUrl}/businesses/${businessId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+    expect(((await (await get()).json()) as { bookingUrl: string | null }).bookingUrl).toBeNull();
     await Business.updateOne({ _id: businessId }, { $set: { published: true } });
-    const body = await (await get()).json() as { bookingUrl: string };
+    const body = (await (await get()).json()) as { bookingUrl: string };
     expect(new URL(body.bookingUrl).pathname).toBe('/settings-test');
   });
 
@@ -137,7 +141,10 @@ describe.skipIf(!infraUp)('business settings', () => {
   });
 
   it('turning reminders off keeps the lead times', async () => {
-    await Business.updateOne({ _id: businessId }, { $set: { 'reminders.leadMinutes': [1440, 120] } });
+    await Business.updateOne(
+      { _id: businessId },
+      { $set: { 'reminders.leadMinutes': [1440, 120] } },
+    );
 
     expect((await patch({ reminders: { enabled: false } })).status).toBe(200);
 
@@ -153,7 +160,10 @@ describe.skipIf(!infraUp)('business settings', () => {
   });
 
   it('stores a blank optional field as null, not as an empty string', async () => {
-    await Business.updateOne({ _id: businessId }, { $set: { 'profile.addressLine': '12 Main Blvd' } });
+    await Business.updateOne(
+      { _id: businessId },
+      { $set: { 'profile.addressLine': '12 Main Blvd' } },
+    );
 
     expect((await patch({ profile: { addressLine: '   ', logoUrl: '' } })).status).toBe(200);
 
@@ -163,7 +173,11 @@ describe.skipIf(!infraUp)('business settings', () => {
   });
 
   it('refuses an image link that is not https', async () => {
-    for (const coverUrl of ['http://img.example/a.jpg', 'javascript:alert(1)', 'img.example/a.jpg']) {
+    for (const coverUrl of [
+      'http://img.example/a.jpg',
+      'javascript:alert(1)',
+      'img.example/a.jpg',
+    ]) {
       const res = await patch({ profile: { coverUrl } });
       expect(res.status).toBe(400);
       expect((await json(res)).fields['profile.coverUrl']).toBeDefined();

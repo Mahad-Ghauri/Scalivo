@@ -12,6 +12,9 @@ import { getCalendar } from './view.js';
 import { rescheduleBooking } from './reschedule.js';
 import { createWalkIn } from './walkin.js';
 import { fieldErrors, param } from '../http/params.js';
+import { wallClockToUtc, isCalendarDate } from '../lib/time.js';
+import { Resource } from '../models/Resource.js';
+import { configureBooking } from '../bookings/configuration.js';
 
 /**
  * The owner's diary over HTTP.
@@ -23,7 +26,7 @@ import { fieldErrors, param } from '../http/params.js';
  * sent nonsense".
  */
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 
 /**
  * A month either side is generous for a diary and cheap to serve. Without a cap
@@ -33,46 +36,78 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 62;
 
 const calendarQuery = z.object({
-  from: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
+  from: z.string().refine(isCalendarDate, 'Choose a valid calendar date'),
   /** Inclusive. A day view sends the same date twice. */
-  to: z.string().regex(ISO_DATE, 'expected YYYY-MM-DD'),
-  staffId: z.string().min(1).optional(),
+  to: z.string().refine(isCalendarDate, 'Choose a valid calendar date'),
+  staffId: objectId.optional(),
   includeCancelled: z.coerce.boolean().default(false),
 });
 
 const rescheduleBody = z.object({
   startsAt: z.string().datetime({ offset: true }),
-  staffId: z.string().min(1).optional(),
+  staffId: objectId.optional(),
   /** Owner override: notice period and roster only. Never the grid or a block. */
   override: z.boolean().default(false),
 });
 
 const walkInBody = z
   .object({
-    serviceId: z.string().min(1),
-    staffId: z.string().min(1),
+    serviceId: objectId,
+    staffId: objectId,
     startsAt: z.string().datetime({ offset: true }),
     name: z.string().trim().min(1).max(120).optional(),
     phone: z.string().trim().min(1).max(32).optional(),
-    clientId: z.string().min(1).optional(),
+    clientId: objectId.optional(),
+    appointmentHolderId: z
+      .string()
+      .regex(/^[a-f\d]{24}$/i)
+      .optional(),
+    additionalServices: z
+      .array(
+        z.object({
+          serviceId: z.string().regex(/^[a-f\d]{24}$/i),
+          staffId: z.string().regex(/^[a-f\d]{24}$/i),
+        }),
+      )
+      .max(4)
+      .optional(),
+    requestId: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{32}$/)
+      .optional(),
   })
   .refine((body) => Boolean(body.clientId ?? body.name ?? body.phone), {
     message: 'a walk-in needs a name, a phone number, or an existing client',
     path: ['name'],
   });
 
+const blockInstant = z.union([
+  z.string().datetime({ offset: true }),
+  z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+]);
+
 const blockBody = z
   .object({
     /** null blocks the whole business — a holiday, not one person's afternoon. */
-    staffId: z.string().min(1).nullable().default(null),
-    startsAt: z.string().datetime({ offset: true }),
-    endsAt: z.string().datetime({ offset: true }),
+    staffId: objectId.nullable().default(null),
+    resourceId: z
+      .string()
+      .regex(/^[a-f\d]{24}$/i)
+      .nullable()
+      .default(null),
+    startsAt: blockInstant,
+    endsAt: blockInstant,
     reason: z.string().trim().max(200).optional(),
   })
   .refine((b) => new Date(b.endsAt) > new Date(b.startsAt), {
     message: 'endsAt must be after startsAt',
     path: ['endsAt'],
-  });
+  })
+  .refine((b) => !b.staffId || !b.resourceId, 'Choose staff or a resource, not both')
+  .refine(
+    (b) => Date.parse(b.endsAt) - Date.parse(b.startsAt) <= 366 * 86400000,
+    'Block must be at most one year',
+  );
 
 /**
  * 409 means "the world moved while you were looking at it" — re-read and try
@@ -199,15 +234,25 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
     const { serviceId, staffId, startsAt, name, phone, clientId } = parsed.data;
 
     try {
-      const result = await createWalkIn({ redis, provider }, {
-        businessId: param(req, 'businessId'),
-        serviceId,
-        staffId,
-        startsAt: new Date(startsAt),
-        ...(name ? { name } : {}),
-        ...(phone ? { phone } : {}),
-        ...(clientId ? { clientId } : {}),
-      });
+      const result = await createWalkIn(
+        { redis, provider },
+        {
+          businessId: param(req, 'businessId'),
+          serviceId,
+          staffId,
+          startsAt: new Date(startsAt),
+          ...(name ? { name } : {}),
+          ...(phone ? { phone } : {}),
+          ...(clientId ? { clientId } : {}),
+          ...(parsed.data.additionalServices
+            ? { additionalServices: parsed.data.additionalServices }
+            : {}),
+          ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
+          ...(parsed.data.appointmentHolderId
+            ? { appointmentHolderId: parsed.data.appointmentHolderId }
+            : {}),
+        },
+      );
 
       if (!result.ok) {
         const status = result.reason === 'slot_taken' ? 409 : 400;
@@ -215,7 +260,9 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
         return;
       }
 
-      res.status(201).json({ booking: result.booking, clientId: result.clientId });
+      res
+        .status(201)
+        .json({ booking: result.booking, bookings: result.bookings, clientId: result.clientId });
     } catch (err) {
       logger.error({ err, businessId: param(req, 'businessId') }, 'walk-in failed');
       res.status(500).json({ error: 'could not book the walk-in' });
@@ -240,38 +287,83 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
     }
 
     const businessId = param(req, 'businessId');
-    const { staffId, reason } = parsed.data;
-    const startsAt = new Date(parsed.data.startsAt);
-    const endsAt = new Date(parsed.data.endsAt);
-
-    const business = await Business.findById(businessId).select('_id');
+    const { staffId, resourceId, reason } = parsed.data;
+    const business = await Business.findById(businessId).select('_id timezone').maxTimeMS(5000);
     if (!business) {
       res.status(404).json({ error: 'not found' });
       return;
     }
 
-    const block = await BlockedTime.create({
-      businessId,
-      staffId,
-      startsAt,
-      endsAt,
-      reason: reason ?? null,
+    let startsAt: Date, endsAt: Date;
+    try {
+      startsAt =
+        parsed.data.startsAt.length === 16
+          ? wallClockToUtc(parsed.data.startsAt, business.timezone)
+          : new Date(parsed.data.startsAt);
+      endsAt =
+        parsed.data.endsAt.length === 16
+          ? wallClockToUtc(parsed.data.endsAt, business.timezone)
+          : new Date(parsed.data.endsAt);
+      if (endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 366 * 86400000)
+        throw new Error('invalid block range');
+    } catch {
+      res.status(400).json({ error: 'Choose valid start and end times' });
+      return;
+    }
+
+    if (
+      resourceId &&
+      !(await Resource.exists({ _id: resourceId, businessId, active: true }).maxTimeMS(5000))
+    ) {
+      res.status(400).json({ error: 'Choose an active resource in this business' });
+      return;
+    }
+    const block = await configureBooking(businessId, async (session) => {
+      const [created] = await BlockedTime.create(
+        [{ businessId, staffId, resourceId, startsAt, endsAt, reason: reason ?? null }],
+        { session },
+      );
+      return created!;
     });
 
     // Overlap on the appointment's own interval, not just its start — a
     // treatment that began before the block still runs into it.
+    const contained = resourceId
+      ? await Resource.find({ businessId, fixedRoomId: resourceId })
+          .select('_id')
+          .limit(201)
+          .lean()
+          .maxTimeMS(5000)
+      : [];
+    if (contained.length > 200) throw new Error('resource inventory exceeds limit');
     const affected = await Booking.find({
       businessId,
       ...(staffId ? { staffId } : {}),
+      ...(resourceId
+        ? { resourceIds: { $in: [resourceId, ...contained.map((asset) => String(asset._id))] } }
+        : {}),
       status: { $nin: [BOOKING_STATUS.CANCELLED, BOOKING_STATUS.NO_SHOW] },
       startsAt: { $lt: endsAt },
       $expr: {
         $gt: [
-          { $add: ['$startsAt', { $multiply: ['$durationMinutes', 60_000] }] },
+          {
+            $add: [
+              '$startsAt',
+              {
+                $multiply: [
+                  { $add: ['$durationMinutes', { $ifNull: ['$bufferMinutes', 0] }] },
+                  60_000,
+                ],
+              },
+            ],
+          },
           startsAt,
         ],
       },
-    }).select('_id startsAt durationMinutes staffId clientId serviceId');
+    })
+      .select('_id startsAt durationMinutes staffId clientId serviceId')
+      .limit(500)
+      .maxTimeMS(5000);
 
     logger.info(
       { businessId, blockId: String(block._id), affected: affected.length },
@@ -282,6 +374,7 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
       block: {
         id: String(block._id),
         staffId: block.staffId,
+        resourceId: block.resourceId,
         startsAt: block.startsAt,
         endsAt: block.endsAt,
         reason: block.reason,
@@ -305,10 +398,15 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
       return;
     }
 
-    const deleted = await BlockedTime.deleteOne({
-      _id: blockId,
-      businessId: param(req, 'businessId'),
-    });
+    const deleted = await configureBooking(param(req, 'businessId'), async (session) =>
+      BlockedTime.deleteOne(
+        {
+          _id: blockId,
+          businessId: param(req, 'businessId'),
+        },
+        { session },
+      ),
+    );
     if (deleted.deletedCount === 0) {
       res.status(404).json({ error: 'not found' });
       return;

@@ -27,9 +27,12 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
   // which might be 1 day off depending on timezone, but immediately resolves once the user clicks "Today".
   const fallbackToday = new Date().toISOString().split('T')[0] as string;
 
-  const dateParam: string = typeof resolvedSearchParams.date === 'string' ? resolvedSearchParams.date : fallbackToday;
-  const viewParam: string = typeof resolvedSearchParams.view === 'string' ? resolvedSearchParams.view : 'week';
-  const eventId: string | undefined = typeof resolvedSearchParams.eventId === 'string' ? resolvedSearchParams.eventId : undefined;
+  const dateParam: string =
+    typeof resolvedSearchParams.date === 'string' ? resolvedSearchParams.date : fallbackToday;
+  const viewParam: string =
+    typeof resolvedSearchParams.view === 'string' ? resolvedSearchParams.view : 'week';
+  const eventId: string | undefined =
+    typeof resolvedSearchParams.eventId === 'string' ? resolvedSearchParams.eventId : undefined;
   const showCancelledParam: boolean = resolvedSearchParams.showCancelled === 'true';
 
   const isWeekView = viewParam === 'week';
@@ -45,18 +48,25 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
   let clients: Client[] = [];
   try {
     const [calRes, svcRes, staffRes, clientsRes] = await Promise.all([
-      fetchApi<CalendarView>(`/businesses/${businessId}/calendar?from=${from}&to=${to}${showCancelledParam ? '&includeCancelled=true' : ''}`),
+      fetchApi<CalendarView>(
+        `/businesses/${businessId}/calendar?from=${from}&to=${to}${showCancelledParam ? '&includeCancelled=true' : ''}`,
+      ),
       fetchApi<{ services: Service[] }>(`/businesses/${businessId}/services`),
       fetchApi<{ staff: Staff[] }>(`/businesses/${businessId}/staff`),
-      fetchApi<{ clients: Client[] }>(`/businesses/${businessId}/clients`)
+      fetchApi<{ clients: Client[] }>(`/businesses/${businessId}/clients`),
     ]);
-    
+
     calendarView = calRes;
     services = svcRes.services;
     staff = staffRes.staff;
     clients = clientsRes.clients;
   } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && (error.status === 404 || error.status === 403)) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'status' in error &&
+      (error.status === 404 || error.status === 403)
+    ) {
       notFound(); // Tenant isolation failure maps to 404
     }
     throw error;
@@ -65,11 +75,13 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
   // Calculate navigation dates
   const prevDate = isWeekView ? addDays(from, -7) : addDays(from, -1);
   const nextDate = isWeekView ? addDays(from, 7) : addDays(from, 1);
-  
+
   // Actually, we do have the correct timezone in `calendarView.timezone`.
   // We can safely derive the REAL today date now that we have the timezone.
   const now = new Date();
-  const realToday = new Intl.DateTimeFormat('en-CA', { timeZone: calendarView.timezone }).format(now);
+  const realToday = new Intl.DateTimeFormat('en-CA', { timeZone: calendarView.timezone }).format(
+    now,
+  );
 
   // If a specific event is selected, find it
   let selectedEntry: CalendarEntry | undefined;
@@ -91,7 +103,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
     const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'short' });
     const dayFmt = new Intl.DateTimeFormat('en-US', { day: 'numeric' });
     const yearFmt = new Intl.DateTimeFormat('en-US', { year: 'numeric' });
-    
+
     if (fromDate.getMonth() === toDate.getMonth()) {
       title = `${monthFmt.format(fromDate)} ${dayFmt.format(fromDate)} - ${dayFmt.format(toDate)}, ${yearFmt.format(fromDate)}`;
     } else if (fromDate.getFullYear() === toDate.getFullYear()) {
@@ -100,7 +112,11 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
       title = `${monthFmt.format(fromDate)} ${dayFmt.format(fromDate)}, ${yearFmt.format(fromDate)} - ${monthFmt.format(toDate)} ${dayFmt.format(toDate)}, ${yearFmt.format(toDate)}`;
     }
   } else {
-    const titleFormatter = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const titleFormatter = new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
     title = titleFormatter.format(new Date(`${from}T12:00:00Z`));
   }
 
@@ -108,6 +124,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
     <div className="flex flex-col h-full">
       <CalendarControls
         businessId={businessId}
+        timezone={calendarView.timezone}
         view={isWeekView ? 'week' : 'day'}
         currentDate={dateParam}
         todayDate={realToday}
@@ -119,19 +136,19 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
         staff={staff}
         clients={clients}
       />
-      
+
       <div className="flex gap-6 flex-1 min-h-0">
         <div className="flex-1 min-w-0">
-          <CalendarGrid 
+          <CalendarGrid
             businessId={businessId}
             viewData={calendarView}
             selectedEventId={eventId}
             view={isWeekView ? 'week' : 'day'}
           />
         </div>
-        
+
         {selectedEntry && (
-          <CalendarDetailPanel 
+          <CalendarDetailPanel
             businessId={businessId}
             entry={selectedEntry}
             dateStr={dateParam}

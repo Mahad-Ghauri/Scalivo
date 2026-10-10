@@ -21,6 +21,8 @@ const businessSchema = new Schema(
     /** IANA zone. Every displayed time converts through this, never the server's. */
     timezone: { type: String, default: 'Asia/Karachi' },
     slotIncrementMinutes: { type: Number, default: DEFAULT_SLOT_INCREMENT_MINUTES },
+    bookingConfigRevision: { type: Number, default: 0 },
+    bookingFence: { type: Number, default: 0 },
 
     /**
      * Booking window. Without a floor the 09:00 slot is still offerable at
@@ -31,7 +33,11 @@ const businessSchema = new Schema(
 
     whatsapp: {
       sessionId: { type: String, index: true },
-      status: { type: String, enum: Object.values(SESSION_STATUS), default: SESSION_STATUS.CREATED },
+      status: {
+        type: String,
+        enum: Object.values(SESSION_STATUS),
+        default: SESSION_STATUS.CREATED,
+      },
 
       /**
        * What we believe should be happening. Without it, Session Health cannot
@@ -154,7 +160,13 @@ const businessSchema = new Schema(
       /** 2.1's bounded customisation: one accent colour, as '#rrggbb'. */
       themeColor: { type: String, default: null },
       gallery: {
-        type: [{ url: { type: String, required: true }, alt: { type: String, required: true }, _id: false }],
+        type: [
+          {
+            url: { type: String, required: true },
+            alt: { type: String, required: true },
+            _id: false,
+          },
+        ],
         default: [],
       },
     },

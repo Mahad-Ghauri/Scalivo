@@ -1,20 +1,30 @@
+import { isUsableName } from '../../lib/name.js';
 import type { Redis } from 'ioredis';
-import {
-  ANY_STAFF,
-  BOOKING_STATUS,
-  DEPOSIT_STATUS,
-  FLOW_OPENER,
-  REVIEW_COMMENT_MIN_LENGTH,
-} from '@scalivo/shared';
+import { ANY_STAFF, BOOKING_STATUS, FLOW_OPENER, REVIEW_COMMENT_MIN_LENGTH } from '@scalivo/shared';
 import { Booking } from '../../models/Booking.js';
+import { AppointmentHolder } from '../../models/AppointmentHolder.js';
+import { saveHolder } from '../../crm/holders.js';
+import { ConfigurationConflict } from '../../bookings/configuration.js';
+import { Client } from '../../models/Client.js';
 import { Business } from '../../models/Business.js';
 import { Service } from '../../models/Service.js';
 import { Staff } from '../../models/Staff.js';
-import { daysWithAvailability, getAvailability, loadContext, slotsFor } from '../../bookings/availability.js';
-import { holdKeys, releaseHold } from '../../bookings/holds.js';
+import {
+  createSequence,
+  getSequenceAvailability,
+  daysWithSequenceAvailability,
+  type SequenceStep,
+} from '../../bookings/sequence.js';
+import {
+  daysWithAvailability,
+  getAvailability,
+  loadContext,
+  slotsFor,
+} from '../../bookings/availability.js';
+import { holdKeys, releaseHold, heldPlan } from '../../bookings/holds.js';
 import { cancelBooking, createBooking, holdSlot } from '../../bookings/create.js';
 import { attachComment, recordRating } from '../../reviews/record.js';
-import { transferDeposit } from '../../payments/deposits.js';
+import { rescheduleReservation } from '../../calendar/reschedule.js';
 import { logger } from '../../lib/logger.js';
 import { handleGlobalCommand } from '../interceptors/global-commands.js';
 import * as copy from '../messages.js';
@@ -75,6 +85,7 @@ export interface TurnResult {
    * rather than a line of chat. See the note in commit().
    */
   confirms?: string;
+  confirmsSequence?: import('@scalivo/shared').Booking[];
   notifyOwner?: boolean;
 }
 
@@ -82,7 +93,10 @@ export interface TurnResult {
 function pickOption(text: string, options: string[] | undefined): string | null {
   if (!options?.length) return null;
   const words = ['first', 'second', 'third', 'fourth', 'fifth'];
-  const ordinal = /^(?:the )?(first|second|third|fourth|fifth)(?: (?:one|appointment|option|slot))?[.!]?$/i.exec(text.trim());
+  const ordinal =
+    /^(?:the )?(first|second|third|fourth|fifth)(?: (?:one|appointment|option|slot))?[.!]?$/i.exec(
+      text.trim(),
+    );
   const n = ordinal ? words.indexOf(ordinal[1]!.toLowerCase()) + 1 : Number(text.trim());
   if (!Number.isInteger(n) || n < 1 || n > options.length) return null;
   return options[n - 1] ?? null;
@@ -109,7 +123,9 @@ function isNo(text: string): boolean {
 function isOpener(text: string): boolean {
   return (
     /^\s*\d+\s*$/.test(text) ||
-    /\b(h+i+|he+y+|hel+o+|hy|salaa?m|slam|as+ala+m\w*|aoa|book\w*|appointments?|menu|services?|prices?|rates?)\b/i.test(text) ||
+    /\b(h+i+|he+y+|hel+o+|hy|salaa?m|slam|as+ala+m\w*|aoa|book\w*|appointments?|menu|services?|prices?|rates?)\b/i.test(
+      text,
+    ) ||
     /سلام/.test(text)
   );
 }
@@ -169,7 +185,10 @@ async function promptService(
   }
 
   return {
-    replies: [copy.serviceMenu(services)],
+    replies: [
+      copy.serviceMenu(services) +
+        '\n\nBooking for someone else? Send APPOINTMENT FOR followed by their name.',
+    ],
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_SERVICE,
@@ -192,7 +211,9 @@ async function promptStaffOrDate(
     businessId: ctx.businessId,
     active: true,
     serviceIds: base.serviceId,
-  });
+  })
+    .limit(100)
+    .maxTimeMS(5000);
 
   // One staff member is not a choice, it is a fact — asking would be noise, so
   // the customer is never shown a menu of one.
@@ -204,18 +225,65 @@ async function promptStaffOrDate(
   }
 
   return {
-    replies: [copy.staffMenu(staff.map((s) => s.name))],
+    replies: [
+      base.additionalServices?.length
+        ? `Who would you like for the first treatment?\n\n${staff.map((member, index) => `${index + 1}. ${member.name}`).join('\n')}\n\nReply with their name or number.`
+        : copy.staffMenu(staff.map((s) => s.name)),
+    ],
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_STAFF,
       // The trailing ANY_STAFF is the "No preference" row the menu prints last.
-      options: [...staff.map((s) => String(s._id)), ANY_STAFF],
+      options: [
+        ...staff.map((s) => String(s._id)),
+        ...(base.additionalServices?.length ? [] : [ANY_STAFF]),
+      ],
       invalidCount: 0,
     },
   };
 }
 
 async function promptDate(redis: Redis, ctx: TurnContext, base: Conversation): Promise<TurnResult> {
+  const index = base.additionalServices?.findIndex((step) => !step.staffId) ?? -1;
+  if (index !== -1) {
+    const step = base.additionalServices![index]!;
+    const [service, members] = await Promise.all([
+      Service.findOne({ _id: step.serviceId, businessId: ctx.businessId, active: true })
+        .select('name')
+        .lean()
+        .maxTimeMS(5000),
+      Staff.find({ businessId: ctx.businessId, active: true, serviceIds: step.serviceId })
+        .select('name')
+        .lean()
+        .limit(100)
+        .maxTimeMS(5000),
+    ]);
+    if (!service || !members.length)
+      return {
+        replies: [
+          'One of these treatments has no available professional. Contact the business or request a different treatment.',
+        ],
+        conversation: null,
+      };
+    if (members.length === 1) {
+      const additionalServices = base.additionalServices!.map((item, i) =>
+        i === index ? { ...item, staffId: String(members[0]!._id) } : item,
+      );
+      return promptDate(redis, ctx, { ...base, additionalServices });
+    }
+    return {
+      replies: [
+        `Who would you prefer for ${service.name}?\n\n${members.map((member, i) => `${i + 1}. ${member.name}`).join('\n')}\n\nYou can reply with a name or number.`,
+      ],
+      conversation: {
+        ...base,
+        state: CONVERSATION_STATE.SELECTING_SEQUENCE_STAFF,
+        sequenceStaffIndex: index,
+        options: members.map((member) => String(member._id)),
+        invalidCount: 0,
+      },
+    };
+  }
   // The day is already settled — from a sentence, since no menu path arrives here
   // with one. Skipping straight to times is the point of having parsed it.
   //
@@ -224,20 +292,43 @@ async function promptDate(redis: Redis, ctx: TurnContext, base: Conversation): P
   // asks again instead of bouncing.
   if (base.date) return promptSlot(redis, ctx, base);
 
-  const days = await daysWithAvailability(redis, ctx.businessId, base.serviceId!, {
-    ...(base.staffId ? { staffId: base.staffId } : {}),
-  });
+  const days = base.additionalServices?.length
+    ? (
+        await daysWithSequenceAvailability(redis, {
+          businessId: ctx.businessId,
+          steps: [
+            { serviceId: base.serviceId!, staffId: base.staffId! },
+            ...(base.additionalServices as SequenceStep[]),
+          ],
+          source: 'whatsapp',
+          ...(ctx.now ? { now: ctx.now } : {}),
+        })
+      ).map((date) => ({ date }))
+    : await daysWithAvailability(redis, ctx.businessId, base.serviceId!, {
+        ...(base.staffId ? { staffId: base.staffId } : {}),
+      });
 
   if (days.length === 0) {
     const service = await Service.findById(base.serviceId);
     return {
-      replies: [copy.nothingAvailable(service?.name ?? 'that service')],
-      conversation: null,
+      replies: [
+        base.additionalServices?.length
+          ? 'No full visit is available in the next two weeks. Ask for a specific later date or contact the business to arrange these treatments.'
+          : copy.nothingAvailable(service?.name ?? 'that service'),
+      ],
+      conversation: base.additionalServices?.length
+        ? { ...base, state: CONVERSATION_STATE.SELECTING_DATE, options: [], invalidCount: 0 }
+        : null,
     };
   }
 
   return {
-    replies: [copy.dateMenu(days.map((d) => d.date), ctx.timezone)],
+    replies: [
+      copy.dateMenu(
+        days.map((d) => d.date),
+        ctx.timezone,
+      ),
+    ],
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_DATE,
@@ -253,12 +344,21 @@ async function discardConfirmation(redis: Redis, ctx: TurnContext): Promise<Conv
   if (!previous) return null;
   if (previous.holdToken && previous.heldStaffId && previous.slotStart && previous.serviceId) {
     const context = await loadContext(ctx.businessId, previous.serviceId);
-    if (context) await releaseHold(redis, {
-      token: previous.holdToken,
-      staffId: previous.heldStaffId,
-      keys: holdKeys(ctx.businessId, previous.heldStaffId, slotsFor(new Date(previous.slotStart), context)),
-      expiresAt: new Date(),
-    });
+    const plan = await heldPlan(redis, previous.holdToken);
+    if (context)
+      await releaseHold(redis, {
+        token: previous.holdToken,
+        staffId: previous.heldStaffId,
+        keys:
+          plan?.businessId === ctx.businessId
+            ? plan.keys
+            : holdKeys(
+                ctx.businessId,
+                previous.heldStaffId,
+                slotsFor(new Date(previous.slotStart), context),
+              ),
+        expiresAt: new Date(),
+      });
   }
   const fresh = { ...previous };
   delete fresh.slotStart;
@@ -267,7 +367,8 @@ async function discardConfirmation(redis: Redis, ctx: TurnContext): Promise<Conv
   delete fresh.requestedAt;
   delete fresh.ambiguousAt;
   delete fresh.options;
-  if (fresh.state === CONVERSATION_STATE.CONFIRMING) fresh.state = CONVERSATION_STATE.SELECTING_SLOT;
+  if (fresh.state === CONVERSATION_STATE.CONFIRMING)
+    fresh.state = CONVERSATION_STATE.SELECTING_SLOT;
   return fresh;
 }
 
@@ -277,13 +378,25 @@ async function promptSlot(
   base: Conversation,
   lead?: string,
 ): Promise<TurnResult> {
-  const slots = await getAvailability(redis, {
-    businessId: ctx.businessId,
-    serviceId: base.serviceId!,
-    date: base.date!,
-    ...(ctx.now ? { now: ctx.now } : {}),
-    ...(base.staffId ? { staffId: base.staffId } : {}),
-  });
+  const slots = base.additionalServices?.length
+    ? await getSequenceAvailability(redis, {
+        businessId: ctx.businessId,
+        steps: [
+          { serviceId: base.serviceId!, staffId: base.staffId! },
+          ...(base.additionalServices as SequenceStep[]),
+        ],
+        date: base.date!,
+        source: 'whatsapp',
+        ...(ctx.now ? { now: ctx.now } : {}),
+      })
+    : await getAvailability(redis, {
+        businessId: ctx.businessId,
+        serviceId: base.serviceId!,
+        date: base.date!,
+        ...(ctx.now ? { now: ctx.now } : {}),
+        ...(base.staffId ? { staffId: base.staffId } : {}),
+        ...(base.bookingId ? { ignoreBookingId: base.bookingId } : {}),
+      });
 
   if (base.ambiguousAt !== undefined) {
     const am = base.ambiguousAt;
@@ -294,18 +407,31 @@ async function promptSlot(
     const fresh = { ...base };
     delete fresh.ambiguousAt;
     delete fresh.within;
-    if (candidates.length) return {
-      replies: [copy.ambiguousTimeOptions(candidates.map((slot) => slot.startsAt), ctx.timezone)],
-      conversation: { ...fresh, state: CONVERSATION_STATE.SELECTING_SLOT,
-        options: candidates.map((slot) => slot.startsAt.toISOString()), invalidCount: 0 },
-    };
+    if (candidates.length)
+      return {
+        replies: [
+          copy.ambiguousTimeOptions(
+            candidates.map((slot) => slot.startsAt),
+            ctx.timezone,
+          ),
+        ],
+        conversation: {
+          ...fresh,
+          state: CONVERSATION_STATE.SELECTING_SLOT,
+          options: candidates.map((slot) => slot.startsAt.toISOString()),
+          invalidCount: 0,
+        },
+      };
     const alternative = await promptSlot(redis, ctx, fresh, copy.neitherTimeAvailable);
-    if (!alternative.replies.includes(copy.neitherTimeAvailable)) alternative.replies.unshift(copy.neitherTimeAvailable);
+    if (!alternative.replies.includes(copy.neitherTimeAvailable))
+      alternative.replies.unshift(copy.neitherTimeAvailable);
     return alternative;
   }
 
   if (base.requestedAt !== undefined) {
-    const exact = slots.find((slot) => localMinutes(slot.startsAt, ctx.timezone) === base.requestedAt);
+    const exact = slots.find(
+      (slot) => localMinutes(slot.startsAt, ctx.timezone) === base.requestedAt,
+    );
     const fresh = { ...base };
     delete fresh.requestedAt;
     delete fresh.within;
@@ -353,7 +479,13 @@ async function promptSlot(
   }
 
   return {
-    replies: [...(lead ? [lead] : []), copy.slotMenu(offered.map((s) => s.startsAt), ctx.timezone)],
+    replies: [
+      ...(lead ? [lead] : []),
+      copy.slotMenu(
+        offered.map((s) => s.startsAt),
+        ctx.timezone,
+      ),
+    ],
     conversation: {
       ...base,
       state: CONVERSATION_STATE.SELECTING_SLOT,
@@ -369,6 +501,62 @@ async function promptConfirm(
   base: Conversation,
   slotStart: Date,
 ): Promise<TurnResult> {
+  if (base.additionalServices?.length) {
+    const steps: SequenceStep[] = [
+      { serviceId: base.serviceId!, staffId: base.staffId! },
+      ...(base.additionalServices as SequenceStep[]),
+    ];
+    const offers = await getSequenceAvailability(redis, {
+      businessId: ctx.businessId,
+      steps,
+      date: base.date!,
+      source: 'whatsapp',
+      ...(ctx.now ? { now: ctx.now } : {}),
+    });
+    const offer = offers.find((candidate) => candidate.startsAt.getTime() === slotStart.getTime());
+    if (!offer) return promptSlot(redis, ctx, base, copy.slotTaken);
+    const [services, staff] = await Promise.all([
+      Service.find({
+        businessId: ctx.businessId,
+        _id: { $in: steps.map((step) => step.serviceId) },
+      })
+        .select('name priceMinor')
+        .lean()
+        .limit(5)
+        .maxTimeMS(5000),
+      Staff.find({ businessId: ctx.businessId, _id: { $in: steps.map((step) => step.staffId) } })
+        .select('name')
+        .lean()
+        .limit(5)
+        .maxTimeMS(5000),
+    ]);
+    const summary = offer.appointments
+      .map((appointment) => {
+        const service = services.find((item) => String(item._id) === appointment.serviceId);
+        const member = staff.find((item) => String(item._id) === appointment.staffId);
+        const time = new Intl.DateTimeFormat('en-GB', {
+          timeZone: ctx.timezone,
+          day: 'numeric',
+          month: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(new Date(appointment.startsAt));
+        return `${service?.name ?? 'Treatment'} with ${member?.name ?? 'our team'} — ${time}`;
+      })
+      .join('\n');
+    return {
+      replies: [
+        `Please confirm your consecutive treatments:\n\n${summary}\n\nCleanup gaps are included. Availability is checked again when you confirm; either the whole visit is saved or none is. Services requiring approval stay unconfirmed until accepted.\n\nReply YES to confirm or NO to choose another time.`,
+      ],
+      conversation: {
+        ...base,
+        state: CONVERSATION_STATE.CONFIRMING,
+        slotStart: slotStart.toISOString(),
+        heldStaffId: base.staffId!,
+        invalidCount: 0,
+      },
+    };
+  }
   const held = await holdSlot(redis, {
     businessId: ctx.businessId,
     serviceId: base.serviceId!,
@@ -412,17 +600,60 @@ async function promptConfirm(
  * this is the booking.
  */
 async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promise<TurnResult> {
+  const client = await Client.findById(ctx.clientId).select('displayName').lean().maxTimeMS(5000);
+  if (
+    !base.appointmentHolderId &&
+    (!client?.displayName?.trim() || !isUsableName(client.displayName))
+  ) {
+    return {
+      replies: [
+        'What name should I put on the appointment? Please send the name of the person receiving the treatment.',
+      ],
+      conversation: { ...base, state: CONVERSATION_STATE.AWAITING_NAME, invalidCount: 0 },
+    };
+  }
   const startsAt = new Date(base.slotStart!);
 
-  // A reschedule keeps the original booking's deposit terms: a paid deposit
-  // moves across, and a booking that never had one is not asked for one now —
-  // see rescheduledDeposit in bookings/create.ts.
-  const previous = base.bookingId
-    ? await Booking.findOne({ _id: base.bookingId, businessId: ctx.businessId }).select('depositStatus')
-    : null;
-  const depositAlreadyPaid = previous?.depositStatus === DEPOSIT_STATUS.PAID;
-  const rescheduledDeposit = base.bookingId ? (depositAlreadyPaid ? 'carry' : 'waive') : undefined;
-
+  if (base.additionalServices?.length) {
+    const result = await createSequence(redis, {
+      businessId: ctx.businessId,
+      clientId: ctx.clientId,
+      startsAt,
+      source: 'whatsapp',
+      steps: [
+        { serviceId: base.serviceId!, staffId: base.staffId! },
+        ...(base.additionalServices as SequenceStep[]),
+      ],
+      ...(base.appointmentHolderId ? { appointmentHolderId: base.appointmentHolderId } : {}),
+      ...(ctx.now ? { now: ctx.now } : {}),
+    });
+    if (!result.ok) return promptSlot(redis, ctx, base, copy.slotTaken);
+    return {
+      replies: [],
+      conversation: null,
+      confirms: result.bookings[0]!.id,
+      confirmsSequence: result.bookings,
+    };
+  }
+  if (base.bookingId) {
+    const moved = await rescheduleReservation(redis, {
+      businessId: ctx.businessId,
+      bookingId: base.bookingId,
+      clientId: ctx.clientId,
+      startsAt,
+      staffId: base.heldStaffId!,
+      ignoreHoldToken: base.holdToken!,
+      ...(ctx.now ? { now: ctx.now } : {}),
+    });
+    await discardConfirmation(redis, { ...ctx, conversation: base });
+    if (!moved.ok) return promptSlot(redis, ctx, base, copy.slotTaken);
+    return {
+      replies: [
+        'Your appointment has been moved to the time you selected. Reply MY APPOINTMENTS to see your updated booking.',
+      ],
+      conversation: null,
+    };
+  }
   const attempt = (holdToken: string) =>
     createBooking(redis, {
       businessId: ctx.businessId,
@@ -432,7 +663,7 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
       startsAt,
       source: 'whatsapp',
       holdToken,
-      ...(rescheduledDeposit ? { rescheduledDeposit } : {}),
+      ...(base.appointmentHolderId ? { appointmentHolderId: base.appointmentHolderId } : {}),
       ...(ctx.now ? { now: ctx.now } : {}),
     });
 
@@ -469,16 +700,6 @@ async function commit(redis: Redis, ctx: TurnContext, base: Conversation): Promi
       'whatsapp booking did not commit',
     );
     return promptSlot(redis, ctx, base, copy.slotTaken);
-  }
-
-  // Rescheduling is cancel-then-book, in that order deliberately: booking first
-  // would need the old slot free, and freeing it first would risk losing it to
-  // someone else. Cancelling after a CONFIRMED new booking is the safe half.
-  if (base.bookingId) {
-    // Transfer BEFORE cancelling: the cancellation then finds no paid deposit
-    // to settle, and the money is on the booking the customer will attend.
-    if (depositAlreadyPaid) await transferDeposit(base.bookingId, result.booking.id);
-    await cancelBooking(base.bookingId, ctx.businessId, 'customer');
   }
 
   /**
@@ -523,7 +744,10 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
   if (!worthLooking(ctx.text)) return null;
 
   const [services, staff] = await Promise.all([
-    Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 }).limit(100).maxTimeMS(5000),
+    Service.find({ businessId: ctx.businessId, active: true })
+      .sort({ displayOrder: 1 })
+      .limit(100)
+      .maxTimeMS(5000),
     Staff.find({ businessId: ctx.businessId, active: true }).limit(100).maxTimeMS(5000),
   ]);
 
@@ -540,99 +764,234 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
   if (clock.kind === 'exact' || clock.kind === 'ambiguous') {
     ctx = { ...ctx, conversation: await discardConfirmation(redis, ctx) };
   }
-  const timeReply = (clock.kind === 'exact' || clock.kind === 'ambiguous') &&
-    /^(?:(?:book(?: me)? (?:at )?|at ))?\d{1,2}(?:\s*[:.;]\s*\d{2})?\s*(?:am|pm)?(?:\s+(?:please|works|works for me))?[.!]?$/i.test(ctx.text.trim());
+  const timeReply =
+    (clock.kind === 'exact' || clock.kind === 'ambiguous') &&
+    /^(?:(?:book(?: me)? (?:at )?|at ))?\d{1,2}(?:\s*[:.;]\s*\d{2})?\s*(?:am|pm)?(?:\s+(?:please|works|works for me))?[.!]?$/i.test(
+      ctx.text.trim(),
+    );
   const detail = hasBookingDetail(ctx.text, vocabulary);
-  const greeting = !detail &&
-    /^(hi|hey|hello|salam|assalam o alaikum|aoa)[!.\s]*$/i.test(ctx.text.trim());
-  const availability = !detail &&
+  const greeting =
+    !detail && /^(hi|hey|hello|salam|assalam o alaikum|aoa)[!.\s]*$/i.test(ctx.text.trim());
+  const availability =
+    !detail &&
     /\b(available|availability|free|other|another|different|alternative|more)\b/i.test(ctx.text) &&
     /\b(times?|slots?|appointments?)\b/i.test(ctx.text);
-  const raw = greeting
+  let raw = greeting
     ? { service: null, staff: null, day: null, window: null, at: null, action: 'greeting' as const }
     : availability
-      ? { service: null, staff: null, day: null, window: null, at: null, action: 'availability' as const }
+      ? {
+          service: null,
+          staff: null,
+          day: null,
+          window: null,
+          at: null,
+          action: 'availability' as const,
+        }
       : timeReply
-        ? { action: 'booking' as const, service: null, staff: null, day: null, window: null, at: null }
-        : await parseIntent(ctx.text, vocabulary, ctx.conversation) ??
-        (clock.kind === 'ambiguous' ? { action: 'booking' as const, service: null, staff: null, day: null, window: null, at: null } : null);
+        ? {
+            action: 'booking' as const,
+            service: null,
+            staff: null,
+            day: null,
+            window: null,
+            at: null,
+          }
+        : ((await parseIntent(ctx.text, vocabulary, ctx.conversation)) ??
+          (clock.kind === 'ambiguous'
+            ? {
+                action: 'booking' as const,
+                service: null,
+                staff: null,
+                day: null,
+                window: null,
+                at: null,
+              }
+            : null));
+  const text = ctx.text.toLocaleLowerCase();
+  const named = services
+    .map((service) => ({ service, at: text.indexOf(service.name.toLocaleLowerCase()) }))
+    .filter((item) => item.at >= 0)
+    .sort((a, b) => a.at - b.at);
+  const multiple = named.length >= 2 && /\b(?:and|then)\b|\+/.test(text);
+  if (multiple && (!raw || ['booking', 'availability'].includes(raw.action ?? ''))) {
+    if (named.length > 5 || named.some((item) => item.service.depositRequired))
+      return {
+        replies: [
+          'Consecutive visits support up to five treatments without deposits. Contact the business to arrange this visit.',
+        ],
+        conversation: await discardConfirmation(redis, ctx),
+      };
+    if (ctx.conversation?.bookingId)
+      return {
+        replies: [
+          'An existing appointment can only be moved as its original treatment. Book additional treatments separately or contact the business.',
+        ],
+        conversation: ctx.conversation,
+      };
+    raw = {
+      ...(raw ?? { day: null, window: null, at: null }),
+      service: named[0]!.service.name,
+      action: 'booking',
+      staff: null,
+    };
+    const additionalServices = named
+      .slice(1)
+      .map((item) => ({ serviceId: String(item.service._id) }));
+    ctx = {
+      ...ctx,
+      conversation: {
+        ...(await discardConfirmation(redis, ctx)),
+        state: CONVERSATION_STATE.SELECTING_SERVICE,
+        invalidCount: 0,
+        additionalServices,
+      },
+    };
+  }
   if (!raw) {
     if (clock.kind === 'exact') {
-      return { replies: [copy.bookingRequestNotUnderstood], conversation: await discardConfirmation(redis, ctx) };
+      return {
+        replies: [copy.bookingRequestNotUnderstood],
+        conversation: await discardConfirmation(redis, ctx),
+      };
     }
     return null;
   }
   // A model-provided time is never authority: use only the clock in the user's message.
-  raw.at = clock.kind === 'exact'
-    ? `${Math.floor(clock.minutes / 60).toString().padStart(2, '0')}:${(clock.minutes % 60).toString().padStart(2, '0')}`
-    : null;
+  raw.at =
+    clock.kind === 'exact'
+      ? `${Math.floor(clock.minutes / 60)
+          .toString()
+          .padStart(2, '0')}:${(clock.minutes % 60).toString().padStart(2, '0')}`
+      : null;
   if (clock.kind === 'ambiguous') raw.window = null;
 
   const previous = ctx.conversation;
   const selectedService = vocabulary.services.find((service) => service.id === previous?.serviceId);
-  const answer = (text: string): TurnResult => ({ replies: [text.slice(0, 3500)], conversation: previous ? { ...previous, invalidCount: 0 } : null });
+  const answer = (text: string): TurnResult => ({
+    replies: [text.slice(0, 3500)],
+    conversation: previous ? { ...previous, invalidCount: 0 } : null,
+  });
   if (raw.action === 'cancel' || raw.action === 'reschedule' || raw.action === 'help') {
     const command = await handleGlobalCommand({ ...ctx, text: raw.action.toUpperCase() });
     return command ?? answer(copy.nothingToMove);
   }
   if (raw.action === 'off_topic') return answer(copy.bookingHelp);
   if (raw.action === 'location') {
-    const business = await Business.findOne({ _id: ctx.businessId }).select('city profile.addressLine profile.neighbourhood').maxTimeMS(5000);
-    return answer(copy.location([business?.profile?.addressLine, business?.profile?.neighbourhood, business?.city]
-      .filter((part): part is string => typeof part === 'string' && Boolean(part.trim()))));
+    const business = await Business.findOne({ _id: ctx.businessId })
+      .select('city profile.addressLine profile.neighbourhood')
+      .maxTimeMS(5000);
+    return answer(
+      copy.location(
+        [business?.profile?.addressLine, business?.profile?.neighbourhood, business?.city].filter(
+          (part): part is string => typeof part === 'string' && Boolean(part.trim()),
+        ),
+      ),
+    );
   }
   if (raw.action === 'greeting') {
-    if (previous && previous.state !== CONVERSATION_STATE.HELP) return answer(copy.greeting(ctx.businessName, ctx.firstName) + '\n\n' + copy.bookingHelp);
+    if (previous && previous.state !== CONVERSATION_STATE.HELP)
+      return answer(copy.greeting(ctx.businessName, ctx.firstName) + '\n\n' + copy.bookingHelp);
     const asked = await promptService(ctx, {});
-    return { ...asked, replies: [copy.greeting(ctx.businessName, ctx.firstName), ...asked.replies] };
+    return {
+      ...asked,
+      replies: [copy.greeting(ctx.businessName, ctx.firstName), ...asked.replies],
+    };
   }
   if (raw.action === 'appointments') {
     const bookings = await upcomingBookings(ctx.businessId, ctx.clientId);
     if (!bookings.length) return answer(copy.noAppointments);
-    const catalog = await Service.find({ businessId: ctx.businessId,
-      _id: { $in: bookings.map((booking) => booking.serviceId) } }).limit(100).maxTimeMS(5000);
-    return answer(copy.appointmentList(bookings.map((booking) => ({
-      serviceName: catalog.find((service) => String(service._id) === booking.serviceId)?.name ?? 'Appointment',
-      startsAt: booking.startsAt,
-    })), ctx.timezone));
+    const catalog = await Service.find({
+      businessId: ctx.businessId,
+      _id: { $in: bookings.map((booking) => booking.serviceId) },
+    })
+      .limit(100)
+      .maxTimeMS(5000);
+    return answer(
+      copy.appointmentList(
+        bookings.map((booking) => ({
+          serviceName:
+            catalog.find((service) => String(service._id) === booking.serviceId)?.name ??
+            'Appointment',
+          startsAt: booking.startsAt,
+        })),
+        ctx.timezone,
+      ),
+    );
   }
   if (raw.action === 'services' || raw.action === 'price' || raw.action === 'duration') {
-    const requested = raw.service ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() }) : null;
+    const requested = raw.service
+      ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() })
+      : null;
     if (requested && !requested.serviceId && !requested.serviceOptions.length) {
       return answer('That service is not listed.\n\n' + copy.serviceDetails(services));
     }
-    const ids = requested ? [requested.serviceId, ...requested.serviceOptions] : [previous?.serviceId];
-    const chosen = raw.action === 'services' || !ids.some(Boolean) ? services : services.filter((service) => ids.includes(String(service._id)));
+    const ids = requested
+      ? [requested.serviceId, ...requested.serviceOptions]
+      : [previous?.serviceId];
+    const chosen =
+      raw.action === 'services' || !ids.some(Boolean)
+        ? services
+        : services.filter((service) => ids.includes(String(service._id)));
     return answer(copy.serviceDetails(chosen));
   }
   if (raw.action === 'staff' || raw.action === 'hours') {
-    const requested = raw.service ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() }).serviceId : previous?.serviceId;
-    const eligible = requested ? staff.filter((member) => member.serviceIds.includes(requested)) : staff;
-    return answer(raw.action === 'staff' ? copy.staffDetails(eligible.map((member) => member.name))
-      : copy.workingHours(eligible.map((member) => ({ name: member.name, hours: member.workingHours }))));
+    const requested = raw.service
+      ? resolveIntent(raw, { ...vocabulary, timezone: ctx.timezone, now: ctx.now ?? new Date() })
+          .serviceId
+      : previous?.serviceId;
+    const eligible = requested
+      ? staff.filter((member) => member.serviceIds.includes(requested))
+      : staff;
+    return answer(
+      raw.action === 'staff'
+        ? copy.staffDetails(eligible.map((member) => member.name))
+        : copy.workingHours(
+            eligible.map((member) => ({ name: member.name, hours: member.workingHours })),
+          ),
+    );
   }
-  const resolved = resolveIntent({ ...raw, service: raw.service ?? selectedService?.name ?? null }, {
-    ...vocabulary,
-    timezone: ctx.timezone,
-    now: ctx.now ?? new Date(),
-  });
-  const question = raw.action === 'availability' || raw.action === 'booking' || raw.action === 'no_preference';
-  if (clock.kind === 'ambiguous' && clock.minutes !== undefined) resolved.ambiguousAt = clock.minutes;
-  if (!question && clock.kind !== 'ambiguous' && (!isUseful(resolved) || !(
-    (raw.service && (resolved.serviceId || resolved.serviceOptions.length)) ||
-    (raw.staff && resolved.staffId) || (raw.day && resolved.date) ||
-    ((raw.window || raw.at) && resolved.within)
-  ))) return null;
+  const resolved = resolveIntent(
+    { ...raw, service: raw.service ?? selectedService?.name ?? null },
+    {
+      ...vocabulary,
+      timezone: ctx.timezone,
+      now: ctx.now ?? new Date(),
+    },
+  );
+  const question =
+    raw.action === 'availability' || raw.action === 'booking' || raw.action === 'no_preference';
+  if (clock.kind === 'ambiguous' && clock.minutes !== undefined)
+    resolved.ambiguousAt = clock.minutes;
+  if (
+    !question &&
+    clock.kind !== 'ambiguous' &&
+    (!isUseful(resolved) ||
+      !(
+        (raw.service && (resolved.serviceId || resolved.serviceOptions.length)) ||
+        (raw.staff && resolved.staffId) ||
+        (raw.day && resolved.date) ||
+        ((raw.window || raw.at) && resolved.within)
+      ))
+  )
+    return null;
 
   // Carry earlier answers only when this message did not replace them. Never
   // retain a staff choice that cannot perform the newly selected service.
-  if (!raw.staff && previous?.staffId && vocabulary.staff.some((member) =>
-    member.id === previous.staffId && member.serviceIds.includes(resolved.serviceId ?? ''),
-  )) resolved.staffId = previous.staffId;
+  if (
+    !raw.staff &&
+    previous?.staffId &&
+    vocabulary.staff.some(
+      (member) =>
+        member.id === previous.staffId && member.serviceIds.includes(resolved.serviceId ?? ''),
+    )
+  )
+    resolved.staffId = previous.staffId;
   if (!raw.day && previous?.date) resolved.date = previous.date;
   if (!raw.window && !raw.at && previous?.within) resolved.within = previous.within;
 
   ctx = { ...ctx, conversation: await discardConfirmation(redis, ctx) };
+  if (!multiple && raw.service && resolved.serviceId !== previous?.serviceId && ctx.conversation)
+    delete ctx.conversation.additionalServices;
   if (!raw.window && clock.kind === 'absent' && previous?.requestedAt !== undefined) {
     resolved.at = previous.requestedAt;
   }
@@ -648,6 +1007,10 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
       ...(resolved.ambiguousAt !== undefined ? { ambiguousAt: resolved.ambiguousAt } : {}),
       ...(raw.action !== 'no_preference' && resolved.staffId ? { staffId: resolved.staffId } : {}),
       ...((raw.window || raw.at) && resolved.within ? { within: resolved.within } : {}),
+      ...(previous?.appointmentHolderId
+        ? { appointmentHolderId: previous.appointmentHolderId }
+        : {}),
+      ...(previous?.additionalServices ? { additionalServices: previous.additionalServices } : {}),
       ...(previous?.bookingId ? { bookingId: previous.bookingId } : {}),
       opener: previous?.opener ?? FLOW_OPENER.FREE_TEXT,
       invalidCount: 0,
@@ -709,6 +1072,12 @@ export async function resumeFromIntent(
   // Everything a conversation is except the state, which each prompt builder sets
   // to whatever question it is about to ask.
   const base: Omit<Conversation, 'state'> = {
+    ...(ctx.conversation?.additionalServices
+      ? { additionalServices: ctx.conversation.additionalServices }
+      : {}),
+    ...(ctx.conversation?.appointmentHolderId
+      ? { appointmentHolderId: ctx.conversation.appointmentHolderId }
+      : {}),
     ...(ctx.conversation?.bookingId ? { bookingId: ctx.conversation.bookingId } : {}),
     ...(resolved.serviceId ? { serviceId: resolved.serviceId } : {}),
     ...(resolved.staffId ? { staffId: resolved.staffId } : {}),
@@ -742,7 +1111,8 @@ export async function resumeFromIntent(
 
     const settled: Conversation = { ...base, state: CONVERSATION_STATE.SELECTING_SERVICE };
 
-    const noPreference = ctx.conversation?.serviceId === resolved.serviceId &&
+    const noPreference =
+      ctx.conversation?.serviceId === resolved.serviceId &&
       !ctx.conversation.staffId &&
       (ctx.conversation.state === CONVERSATION_STATE.SELECTING_DATE ||
         ctx.conversation.state === CONVERSATION_STATE.SELECTING_SLOT ||
@@ -757,9 +1127,110 @@ export async function resumeFromIntent(
 /** One inbound message, one turn. The interceptor chain has already run. */
 export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResult> {
   const conversation = ctx.conversation;
-  if (conversation && conversation.state !== CONVERSATION_STATE.AWAITING_RATING &&
+  const recipient = /^appointment for (.+)$/i.exec(ctx.text.trim());
+  const recipientStates: string[] = [
+    CONVERSATION_STATE.SELECTING_SERVICE,
+    CONVERSATION_STATE.SELECTING_STAFF,
+    CONVERSATION_STATE.SELECTING_SEQUENCE_STAFF,
+    CONVERSATION_STATE.SELECTING_DATE,
+    CONVERSATION_STATE.SELECTING_SLOT,
+    CONVERSATION_STATE.CONFIRMING,
+    CONVERSATION_STATE.AWAITING_NAME,
+  ];
+  if (recipient && (!conversation || recipientStates.includes(conversation.state))) {
+    if (conversation?.bookingId)
+      return {
+        replies: [
+          'An existing appointment keeps the same recipient. Contact the business to change who it is for.',
+        ],
+        conversation,
+      };
+    const name = recipient[1]!.trim();
+    if (name.length > 80 || !isUsableName(name))
+      return {
+        replies: [
+          'Send APPOINTMENT FOR followed by a name of up to 80 characters, or APPOINTMENT FOR MYSELF.',
+        ],
+        conversation,
+      };
+    let holderId: string | undefined;
+    if (!/^(myself|me)$/i.test(name)) {
+      const existing = await AppointmentHolder.findOne({
+        businessId: ctx.businessId,
+        clientId: ctx.clientId,
+        name,
+        active: true,
+      })
+        .lean()
+        .maxTimeMS(5000);
+      try {
+        holderId = existing
+          ? String(existing._id)
+          : (await saveHolder(ctx.businessId, ctx.clientId, { name, active: true }))?.id;
+      } catch (error) {
+        if (error instanceof ConfigurationConflict)
+          return {
+            replies: [
+              'This person could not be added. Manage appointment holders through your appointments link or contact the business.',
+            ],
+            conversation,
+          };
+        throw error;
+      }
+    }
+    const base = { ...conversation };
+    delete base.appointmentHolderId;
+    if (holderId) base.appointmentHolderId = holderId;
+    if (conversation?.state === CONVERSATION_STATE.CONFIRMING)
+      return {
+        replies: [
+          `The appointment will be for ${name}. Reply YES to confirm or NO to choose another time.`,
+        ],
+        conversation: {
+          ...base,
+          state: conversation.state,
+          invalidCount: conversation.invalidCount,
+        },
+      };
+    const opening = await promptService(ctx, base);
+    return { ...opening, replies: [`Booking for ${name}.`, ...opening.replies] };
+  }
+  if (conversation?.state === CONVERSATION_STATE.SELECTING_SEQUENCE_STAFF) {
+    let staffId = pickOption(ctx.text, conversation.options);
+    if (!staffId) {
+      const members = await Staff.find({
+        businessId: ctx.businessId,
+        _id: { $in: conversation.options ?? [] },
+        active: true,
+      })
+        .select('name')
+        .lean()
+        .limit(100)
+        .maxTimeMS(5000);
+      staffId =
+        members
+          .find((member) => member.name.toLocaleLowerCase() === ctx.text.trim().toLocaleLowerCase())
+          ?._id.toString() ?? null;
+    }
+    if (!staffId || conversation.sequenceStaffIndex === undefined)
+      return {
+        replies: ['Choose one of the professionals above by name or number.'],
+        conversation,
+      };
+    const additionalServices = conversation.additionalServices!.map((step, i) =>
+      i === conversation.sequenceStaffIndex ? { ...step, staffId } : step,
+    );
+    return promptDate(redis, ctx, { ...conversation, additionalServices });
+  }
+  if (
+    conversation &&
+    conversation.state !== CONVERSATION_STATE.AWAITING_RATING &&
+    conversation.state !== CONVERSATION_STATE.AWAITING_NAME &&
     conversation.state !== CONVERSATION_STATE.AWAITING_REVIEW_COMMENT &&
-    !pickOption(ctx.text, conversation.options) && !isYes(ctx.text) && !isNo(ctx.text)) {
+    !pickOption(ctx.text, conversation.options) &&
+    !isYes(ctx.text) &&
+    !isNo(ctx.text)
+  ) {
     const parsed = await fromFreeText(redis, ctx);
     if (parsed) return parsed;
   }
@@ -772,7 +1243,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     if (parsed) return parsed;
 
     const opening = await promptService(ctx, {});
-    const lead = isOpener(ctx.text) ? copy.greeting(ctx.businessName, ctx.firstName) : copy.notUnderstood;
+    const lead = isOpener(ctx.text)
+      ? copy.greeting(ctx.businessName, ctx.firstName)
+      : copy.notUnderstood;
     return {
       replies: [lead, ...opening.replies],
       conversation: opening.conversation,
@@ -780,6 +1253,23 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
   }
 
   switch (conversation.state) {
+    case CONVERSATION_STATE.AWAITING_NAME: {
+      const name = ctx.text.trim();
+      if (name.length < 1 || name.length > 80 || !isUsableName(name)) {
+        return { replies: ['Please send a name of up to 80 characters.'], conversation };
+      }
+      const existing = await Client.findById(ctx.clientId)
+        .select('displayName')
+        .lean()
+        .maxTimeMS(5000);
+      if (!existing?.displayName?.trim() || !isUsableName(existing.displayName)) {
+        await Client.updateOne(
+          { _id: ctx.clientId, displayName: existing?.displayName ?? null },
+          { $set: { displayName: name } },
+        ).maxTimeMS(5000);
+      }
+      return commit(redis, ctx, { ...conversation, state: CONVERSATION_STATE.CONFIRMING });
+    }
     case CONVERSATION_STATE.SELECTING_SERVICE: {
       const serviceId = pickOption(ctx.text, conversation.options);
       if (!serviceId) {
@@ -795,7 +1285,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
          * Strictly after pickOption, so a bare "2" is always the menu pick it looks
          * like and never goes near the model.
          */
-        const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({ displayOrder: 1 });
+        const services = await Service.find({ businessId: ctx.businessId, active: true }).sort({
+          displayOrder: 1,
+        });
         return invalid(ctx, conversation, copy.serviceMenu(services));
       }
       return promptStaffOrDate(redis, ctx, { ...conversation, serviceId, invalidCount: 0 });
@@ -835,7 +1327,10 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
         return invalid(
           ctx,
           conversation,
-          copy.slotMenu((conversation.options ?? []).map((s) => new Date(s)), ctx.timezone),
+          copy.slotMenu(
+            (conversation.options ?? []).map((s) => new Date(s)),
+            ctx.timezone,
+          ),
         );
       }
       return promptConfirm(redis, ctx, { ...conversation, invalidCount: 0 }, new Date(iso));
@@ -847,11 +1342,7 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
         const fresh = await discardConfirmation(redis, ctx);
         return promptSlot(redis, ctx, { ...fresh!, invalidCount: 0 });
       }
-      return invalid(
-        ctx,
-        conversation,
-        'Reply YES to confirm or NO to pick another time.',
-      );
+      return invalid(ctx, conversation, 'Reply YES to confirm or NO to pick another time.');
     }
 
     case CONVERSATION_STATE.SELECTING_BOOKING: {
@@ -908,7 +1399,8 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
 
     case CONVERSATION_STATE.OFFERING_REBOOK: {
       const answer = ctx.text.trim();
-      if (answer === '2' || isNo(answer)) return { replies: [copy.rebookDeclined], conversation: null };
+      if (answer === '2' || isNo(answer))
+        return { replies: [copy.rebookDeclined], conversation: null };
       if (answer !== '1' && !isYes(answer)) {
         return invalid(ctx, conversation, 'Reply 1 to book another day, or 2 if not.');
       }
@@ -1029,7 +1521,10 @@ async function offerRebook(ctx: TurnContext, bookingId: string): Promise<TurnRes
   });
 
   return {
-    replies: [copy.cancelled, copy.rebookOffer({ serviceName: service.name, staffName: staff?.name ?? null })],
+    replies: [
+      copy.cancelled,
+      copy.rebookOffer({ serviceName: service.name, staffName: staff?.name ?? null }),
+    ],
     conversation: {
       state: CONVERSATION_STATE.OFFERING_REBOOK,
       serviceId: String(service._id),
@@ -1046,5 +1541,8 @@ export async function upcomingBookings(businessId: string, clientId: string) {
     clientId,
     startsAt: { $gt: new Date() },
     status: { $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.CONFIRMED] },
-  }).sort({ startsAt: 1 }).limit(20).maxTimeMS(5000);
+  })
+    .sort({ startsAt: 1 })
+    .limit(20)
+    .maxTimeMS(5000);
 }

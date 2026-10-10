@@ -6,6 +6,7 @@ import type { Service, Staff, Client } from '@scalivo/shared';
 
 interface NewBookingModalProps {
   businessId: string;
+  timezone: string;
   services: Service[];
   staff: Staff[];
   clients: Client[];
@@ -15,6 +16,7 @@ interface NewBookingModalProps {
 
 export function NewBookingModal({
   businessId,
+  timezone,
   services,
   staff,
   clients,
@@ -37,10 +39,11 @@ export function NewBookingModal({
   // Trap focus & restore focus on close
   useEffect(() => {
     const focusableElements = modalRef.current?.querySelectorAll(
-      'a[href], button, textarea, input[type="text"], input[type="radio"], input[type="checkbox"], select, [tabindex]:not([tabindex="-1"])'
+      'a[href], button, textarea, input[type="text"], input[type="radio"], input[type="checkbox"], select, [tabindex]:not([tabindex="-1"])',
     );
     const firstElement = focusableElements?.[0] as HTMLElement | undefined;
-    const lastElement = focusableElements?.[focusableElements.length - 1] as HTMLElement | undefined;
+    const lastElement = focusableElements?.[focusableElements.length - 1] as
+      HTMLElement | undefined;
 
     if (firstElement) {
       firstElement.focus();
@@ -98,12 +101,7 @@ export function NewBookingModal({
             className="text-muted hover:text-ink p-1 transition-colors"
             aria-label="Close modal"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -117,6 +115,7 @@ export function NewBookingModal({
         <div className="p-6 overflow-y-auto">
           <BookingForm
             businessId={businessId}
+            timezone={timezone}
             services={services}
             staff={staff}
             clients={clients}

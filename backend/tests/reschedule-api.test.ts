@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -5,6 +6,7 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BOOKING_STATUS, type MessagingProvider } from '@scalivo/shared';
 import { Business } from '../src/models/Business.js';
+import { ClientProfile } from '../src/models/ClientProfile.js';
 import { Client } from '../src/models/Client.js';
 import { Service } from '../src/models/Service.js';
 import { Staff } from '../src/models/Staff.js';
@@ -53,10 +55,17 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     app.use('/businesses', createBookingRouter(redis, provider));
     // Rescheduling lives on the calendar router, the one path that also tells the customer.
     app.use('/businesses', createCalendarRouter(redis, provider));
-    
-    app.use((err: any, req: any, res: any, next: any) => {
-      res.status(500).json({ error: 'internal server error' });
-    });
+
+    app.use(
+      (
+        _err: unknown,
+        _req: express.Request,
+        res: express.Response,
+        _next: express.NextFunction,
+      ) => {
+        res.status(500).json({ error: 'internal server error' });
+      },
+    );
 
     server = app.listen(0);
     const { port } = server.address() as AddressInfo;
@@ -80,7 +89,7 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
         minNoticeMinutes: 60,
         bookingHorizonDays: 30,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     businessId = String(business!._id);
     token = signToken({ userId: 'owner1', role: 'owner', businessIds: [businessId] });
@@ -96,13 +105,15 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
         minNoticeMinutes: 60,
         bookingHorizonDays: 30,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     wrongBusinessId = String(wrongBusiness!._id);
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
+      ClientProfile.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       redis.flushdb(),
@@ -136,6 +147,7 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     const unique = `${Date.now() % 100_000}${Math.floor(Math.random() * 1_000_000)}`;
     const client = await Client.create({ phone: `92300${unique}`, displayName: 'Test Client' });
     clientId = String(client._id);
+    await ClientProfile.create({ businessId, clientId });
   });
 
   async function hold(startsAt: string) {
@@ -153,8 +165,16 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     const bookRes = await fetch(`${serverUrl}/businesses/${businessId}/bookings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ serviceId, staffId, clientId, startsAt, source: 'owner', holdToken: holdData.token }),
+      body: JSON.stringify({
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        source: 'owner',
+        holdToken: holdData.token,
+      }),
     });
+    expect(bookRes.status).toBe(201);
     return json(bookRes);
   }
 
@@ -162,15 +182,18 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('A valid cancel succeeds and frees slots', async () => {
       const startsAt = at('10:00');
       const booking = await createTestBooking(startsAt);
-      
+
       expect(await SlotOccupancy.countDocuments({ bookingId: booking.id })).toBe(3);
-      
-      const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+
+      const res = await fetch(
+        `${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       expect(res.status).toBe(204);
-      
+
       const dbBooking = await Booking.findById(booking.id);
       expect(dbBooking!.status).toBe(BOOKING_STATUS.CANCELLED);
       expect(await SlotOccupancy.countDocuments({ bookingId: booking.id })).toBe(0);
@@ -183,16 +206,19 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('Cancelling an already-CANCELLED booking is rejected', async () => {
       const startsAt = at('11:00');
       const booking = await createTestBooking(startsAt);
-      
+
       await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      const res2 = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+
+      const res2 = await fetch(
+        `${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       expect(res2.status).toBe(409);
       const data = await json(res2);
       expect(data.reason).toBe('already_terminal');
@@ -201,11 +227,14 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('Tenant isolation: cannot cancel another business booking', async () => {
       const startsAt = at('12:00');
       const booking = await createTestBooking(startsAt);
-      
-      const res = await fetch(`${serverUrl}/businesses/${wrongBusinessId}/bookings/${booking.id}/cancel`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+
+      const res = await fetch(
+        `${serverUrl}/businesses/${wrongBusinessId}/bookings/${booking.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       // wrongBusinessId should trigger 404 because token only works for businessId
       expect(res.status).toBe(404);
     });
@@ -216,22 +245,25 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
       const oldStartsAt = at('13:00');
       const newStartsAt = at('14:00');
       const booking = await createTestBooking(oldStartsAt);
-      
-      const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/reschedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ startsAt: newStartsAt, staffId }),
-      });
-      
+
+      const res = await fetch(
+        `${serverUrl}/businesses/${businessId}/bookings/${booking.id}/reschedule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ startsAt: newStartsAt, staffId }),
+        },
+      );
+
       expect(res.status).toBe(200);
       const { booking: updatedBooking } = await json(res);
       expect(updatedBooking.startsAt).toBe(newStartsAt);
-      
+
       // Check occupancies
       const occupancies = await SlotOccupancy.find({ bookingId: booking.id });
       expect(occupancies).toHaveLength(3);
       expect(occupancies[0]!.slotStart.toISOString()).toBe(newStartsAt);
-      
+
       // Check old slot is free
       const oldHoldRes = await hold(oldStartsAt);
       expect(oldHoldRes.status).toBe(201);
@@ -241,18 +273,21 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
       const oldStartsAt = at('14:30');
       const newStartsAt = at('15:30');
       const booking = await createTestBooking(oldStartsAt);
-      
+
       // Cancel it first
       await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/cancel`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking.id}/reschedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ startsAt: newStartsAt, staffId }),
-      });
+
+      const res = await fetch(
+        `${serverUrl}/businesses/${businessId}/bookings/${booking.id}/reschedule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ startsAt: newStartsAt, staffId }),
+        },
+      );
       expect(res.status).toBe(409);
       const data = await json(res);
       expect(data.reason).toBe('already_terminal');
@@ -261,25 +296,29 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('Rescheduling into an occupied slot fails cleanly, leaving old booking intact', async () => {
       const oldStartsAt = at('16:00');
       const conflictStartsAt = at('17:00');
-      
+
       const booking1 = await createTestBooking(oldStartsAt);
       const booking2 = await createTestBooking(conflictStartsAt);
-      
+      expect(booking2.startsAt).toBe(conflictStartsAt);
+
       // booking2 already sits on 17:00, so the occupancy index must refuse the move.
-      const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking1.id}/reschedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ startsAt: conflictStartsAt, staffId }),
-      });
-      
+      const res = await fetch(
+        `${serverUrl}/businesses/${businessId}/bookings/${booking1.id}/reschedule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ startsAt: conflictStartsAt, staffId }),
+        },
+      );
+
       expect(res.status).toBe(409);
       const data = await json(res);
       expect(data.reason).toBe('slot_taken');
-      
+
       // 4. Assert old booking is exactly as it was
       const dbBooking1 = await Booking.findById(booking1.id);
       expect(dbBooking1!.startsAt.toISOString()).toBe(oldStartsAt);
-      
+
       const occupancies = await SlotOccupancy.find({ bookingId: booking1.id });
       expect(occupancies).toHaveLength(3); // The original slots are intact
       expect(occupancies[0]!.slotStart.toISOString()).toBe(oldStartsAt);
@@ -289,7 +328,7 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
       const booking1 = await createTestBooking(at('09:00'));
       const booking2 = await createTestBooking(at('10:00'));
       const destination = at('11:00');
-      
+
       const [res1, res2] = await Promise.all([
         fetch(`${serverUrl}/businesses/${businessId}/bookings/${booking1.id}/reschedule`, {
           method: 'POST',
@@ -300,23 +339,25 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ startsAt: destination, staffId }),
-        })
+        }),
       ]);
-      
+
       const statuses = [res1.status, res2.status];
-      expect(statuses).toContain(200); 
-      expect(statuses).toContain(409); 
-      
+      expect(statuses).toContain(200);
+      expect(statuses).toContain(409);
+
       const winnerId = res1.status === 200 ? booking1.id : booking2.id;
       const loserId = res1.status === 200 ? booking2.id : booking1.id;
-      
+
       const dbWinner = await Booking.findById(winnerId);
       expect(dbWinner!.startsAt.toISOString()).toBe(destination);
-      
+
       const dbLoser = await Booking.findById(loserId);
       expect(dbLoser!.startsAt.toISOString()).not.toBe(destination);
-      
-      expect(await SlotOccupancy.countDocuments({ businessId, slotStart: new Date(destination) })).toBe(1);
+
+      expect(
+        await SlotOccupancy.countDocuments({ businessId, slotStart: new Date(destination) }),
+      ).toBe(1);
     });
   });
 
@@ -325,12 +366,26 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
       // Create past booking by manually inserting into DB
       const startsAt = new Date(Date.now() - 3600000); // 1 hour ago
       const b1 = await Booking.create({
-        businessId, serviceId, staffId, clientId, startsAt,
-        durationMinutes: 45, status: BOOKING_STATUS.CONFIRMED, source: 'owner', priceMinor: 5000
+        businessId,
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        durationMinutes: 45,
+        status: BOOKING_STATUS.CONFIRMED,
+        source: 'owner',
+        priceMinor: 5000,
       });
       const b2 = await Booking.create({
-        businessId, serviceId, staffId, clientId, startsAt,
-        durationMinutes: 45, status: BOOKING_STATUS.CONFIRMED, source: 'owner', priceMinor: 5000
+        businessId,
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        durationMinutes: 45,
+        status: BOOKING_STATUS.CONFIRMED,
+        source: 'owner',
+        priceMinor: 5000,
       });
 
       const res1 = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${b1.id}/outcome`, {
@@ -349,7 +404,7 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
 
       const updated1 = await Booking.findById(b1.id);
       expect(updated1!.status).toBe(BOOKING_STATUS.COMPLETED);
-      
+
       const updated2 = await Booking.findById(b2.id);
       expect(updated2!.status).toBe(BOOKING_STATUS.NO_SHOW);
     });
@@ -357,8 +412,15 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('rejects a booking that is not CONFIRMED', async () => {
       const startsAt = new Date(Date.now() - 3600000);
       const b = await Booking.create({
-        businessId, serviceId, staffId, clientId, startsAt,
-        durationMinutes: 45, status: BOOKING_STATUS.PENDING, source: 'web', priceMinor: 5000
+        businessId,
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        durationMinutes: 45,
+        status: BOOKING_STATUS.PENDING,
+        source: 'web',
+        priceMinor: 5000,
       });
 
       const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${b.id}/outcome`, {
@@ -374,8 +436,15 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('rejects an already-terminal booking', async () => {
       const startsAt = new Date(Date.now() - 3600000);
       const b = await Booking.create({
-        businessId, serviceId, staffId, clientId, startsAt,
-        durationMinutes: 45, status: BOOKING_STATUS.CANCELLED, source: 'owner', priceMinor: 5000
+        businessId,
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        durationMinutes: 45,
+        status: BOOKING_STATUS.CANCELLED,
+        source: 'owner',
+        priceMinor: 5000,
       });
 
       const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${b.id}/outcome`, {
@@ -392,8 +461,15 @@ describe.skipIf(!infraUp)('Booking Reschedule & Cancel API (Phase 3e)', () => {
     it('rejects a booking that is in the future', async () => {
       const startsAt = new Date(Date.now() + 3600000); // 1 hour in future
       const b = await Booking.create({
-        businessId, serviceId, staffId, clientId, startsAt,
-        durationMinutes: 45, status: BOOKING_STATUS.CONFIRMED, source: 'owner', priceMinor: 5000
+        businessId,
+        serviceId,
+        staffId,
+        clientId,
+        startsAt,
+        durationMinutes: 45,
+        status: BOOKING_STATUS.CONFIRMED,
+        source: 'owner',
+        priceMinor: 5000,
       });
 
       const res = await fetch(`${serverUrl}/businesses/${businessId}/bookings/${b.id}/outcome`, {

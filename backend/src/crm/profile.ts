@@ -4,12 +4,7 @@ import { Client } from '../models/Client.js';
 import { ClientProfile } from '../models/ClientProfile.js';
 import { logger } from '../lib/logger.js';
 import { attributeRebooking } from '../retention/attribute.js';
-import {
-  averageGapDays,
-  computeTags,
-  nextExpectedVisitAt,
-  type TaggableProfile,
-} from './tags.js';
+import { averageGapDays, computeTags, nextExpectedVisitAt, type TaggableProfile } from './tags.js';
 
 /**
  * The self-populating half of the CRM: profiles that build themselves out of
@@ -69,6 +64,7 @@ export async function recordOutcome(
   clientId: string,
   outcome: 'completed' | 'no_show' | 'cancelled',
   booking: { startsAt: Date; priceMinor: number; serviceId: string; staffId: string },
+  session?: import('mongoose').ClientSession,
 ): Promise<void> {
   if (outcome === 'completed') {
     await ClientProfile.updateOne(
@@ -87,7 +83,7 @@ export async function recordOutcome(
         $max: { lastVisitAt: booking.startsAt },
         $min: { firstVisitAt: booking.startsAt },
       },
-      { upsert: true, setDefaultsOnInsert: true },
+      { upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}) },
     );
     return;
   }
@@ -100,7 +96,7 @@ export async function recordOutcome(
       $setOnInsert: { businessId, clientId },
       $inc: outcome === 'no_show' ? { noShows: 1 } : { cancellations: 1 },
     },
-    { upsert: true, setDefaultsOnInsert: true },
+    { upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}) },
   );
 }
 
@@ -115,11 +111,21 @@ export async function recordOutcome(
  * Preserves notes and the opt-out, which are inputs rather than derivations and
  * exist nowhere else.
  */
-export async function recomputeProfile(businessId: string, clientId: string): Promise<void> {
-  const [bookings, existing] = await Promise.all([
-    Booking.find({ businessId, clientId }).sort({ startsAt: 1 }),
-    ClientProfile.findOne({ businessId, clientId }).select('imported'),
-  ]);
+export async function recomputeProfile(
+  businessId: string,
+  clientId: string,
+  session?: import('mongoose').ClientSession,
+): Promise<void> {
+  const bookings = await Booking.find({ businessId, clientId })
+    .sort({ startsAt: 1 })
+    .limit(10000)
+    .session(session ?? null)
+    .maxTimeMS(5000);
+  const existing = await ClientProfile.findOne({ businessId, clientId })
+    .select('imported')
+    .session(session ?? null)
+    .maxTimeMS(5000);
+  if (bookings.length === 10000) throw new Error('profile recomputation limit reached');
   // Pre-Scalivo history from a CSV import. An input like notes, not a
   // derivation — it exists nowhere else, so it is added back, never dropped.
   const imported = existing?.imported ?? null;
@@ -151,14 +157,12 @@ export async function recomputeProfile(businessId: string, clientId: string): Pr
           completed[completed.length - 1]?.startsAt ?? null,
         ),
         lastBookingAt:
-          createdAts.length > 0
-            ? new Date(Math.max(...createdAts.map((d) => d.getTime())))
-            : null,
+          createdAts.length > 0 ? new Date(Math.max(...createdAts.map((d) => d.getTime()))) : null,
         serviceCounts,
         staffCounts,
       },
     },
-    { upsert: true, setDefaultsOnInsert: true },
+    { upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}), maxTimeMS: 5000 },
   );
 
   logger.info({ businessId, clientId, visits: completed.length }, 'profile recomputed');

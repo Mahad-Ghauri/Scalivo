@@ -44,13 +44,17 @@ function loadBusinesses(filter: Record<string, unknown>) {
 }
 
 /** Mean rating and count per business, over published reviews only. */
-async function ratingsFor(businessIds: string[]): Promise<Map<string, { rating: number; count: number }>> {
+async function ratingsFor(
+  businessIds: string[],
+): Promise<Map<string, { rating: number; count: number }>> {
   const rows = await Review.aggregate<{ _id: string; rating: number; count: number }>([
     { $match: { businessId: { $in: businessIds }, ...PUBLIC_REVIEW } },
     { $group: { _id: '$businessId', rating: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   // One decimal, so 4.866 reads as the 4.9 the stars draw.
-  return new Map(rows.map((row) => [row._id, { rating: Math.round(row.rating * 10) / 10, count: row.count }]));
+  return new Map(
+    rows.map((row) => [row._id, { rating: Math.round(row.rating * 10) / 10, count: row.count }]),
+  );
 }
 
 /**
@@ -73,14 +77,21 @@ export function businessHours(staff: readonly Pick<StaffDoc, 'workingHours'>[]):
 
     // 'HH:MM' compares correctly as a string.
     const opensAt = shifts.map((s) => s.opensAt).sort()[0]!;
-    const closesAt = shifts.map((s) => s.closesAt).sort().at(-1)!;
+    const closesAt = shifts
+      .map((s) => s.closesAt)
+      .sort()
+      .at(-1)!;
 
     const breaksOf = (shift: (typeof shifts)[number]) =>
-      shift.breaks.flatMap((b) => (b.startsAt && b.endsAt ? [{ startsAt: b.startsAt, endsAt: b.endsAt }] : []));
+      shift.breaks.flatMap((b) =>
+        b.startsAt && b.endsAt ? [{ startsAt: b.startsAt, endsAt: b.endsAt }] : [],
+      );
 
     const shared = breaksOf(shifts[0]!).filter((candidate) =>
       shifts.every((shift) =>
-        breaksOf(shift).some((b) => b.startsAt === candidate.startsAt && b.endsAt === candidate.endsAt),
+        breaksOf(shift).some(
+          (b) => b.startsAt === candidate.startsAt && b.endsAt === candidate.endsAt,
+        ),
       ),
     );
 
@@ -97,6 +108,7 @@ function toPublicService(service: ServiceDoc): PublicService {
     description: service.description ?? null,
     durationMinutes: service.durationMinutes,
     priceMinor: service.priceMinor,
+    requiresOwnerApproval: service.requiresOwnerApproval,
     depositRequired: service.depositRequired,
     depositAmountMinor: service.depositAmountMinor ?? null,
     displayOrder: service.displayOrder,
@@ -126,8 +138,10 @@ function toPublicReview(review: InstanceType<typeof Review>): PublicReview {
 }
 
 /** A boost is live until its expiry — read against the clock, never a stored flag. */
-export const isBoosted = (business: { boost?: { until?: Date | null } | null }, now = new Date()): boolean =>
-  Boolean(business.boost?.until && business.boost.until > now);
+export const isBoosted = (
+  business: { boost?: { until?: Date | null } | null },
+  now = new Date(),
+): boolean => Boolean(business.boost?.until && business.boost.until > now);
 
 function toCard(
   business: BusinessDoc,
@@ -186,42 +200,46 @@ export async function listBusinesses(filters: {
   const ids = businesses.map((b) => String(b._id));
   const [services, staff, ratings] = await Promise.all([
     Service.find({ businessId: { $in: ids }, active: true }).sort({ displayOrder: 1 }),
-    filters.q ? Staff.find({ businessId: { $in: ids }, active: true }).select('businessId name') : [],
+    filters.q
+      ? Staff.find({ businessId: { $in: ids }, active: true }).select('businessId name')
+      : [],
     ratingsFor(ids),
   ]);
 
   const servicesOf = (id: string) => services.filter((s) => s.businessId === id);
   const now = new Date();
 
-  return businesses
-    .filter((business) => {
-      if (!filters.q) return true;
-      const id = String(business._id);
-      const haystack = [
-        business.name,
-        business.category,
-        business.city ?? '',
-        business.profile?.tagline ?? '',
-        business.profile?.about ?? '',
-        business.profile?.neighbourhood ?? '',
-        ...servicesOf(id).map((s) => s.name),
-        ...staff.filter((m) => m.businessId === id).map((m) => m.name),
-      ].join(' ');
-      return matchesQuery(haystack, filters.q);
-    })
-    .map((business) => {
-      const id = String(business._id);
-      return toCard(business, servicesOf(id), ratings.get(id), now);
-    })
-    // Boosted first — only among businesses that already MATCHED, so a boost
-    // buys position, never relevance. Then well-reviewed, then most-reviewed;
-    // unrated last.
-    .sort(
-      (a, b) =>
-        Number(b.featured) - Number(a.featured) ||
-        (b.rating ?? 0) - (a.rating ?? 0) ||
-        b.reviewCount - a.reviewCount,
-    );
+  return (
+    businesses
+      .filter((business) => {
+        if (!filters.q) return true;
+        const id = String(business._id);
+        const haystack = [
+          business.name,
+          business.category,
+          business.city ?? '',
+          business.profile?.tagline ?? '',
+          business.profile?.about ?? '',
+          business.profile?.neighbourhood ?? '',
+          ...servicesOf(id).map((s) => s.name),
+          ...staff.filter((m) => m.businessId === id).map((m) => m.name),
+        ].join(' ');
+        return matchesQuery(haystack, filters.q);
+      })
+      .map((business) => {
+        const id = String(business._id);
+        return toCard(business, servicesOf(id), ratings.get(id), now);
+      })
+      // Boosted first — only among businesses that already MATCHED, so a boost
+      // buys position, never relevance. Then well-reviewed, then most-reviewed;
+      // unrated last.
+      .sort(
+        (a, b) =>
+          Number(b.featured) - Number(a.featured) ||
+          (b.rating ?? 0) - (a.rating ?? 0) ||
+          b.reviewCount - a.reviewCount,
+      )
+  );
 }
 
 /** How many reviews a profile page carries. The rating and count still cover all of them. */
@@ -235,7 +253,9 @@ export async function getBusinessBySlug(slug: string): Promise<MarketplaceBusine
   const [services, staff, reviews, ratings] = await Promise.all([
     Service.find({ businessId, active: true }).sort({ displayOrder: 1 }),
     Staff.find({ businessId, active: true }).sort({ createdAt: 1 }),
-    Review.find({ businessId, ...PUBLIC_REVIEW }).sort({ createdAt: -1 }).limit(PROFILE_REVIEW_LIMIT),
+    Review.find({ businessId, ...PUBLIC_REVIEW })
+      .sort({ createdAt: -1 })
+      .limit(PROFILE_REVIEW_LIMIT),
     ratingsFor([businessId]),
   ]);
 
@@ -278,7 +298,9 @@ export async function publishedBusinessId(slug: string): Promise<string | null> 
 }
 
 /** The id and zone for a slug, PUBLISHED only — what the funnel beacon needs to date an event. */
-export async function publishedBusiness(slug: string): Promise<{ id: string; timezone: string } | null> {
+export async function publishedBusiness(
+  slug: string,
+): Promise<{ id: string; timezone: string } | null> {
   const business = await Business.findOne({ slug, ...PUBLISHED }).select('_id timezone');
   return business ? { id: String(business._id), timezone: business.timezone } : null;
 }
@@ -335,7 +357,10 @@ export async function listSlugs(): Promise<IndexableBusiness[]> {
 }
 
 const titleCase = (value: string) =>
-  value.replace(/(^|[\s-])([a-z])/g, (_, prefix: string, letter: string) => prefix + letter.toUpperCase());
+  value.replace(
+    /(^|[\s-])([a-z])/g,
+    (_, prefix: string, letter: string) => prefix + letter.toUpperCase(),
+  );
 
 export async function facets(): Promise<{ categories: FacetOption[]; cities: FacetOption[] }> {
   const count = async (field: 'category' | 'city'): Promise<FacetOption[]> => {

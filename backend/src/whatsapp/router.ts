@@ -16,10 +16,11 @@ import { advance } from './fsm/machine.js';
 import { recordFlowStep } from './flow-run.js';
 import { attributeReply } from '../retention/attribute.js';
 import { enqueue } from '../session-health/outbound-queue.js';
-import { confirmBooking } from '../notifications/confirm.js';
+import { confirmBooking, confirmBookings } from '../notifications/confirm.js';
 import { PUSH_CHANNEL, pushToOwners } from '../push/fcm.js';
 import { CONVERSATION_STATE } from './fsm/states.js';
 import * as copy from './messages.js';
+import { verifyInboundChallenge } from '../public/verification.js';
 
 /**
  * The interceptor chain, in the order docs/fsm-design.md §2 specifies.
@@ -67,6 +68,20 @@ export async function handleInboundMessage(
 
   const client = await upsertClientFromMessage(deps.provider, message);
   const clientId = String(client._id);
+  if (
+    await verifyInboundChallenge(
+      deps.redis,
+      businessId,
+      client.phone ?? null,
+      message.body ?? '',
+      clientId,
+    )
+  ) {
+    await reply(deps, message, businessId, clientId, [
+      'If your number matches the verification request, return to the booking page and check verification. If it has expired, request a new code.',
+    ]);
+    return;
+  }
 
   // A soft health signal: silence from a normally-busy business is worth
   // surfacing, and only the inbound path can observe it.
@@ -164,7 +179,12 @@ export async function handleInboundMessage(
     }
 
     logger.info(
-      { businessId, clientId, from: conversation?.state ?? 'idle', to: result.conversation?.state ?? 'idle' },
+      {
+        businessId,
+        clientId,
+        from: conversation?.state ?? 'idle',
+        to: result.conversation?.state ?? 'idle',
+      },
       'conversation transition',
     );
 
@@ -202,7 +222,9 @@ export async function handleInboundMessage(
      * their booking failed because a message did not send would be a lie about
      * the one fact that matters. The unsent confirmation stays queued.
      */
-    if (result.confirms) {
+    if (result.confirmsSequence) {
+      await confirmBookings(deps, businessId, result.confirmsSequence);
+    } else if (result.confirms) {
       await confirmBooking(deps, businessId, result.confirms).catch((err) =>
         logger.error({ err, businessId, bookingId: result.confirms }, 'could not confirm booking'),
       );
@@ -212,7 +234,11 @@ export async function handleInboundMessage(
   }
 }
 
-async function notifyHelp(businessId: string, businessName: string, clientName: string | null): Promise<void> {
+async function notifyHelp(
+  businessId: string,
+  businessName: string,
+  clientName: string | null,
+): Promise<void> {
   await pushToOwners(businessId, {
     title: `${businessName} — a customer needs help`,
     body: `${clientName ?? 'A customer'} asked to speak to someone.`,

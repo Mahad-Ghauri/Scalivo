@@ -19,6 +19,12 @@ const serviceSchema = new Schema(
      * Default 0 keeps every existing service behaving exactly as before.
      */
     bufferMinutes: { type: Number, default: 0 },
+    resourceRequirements: {
+      type: [{ anyOfResourceIds: { type: [String], required: true }, _id: false }],
+      default: [],
+    },
+    requiresOwnerApproval: { type: Boolean, default: false },
+    approvalWindowMinutes: { type: Number, default: 30 },
 
     /** Minor units (paisa) — never floats for money. */
     priceMinor: { type: Number, required: true },

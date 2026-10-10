@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -239,9 +240,8 @@ void main() {
           theme: buildScalivoTheme(),
           builder: large
               ? (context, child) => MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: const TextScaler.linear(2)),
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: const TextScaler.linear(2)),
                   child: child!,
                 )
               : null,
@@ -262,13 +262,27 @@ void main() {
     await settle(tester);
   }
 
-  test('outcomes require confirmed status and the exact start boundary', () {
+  test('outcomes require confirmed status and end or grace boundaries', () {
     final e = entry();
     expect(
       e.canMarkOutcomeAt(e.startsAt.subtract(const Duration(microseconds: 1))),
       false,
     );
-    expect(e.canMarkOutcomeAt(e.startsAt), true);
+    expect(e.canMarkOutcomeAt(e.startsAt), false);
+    expect(
+      e.canNoShowAt(
+        e.startsAt
+            .add(const Duration(minutes: 10))
+            .subtract(const Duration(microseconds: 1)),
+      ),
+      false,
+    );
+    expect(e.canNoShowAt(e.startsAt.add(const Duration(minutes: 10))), true);
+    expect(
+      e.canCompleteAt(e.endsAt.subtract(const Duration(microseconds: 1))),
+      false,
+    );
+    expect(e.canCompleteAt(e.endsAt), true);
     for (final status in appointmentStatuses.where((s) => s != 'confirmed')) {
       expect(entry(status: status).canMarkOutcomeAt(DateTime.now()), false);
     }
@@ -368,41 +382,38 @@ void main() {
       expect(auth.business!.id, 'business');
     },
   );
-  test(
-    'profile writes validate images and colour before network and preserve other settings',
-    () async {
-      for (final profile in [
-        {'logoUrl': 'http://example.test/image'},
-        {'coverUrl': 'https://user:secret@example.test/image'},
-        {'themeColor': 'red'},
-        {'unknown': ''},
-      ]) {
-        expect(
-          () => f.api.saveBusinessProfile(
-            'business',
-            name: 'Salon',
-            city: 'Karachi',
-            timezone: 'Asia/Karachi',
-            slotIncrementMinutes: 15,
-            profile: profile,
-          ),
-          throwsA(isA<ApiException>()),
-        );
-      }
-      expect(f.requests, isEmpty);
-      await f.api.saveBusinessProfile(
-        'business',
-        name: 'New salon',
-        city: 'Karachi',
-        timezone: 'Asia/Karachi',
-        slotIncrementMinutes: 15,
-        profile: {'tagline': 'Hello'},
+  test('profile writes validate images and colour before network and preserve other settings', () async {
+    for (final profile in [
+      {'logoUrl': 'http://example.test/image'},
+      {'coverUrl': 'https://user:secret@example.test/image'},
+      {'themeColor': 'red'},
+      {'unknown': ''},
+    ]) {
+      expect(
+        () => f.api.saveBusinessProfile(
+          'business',
+          name: 'Salon',
+          city: 'Karachi',
+          timezone: 'Asia/Karachi',
+          slotIncrementMinutes: 15,
+          profile: profile,
+        ),
+        throwsA(isA<ApiException>()),
       );
-      final body = jsonDecode(f.requests.single.body) as Map<String, dynamic>;
-      expect(body.containsKey('reminders'), false);
-      expect(body.containsKey('published'), false);
-    },
-  );
+    }
+    expect(f.requests, isEmpty);
+    await f.api.saveBusinessProfile(
+      'business',
+      name: 'New salon',
+      city: 'Karachi',
+      timezone: 'Asia/Karachi',
+      slotIncrementMinutes: 15,
+      profile: {'tagline': 'Hello'},
+    );
+    final body = jsonDecode(f.requests.single.body) as Map<String, dynamic>;
+    expect(body.containsKey('reminders'), false);
+    expect(body.containsKey('published'), false);
+  });
   for (final state in [
     (true, 'confirmed'),
     (false, 'pending'),
@@ -680,13 +691,9 @@ void main() {
       await reveal(tester, find.text('Book it'));
       await tester.tap(find.text('Book it'));
       await settle(tester);
-      final body =
-          jsonDecode(
-                f.requests
-                    .firstWhere((r) => r.url.path.endsWith('/walk-ins'))
-                    .body,
-              )
-              as Map<String, dynamic>;
+      final body = jsonDecode(
+        f.requests.firstWhere((r) => r.url.path.endsWith('/walk-ins')).body,
+      ) as Map<String, dynamic>;
       expect(body['clientId'], 'client');
       expect(body['staffId'], 'staff');
       expect(body['startsAt'], endsWith('T09:00:00.000Z'));
@@ -739,13 +746,9 @@ void main() {
       await settle(tester);
       await tester.tap(find.text('2:00 PM'));
       await settle(tester);
-      final body =
-          jsonDecode(
-                f.requests
-                    .firstWhere((r) => r.url.path.endsWith('/reschedule'))
-                    .body,
-              )
-              as Map<String, dynamic>;
+      final body = jsonDecode(
+        f.requests.firstWhere((r) => r.url.path.endsWith('/reschedule')).body,
+      ) as Map<String, dynamic>;
       expect(body['staffId'], 'second-staff');
       expect(body['startsAt'], endsWith('T09:00:00.000Z'));
       expect(find.textContaining('could not message'), findsOneWidget);

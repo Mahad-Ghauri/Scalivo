@@ -1,3 +1,4 @@
+import { isCalendarDate } from '../lib/time.js';
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { Redis } from 'ioredis';
@@ -18,6 +19,18 @@ import { clearPendingPrompt } from '../whatsapp/state.js';
 import { logger } from '../lib/logger.js';
 import { resolveMeToken } from './token.js';
 import { meView } from './view.js';
+import { Booking } from '../models/Booking.js';
+import { Client } from '../models/Client.js';
+import { ClientProfile } from '../models/ClientProfile.js';
+import { AppointmentHolder } from '../models/AppointmentHolder.js';
+import { holderBody, saveHolder } from '../crm/holders.js';
+import { ConfigurationConflict } from '../bookings/configuration.js';
+import { newMeToken } from './token.js';
+import { beginVerification, finishVerification, verifiedContact } from '../public/verification.js';
+import { normalisePhone } from '../lib/phone.js';
+import { setBookingOutcome } from '../bookings/outcome.js';
+import { rescheduleBooking } from '../calendar/reschedule.js';
+import { BOOKING_STATUS } from '@scalivo/shared';
 
 /**
  * The customer's own page — milestone 3.3.
@@ -49,7 +62,7 @@ const objectId = z.string().regex(/^[a-f0-9]{24}$/i, 'not a valid id');
 
 const availabilityQuery = z.object({
   serviceId: objectId,
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD'),
+  date: z.string().refine(isCalendarDate, 'Choose a valid calendar date'),
   staffId: z.union([objectId, z.literal(ANY_STAFF)]).default(ANY_STAFF),
 });
 
@@ -64,6 +77,7 @@ const bookingBody = z.object({
   staffId: objectId,
   startsAt: z.string().datetime({ offset: true }),
   holdToken: z.string().uuid(),
+  appointmentHolderId: objectId.optional(),
 });
 
 const reviewBody = z.object({
@@ -117,6 +131,28 @@ async function holderOf(
 export function createMeRouter(redis: Redis, provider: MessagingProvider): Router {
   const router = express.Router();
   const json = express.json({ limit: '4kb' });
+  const verifiedHolder = async (req: Request, res: Response) => {
+    const holder = await holderOf(req, res);
+    if (!holder) return null;
+    const proof = z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{32}$/)
+      .safeParse(req.body?.verificationProof);
+    const client = await Client.findById(holder.clientId).select('phone').lean().maxTimeMS(5000);
+    const contact = proof.success
+      ? await verifiedContact(redis, holder.businessId, proof.data)
+      : null;
+    if (
+      !contact ||
+      (contact.clientId
+        ? contact.clientId !== holder.clientId
+        : !client?.phone || contact.phone !== normalisePhone(client.phone))
+    ) {
+      res.status(401).json({ error: 'Verify your WhatsApp number to manage appointments' });
+      return null;
+    }
+    return holder;
+  };
 
   /**
    * Personal, and never cached by anything between here and the browser. A
@@ -129,6 +165,285 @@ export function createMeRouter(redis: Redis, provider: MessagingProvider): Route
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+  router.post(
+    '/:token/verification',
+    rateLimit(redis, 'me-verify', 10, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await holderOf(req, res);
+      if (!holder) return;
+      const client = await Client.findById(holder.clientId)
+        .select('phone lids')
+        .lean()
+        .maxTimeMS(5000);
+      if (!client?.phone && !client?.lids?.length) {
+        res
+          .status(409)
+          .json({ error: 'Please message the business on WhatsApp to verify your identity' });
+        return;
+      }
+      const result = await beginVerification(
+        redis,
+        provider,
+        holder.businessId,
+        client.phone ?? null,
+        { clientId: holder.clientId, lid: client.lids?.[0] ?? null },
+      );
+      if (!result.ok) {
+        res
+          .status(result.reason === 'rate_limited' ? 429 : 503)
+          .json({
+            error: 'Verification is unavailable. Wait and try again or contact the business.',
+          });
+        return;
+      }
+      res.status(201).json(result);
+    }),
+  );
+  router.post(
+    '/:token/verification/confirm',
+    rateLimit(redis, 'me-verify-confirm', 60, 600),
+    json,
+    safely(async (req, res) => {
+      const holder = await holderOf(req, res);
+      const parsed = z
+        .object({
+          challengeId: z.string().uuid(),
+          code: z
+            .string()
+            .regex(/^\d{6}$/)
+            .optional(),
+        })
+        .safeParse(req.body);
+      if (!holder) return;
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Enter the six-digit code' });
+        return;
+      }
+      const proof = await finishVerification(
+        redis,
+        holder.businessId,
+        parsed.data.challengeId,
+        parsed.data.code,
+      );
+      if (!proof) {
+        res.status(400).json({ error: 'Verification is incomplete or expired' });
+        return;
+      }
+      res.json({ verificationProof: proof });
+    }),
+  );
+  router.get(
+    '/:token/holders',
+    rateLimit(redis, 'me-holders', 120, 600),
+    safely(async (req, res) => {
+      const holder = await holderOf(req, res);
+      if (!holder) return;
+      const holders = await AppointmentHolder.find({ ...holder, active: true })
+        .limit(20)
+        .lean()
+        .maxTimeMS(5000);
+      res.json({
+        holders: holders.map((person) => ({
+          id: String(person._id),
+          name: person.name,
+          active: person.active,
+        })),
+      });
+    }),
+  );
+  router.post(
+    '/:token/holders',
+    rateLimit(redis, 'me-holder-save', 30, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await verifiedHolder(req, res);
+      if (!holder) return;
+      const parsed = holderBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Enter the appointment-holder name' });
+        return;
+      }
+      try {
+        res.status(201).json(await saveHolder(holder.businessId, holder.clientId, parsed.data));
+      } catch (error) {
+        if (error instanceof ConfigurationConflict) {
+          res.status(409).json({ error: error.reason });
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+  router.patch(
+    '/:token/holders/:holderId',
+    rateLimit(redis, 'me-holder-save', 30, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await verifiedHolder(req, res);
+      if (!holder) return;
+      const parsed = holderBody.safeParse(req.body);
+      const id = objectId.safeParse(param(req, 'holderId'));
+      if (!parsed.success || !id.success) {
+        res.status(400).json({ error: 'Enter an appointment-holder name' });
+        return;
+      }
+      try {
+        const saved = await saveHolder(holder.businessId, holder.clientId, parsed.data, id.data);
+        if (!saved) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+        res.json(saved);
+      } catch (error) {
+        if (error instanceof ConfigurationConflict) {
+          res.status(409).json({ error: error.reason });
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+  router.post(
+    '/:token/revoke',
+    rateLimit(redis, 'me-revoke', 5, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await verifiedHolder(req, res);
+      if (!holder) return;
+      const token = newMeToken();
+      const profile = await ClientProfile.findOneAndUpdate(
+        { ...holder, meToken: param(req, 'token') },
+        { $set: { meToken: token, meTokenExpiresAt: new Date(Date.now() + 180 * 86400000) } },
+        { new: true },
+      ).maxTimeMS(5000);
+      if (!profile) {
+        res.status(409).json({ error: 'The link has changed' });
+        return;
+      }
+      res.json({ customerToken: token });
+    }),
+  );
+  router.post(
+    '/:token/bookings/:bookingId/cancel',
+    rateLimit(redis, 'me-cancel', 20, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await verifiedHolder(req, res);
+      if (!holder) return;
+      const parsed = objectId.safeParse(param(req, 'bookingId'));
+      if (!parsed.success) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const booking = await Booking.findOne({ _id: parsed.data, ...holder }).maxTimeMS(5000);
+      if (!booking) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      if (booking.startsAt <= new Date()) {
+        res
+          .status(409)
+          .json({ error: 'This appointment has started. Contact the business to change it.' });
+        return;
+      }
+      const result = await setBookingOutcome(
+        parsed.data,
+        holder.businessId,
+        BOOKING_STATUS.CANCELLED,
+        {
+          actor: 'customer',
+          expectStatus: booking.status,
+          expectRevision: booking.revision,
+          futureOnly: true,
+        },
+      );
+      if (!result.ok) {
+        res.status(409).json({ error: 'The appointment has already changed' });
+        return;
+      }
+      res.status(204).end();
+    }),
+  );
+  router.post(
+    '/:token/bookings/:bookingId/reschedule',
+    rateLimit(redis, 'me-move', 20, 3600),
+    json,
+    safely(async (req, res) => {
+      const holder = await verifiedHolder(req, res);
+      if (!holder) return;
+      const parsed = z
+        .object({ startsAt: z.string().datetime({ offset: true }), staffId: objectId.optional() })
+        .safeParse(req.body);
+      if (!parsed.success || !objectId.safeParse(param(req, 'bookingId')).success) {
+        res.status(400).json({ error: 'Choose a valid appointment time' });
+        return;
+      }
+      const booking = await Booking.findOne({ _id: param(req, 'bookingId'), ...holder }).maxTimeMS(
+        5000,
+      );
+      if (!booking) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      if (booking.startsAt <= new Date()) {
+        res
+          .status(409)
+          .json({ error: 'This appointment has started. Contact the business to change it.' });
+        return;
+      }
+      const result = await rescheduleBooking(
+        { redis, provider },
+        {
+          businessId: holder.businessId,
+          bookingId: String(booking._id),
+          clientId: holder.clientId,
+          startsAt: new Date(parsed.data.startsAt),
+          ...(parsed.data.staffId ? { staffId: parsed.data.staffId } : {}),
+        },
+      );
+      if (!result.ok) {
+        res
+          .status(409)
+          .json({
+            error: 'That appointment could not be moved. Refresh availability and try again.',
+            reason: result.reason,
+          });
+        return;
+      }
+      res.json(result);
+    }),
+  );
+  router.get(
+    '/:token/bookings/:bookingId/availability',
+    rateLimit(redis, 'me-move-offers', 120, 600),
+    safely(async (req, res) => {
+      const holder = await holderOf(req, res);
+      if (!holder) return;
+      const parsed = z
+        .object({ date: z.string().refine(isCalendarDate, 'Choose a valid calendar date') })
+        .safeParse(req.query);
+      if (!parsed.success || !objectId.safeParse(param(req, 'bookingId')).success) {
+        res.status(400).json({ error: 'Choose a valid date' });
+        return;
+      }
+      const booking = await Booking.findOne({ _id: param(req, 'bookingId'), ...holder }).maxTimeMS(
+        5000,
+      );
+      if (!booking) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const slots = await getAvailability(redis, {
+        businessId: holder.businessId,
+        serviceId: booking.serviceId,
+        staffId: booking.staffId,
+        date: parsed.data.date,
+        ignoreBookingId: String(booking._id),
+      });
+      res.json({ slots: slots.map(toPublicSlot) });
+    }),
+  );
 
   router.get(
     '/:token',
@@ -226,10 +541,12 @@ export function createMeRouter(redis: Redis, provider: MessagingProvider): Route
     safely(async (req, res) => {
       const parsed = bookingBody.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: 'Check the highlighted fields.', fields: fieldErrors(parsed.error) });
+        res
+          .status(400)
+          .json({ error: 'Check the highlighted fields.', fields: fieldErrors(parsed.error) });
         return;
       }
-      const holder = await holderOf(req, res);
+      const holder = await verifiedHolder(req, res);
       if (!holder) return;
 
       const result = await bookAsClient({ redis, provider }, holder.businessId, {
@@ -238,14 +555,24 @@ export function createMeRouter(redis: Redis, provider: MessagingProvider): Route
         staffId: parsed.data.staffId,
         startsAt: new Date(parsed.data.startsAt),
         holdToken: parsed.data.holdToken,
+        ...(parsed.data.appointmentHolderId
+          ? { appointmentHolderId: parsed.data.appointmentHolderId }
+          : {}),
       });
 
       if (!result.ok) {
-        refuse(res, result.reason, result.reason === 'slot_taken' ? { alternatives: result.alternatives } : {});
+        refuse(
+          res,
+          result.reason,
+          result.reason === 'slot_taken' ? { alternatives: result.alternatives } : {},
+        );
         return;
       }
 
-      logger.info({ businessId: holder.businessId, bookingId: result.receipt.id }, 'rebooked from /me');
+      logger.info(
+        { businessId: holder.businessId, bookingId: result.receipt.id },
+        'rebooked from /me',
+      );
       res.status(201).json(result.receipt);
     }),
   );

@@ -83,8 +83,14 @@ export interface PushMessage {
  * the signal to escalate to the next tier, because nothing reached anybody.
  */
 export async function pushToOwners(businessId: string, message: PushMessage): Promise<number> {
-  const owners = await User.find({ businessIds: businessId, role: { $in: ['owner', 'staff'] } });
-  const tokens = owners.flatMap((owner) => owner.fcmTokens);
+  const owners = await User.find(
+    { businessIds: businessId, role: 'owner' },
+    { fcmTokens: { $slice: 20 } },
+  )
+    .limit(100)
+    .lean()
+    .maxTimeMS(5000);
+  const tokens = [...new Set(owners.flatMap((owner) => owner.fcmTokens))].slice(0, 500);
 
   if (tokens.length === 0) {
     logger.warn({ businessId }, 'no registered devices to push to');
@@ -93,7 +99,10 @@ export async function pushToOwners(businessId: string, message: PushMessage): Pr
 
   const fb = firebase();
   if (!fb) {
-    logger.warn({ businessId, ...message, devices: tokens.length }, '[push not configured] would send');
+    logger.warn(
+      { businessId, channel: message.channel, devices: tokens.length },
+      '[push not configured] would send',
+    );
     return 0;
   }
 
@@ -116,7 +125,7 @@ export async function pushToOwners(businessId: string, message: PushMessage): Pr
       : {}),
   });
 
-  await pruneDeadTokens(tokens, response);
+  await pruneDeadTokens(businessId, tokens, response);
   return response.successCount;
 }
 
@@ -129,6 +138,7 @@ export async function pushToOwners(businessId: string, message: PushMessage): Pr
  * someone to ignore a real one.
  */
 async function pruneDeadTokens(
+  businessId: string,
   tokens: string[],
   response: BatchResponse,
 ): Promise<void> {
@@ -138,7 +148,11 @@ async function pruneDeadTokens(
 
   if (dead.length === 0) return;
 
-  await User.updateMany({ fcmTokens: { $in: dead } }, { $pull: { fcmTokens: { $in: dead } } });
+  await User.updateMany(
+    { businessIds: businessId, role: 'owner', fcmTokens: { $in: dead } },
+    { $pull: { fcmTokens: { $in: dead } } },
+    { maxTimeMS: 5000 },
+  );
   logger.info({ count: dead.length }, 'pruned dead device tokens');
 }
 

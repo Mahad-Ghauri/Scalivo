@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -58,9 +59,28 @@ const TZ = 'Asia/Karachi';
 const DEPOSIT = 200_000;
 
 class FakeMessaging implements MessagingProvider {
+  async provisionSession() {
+    return { sessionId: 'fake', status: SESSION_STATUS.READY };
+  }
+  async registerWebhook() {}
+  async startSession() {
+    return { status: SESSION_STATUS.READY };
+  }
+  async getSessionQr() {
+    return null;
+  }
+  async getSessionPhone() {
+    return null;
+  }
+  async resolveContactPhone() {
+    return null;
+  }
+  parseWebhook() {
+    return [];
+  }
   readonly name = 'fake';
   sent: string[] = [];
-  async sendText(_to: string, text: string): Promise<SendResult> {
+  async sendText(_sessionId: string, _to: string, text: string): Promise<SendResult> {
     this.sent.push(text);
     return { providerMessageId: `m${this.sent.length}`, acceptedAt: new Date() };
   }
@@ -93,10 +113,19 @@ describe.skipIf(!infraUp)('deposits', () => {
   const deps = () => ({ redis, provider: messaging });
   const at = (hhmm: string) => wallClockToUtc(`${date}T${hhmm}`, TZ);
 
-  async function book(hhmm: string, options: { source?: 'whatsapp' | 'web' | 'owner'; service?: string } = {}) {
+  async function book(
+    hhmm: string,
+    options: { source?: 'whatsapp' | 'web' | 'owner'; service?: string } = {},
+  ) {
     const service = options.service ?? serviceId;
     const source = options.source ?? 'whatsapp';
-    const held = await holdSlot(redis, { businessId, serviceId: service, startsAt: at(hhmm), staffId, source });
+    const held = await holdSlot(redis, {
+      businessId,
+      serviceId: service,
+      startsAt: at(hhmm),
+      staffId,
+      source,
+    });
     assertOk(held, 'hold');
     const made = await createBooking(redis, {
       businessId,
@@ -124,9 +153,15 @@ describe.skipIf(!infraUp)('deposits', () => {
   }
 
   const payments = async (bookingId: string) =>
-    (await postgres.query(`SELECT * FROM payments WHERE booking_id = $1 ORDER BY id`, [bookingId])).rows;
+    (await postgres.query(`SELECT * FROM payments WHERE booking_id = $1 ORDER BY id`, [bookingId]))
+      .rows;
   const refunds = async () =>
-    (await postgres.query(`SELECT r.* FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE p.business_id = $1`, [businessId])).rows;
+    (
+      await postgres.query(
+        `SELECT r.* FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE p.business_id = $1`,
+        [businessId],
+      )
+    ).rows;
 
   beforeAll(async () => {
     redis = new Redis(process.env.REDIS_URL!, { db: 3 });
@@ -160,6 +195,7 @@ describe.skipIf(!infraUp)('deposits', () => {
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
@@ -173,8 +209,22 @@ describe.skipIf(!infraUp)('deposits', () => {
     await postgres.query(`DELETE FROM payments WHERE business_id = $1`, [businessId]);
 
     const [withDeposit, plain] = await Service.insertMany([
-      { businessId, name: 'Laser', durationMinutes: 45, priceMinor: 1_500_000, depositRequired: true, depositAmountMinor: DEPOSIT, displayOrder: 1 },
-      { businessId, name: 'Consultation', durationMinutes: 30, priceMinor: 300_000, displayOrder: 2 },
+      {
+        businessId,
+        name: 'Laser',
+        durationMinutes: 45,
+        priceMinor: 1_500_000,
+        depositRequired: true,
+        depositAmountMinor: DEPOSIT,
+        displayOrder: 1,
+      },
+      {
+        businessId,
+        name: 'Consultation',
+        durationMinutes: 30,
+        priceMinor: 300_000,
+        displayOrder: 2,
+      },
     ]);
     serviceId = String(withDeposit!._id);
     plainServiceId = String(plain!._id);
@@ -206,11 +256,15 @@ describe.skipIf(!infraUp)('deposits', () => {
       const window = booking.depositDueBy!.getTime() - booking.createdAt!.getTime();
       expect(Math.round(window / 60_000)).toBe(DEPOSIT_PAYMENT_WINDOW_MINUTES);
       // The hour is protected while they pay.
-      expect(await SlotOccupancy.countDocuments({ bookingId: String(booking._id) })).toBeGreaterThan(0);
+      expect(
+        await SlotOccupancy.countDocuments({ bookingId: String(booking._id) }),
+      ).toBeGreaterThan(0);
     });
 
     it('asks nothing of a service without a deposit, or of the owner entering a walk-in', async () => {
-      expect((await book('10:00', { service: plainServiceId })).status).toBe(BOOKING_STATUS.PENDING);
+      expect((await book('10:00', { service: plainServiceId })).status).toBe(
+        BOOKING_STATUS.PENDING,
+      );
       const walkIn = await book('14:00', { source: 'owner' });
       expect(walkIn.status).toBe(BOOKING_STATUS.PENDING);
       expect(walkIn.depositMinor).toBeNull();
@@ -244,7 +298,9 @@ describe.skipIf(!infraUp)('deposits', () => {
       const [row] = await payments(String(booking._id));
       expect(row.status).toBe('paid');
       expect(Number(row.amount_minor)).toBe(DEPOSIT);
-      const kinds = (await Notification.find({ bookingId: String(booking._id) })).map((n) => n.kind);
+      const kinds = (await Notification.find({ bookingId: String(booking._id) })).map(
+        (n) => n.kind,
+      );
       expect(kinds).toContain(NOTIFICATION_KIND.CONFIRMATION);
     });
 
@@ -255,7 +311,12 @@ describe.skipIf(!infraUp)('deposits', () => {
 
       expect(await payments(String(booking._id))).toHaveLength(1);
       expect(await refunds()).toHaveLength(0);
-      expect(await Notification.countDocuments({ bookingId: String(booking._id), kind: NOTIFICATION_KIND.CONFIRMATION })).toBe(1);
+      expect(
+        await Notification.countDocuments({
+          bookingId: String(booking._id),
+          kind: NOTIFICATION_KIND.CONFIRMATION,
+        }),
+      ).toBe(1);
     });
 
     it('ignores a forged "I paid" and keeps it on record', async () => {
@@ -264,7 +325,10 @@ describe.skipIf(!infraUp)('deposits', () => {
 
       expect(await handleReturn(deps(), forged)).toBeNull();
       expect((await Booking.findById(booking._id))!.status).toBe(BOOKING_STATUS.AWAITING_DEPOSIT);
-      const events = await postgres.query(`SELECT 1 FROM payment_events WHERE kind = 'forged_return' AND txn_ref = $1`, [txnRef]);
+      const events = await postgres.query(
+        `SELECT 1 FROM payment_events WHERE kind = 'forged_return' AND txn_ref = $1`,
+        [txnRef],
+      );
       expect(events.rowCount).toBe(1);
     });
 
@@ -278,7 +342,10 @@ describe.skipIf(!infraUp)('deposits', () => {
       await pay(retry.redirect.fields.txnRef!);
 
       expect((await Booking.findById(booking._id))!.status).toBe(BOOKING_STATUS.CONFIRMED);
-      expect((await payments(String(booking._id))).map((p) => p.status)).toEqual(['failed', 'paid']);
+      expect((await payments(String(booking._id))).map((p) => p.status)).toEqual([
+        'failed',
+        'paid',
+      ]);
     });
 
     it('a second successful payment for the same booking is refunded, not kept', async () => {
@@ -292,13 +359,18 @@ describe.skipIf(!infraUp)('deposits', () => {
       await pay(second.redirect.fields.txnRef!);
 
       expect(await refunds()).toHaveLength(1);
-      expect(gateway.refunds).toEqual([{ txnRef: second.redirect.fields.txnRef, amountMinor: DEPOSIT }]);
+      expect(gateway.refunds).toEqual([
+        { txnRef: second.redirect.fields.txnRef, amountMinor: DEPOSIT },
+      ]);
     });
   });
 
   describe('when nobody pays', () => {
     const overdue = (bookingId: unknown, minutesAgo: number) =>
-      Booking.updateOne({ _id: bookingId }, { $set: { depositDueBy: addMinutes(new Date(), -minutesAgo) } });
+      Booking.updateOne(
+        { _id: bookingId },
+        { $set: { depositDueBy: addMinutes(new Date(), -minutesAgo) } },
+      );
 
     it('releases the slot and tells the customer', async () => {
       const booking = await book('12:00');
@@ -310,7 +382,12 @@ describe.skipIf(!infraUp)('deposits', () => {
       expect(after.status).toBe(BOOKING_STATUS.CANCELLED);
       expect(after.depositStatus).toBe(DEPOSIT_STATUS.EXPIRED);
       expect(await SlotOccupancy.countDocuments({ bookingId: String(booking._id) })).toBe(0);
-      expect(await Notification.countDocuments({ bookingId: String(booking._id), kind: NOTIFICATION_KIND.DEPOSIT_EXPIRED })).toBe(1);
+      expect(
+        await Notification.countDocuments({
+          bookingId: String(booking._id),
+          kind: NOTIFICATION_KIND.DEPOSIT_EXPIRED,
+        }),
+      ).toBe(1);
     });
 
     it('asks the gateway before giving up, and confirms a payment whose return was lost', async () => {
@@ -362,7 +439,7 @@ describe.skipIf(!infraUp)('deposits', () => {
       return String(booking._id);
     }
 
-    it('refunds a customer who cancels with a day\'s notice', async () => {
+    it("refunds a customer who cancels with a day's notice", async () => {
       const id = await paidBooking();
       await setBookingOutcome(id, businessId, BOOKING_STATUS.CANCELLED, { actor: 'customer' });
 
@@ -411,7 +488,10 @@ describe.skipIf(!infraUp)('deposits', () => {
       const oldId = await paidBooking('12:00');
       const replacement = await book('15:00', { service: plainServiceId });
       const newId = String(replacement._id);
-      await Booking.updateOne({ _id: newId }, { $set: { depositMinor: DEPOSIT, depositStatus: DEPOSIT_STATUS.PAID } });
+      await Booking.updateOne(
+        { _id: newId },
+        { $set: { depositMinor: DEPOSIT, depositStatus: DEPOSIT_STATUS.PAID } },
+      );
 
       await transferDeposit(oldId, newId);
       await setBookingOutcome(oldId, businessId, BOOKING_STATUS.CANCELLED, { actor: 'customer' });
@@ -425,7 +505,15 @@ describe.skipIf(!infraUp)('deposits', () => {
   });
 
   it('reports no-shows with and without a deposit separately', async () => {
-    const base = { businessId, staffId: 's', clientId, serviceId, durationMinutes: 45, priceMinor: 100, source: 'whatsapp' };
+    const base = {
+      businessId,
+      staffId: 's',
+      clientId,
+      serviceId,
+      durationMinutes: 45,
+      priceMinor: 100,
+      source: 'whatsapp',
+    };
     const when = at('12:00');
     await Booking.insertMany([
       { ...base, startsAt: when, status: BOOKING_STATUS.COMPLETED, depositMinor: DEPOSIT },
@@ -438,7 +526,13 @@ describe.skipIf(!infraUp)('deposits', () => {
       { ...base, startsAt: when, status: BOOKING_STATUS.CANCELLED, depositMinor: DEPOSIT },
     ]);
 
-    const report = await buildReport({ businessId, timezone: TZ, from: date, to: date, granularity: 'day' });
+    const report = await buildReport({
+      businessId,
+      timezone: TZ,
+      from: date,
+      to: date,
+      granularity: 'day',
+    });
     expect(report.depositComparison.withDeposit).toEqual({ reached: 4, noShow: 1, rate: 0.25 });
     expect(report.depositComparison.withoutDeposit).toEqual({ reached: 2, noShow: 1, rate: 0.5 });
   });
@@ -486,7 +580,7 @@ describe.skipIf(!infraUp)('deposits', () => {
     it('shows the amount and deadline, never the booking id', async () => {
       const booking = await book('12:00');
       const res = await fetch(`${serverUrl}/public/deposits/${booking.depositToken}`);
-      const view = await res.json();
+      const view = (await res.json()) as import('@scalivo/shared').DepositView;
 
       expect(view.depositMinor).toBe(DEPOSIT);
       expect(view.status).toBe(DEPOSIT_STATUS.AWAITING);

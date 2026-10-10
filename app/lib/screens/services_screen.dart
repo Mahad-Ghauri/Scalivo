@@ -339,8 +339,41 @@ class _ServiceSheetState extends State<_ServiceSheet> {
   );
 
   bool _busy = false;
+  late bool _approval = widget.service?.requiresOwnerApproval ?? false;
+  late final List<List<String>> _requirements = [
+    for (final group
+        in widget.service?.resourceRequirements ?? const <List<String>>[])
+      [...group],
+  ];
+  List<ResourceItem>? _resources;
+  String? _resourceError;
+  @override
+  void initState() {
+    super.initState();
+    _loadResources();
+  }
+
+  Future<void> _loadResources() async {
+    try {
+      final resources = await widget.api.resources(widget.businessId);
+      if (mounted) {
+        setState(() {
+          _resources = resources;
+          _resourceError = null;
+        });
+      }
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _resourceError = error.message);
+    }
+  }
+
   Map<String, String> _fieldErrors = const {};
   String? _formError;
+
+  Set<String> _requirementKinds(List<String> group) => {
+    for (final resource in _resources ?? const <ResourceItem>[])
+      if (group.contains(resource.id)) resource.kind,
+  };
 
   @override
   void dispose() {
@@ -440,6 +473,70 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                   ),
                 ),
               ],
+              const SizedBox(height: 18),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Owner approval required'),
+                subtitle: Text(
+                  'Requests hold capacity for ${widget.service?.approvalWindowMinutes ?? 30} minutes, or until the appointment starts. They are confirmed only after you accept.',
+                ),
+                value: _approval,
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _approval = value),
+              ),
+              const SizedBox(height: 18),
+              if (_fieldErrors['resourceRequirements'] != null)
+                Text(
+                  _fieldErrors['resourceRequirements']!,
+                  style: const TextStyle(color: Sc.dangerText),
+                ),
+              const Text(
+                'Rooms & equipment',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const Text(
+                'Choose a whole room for privacy, or a bed/chair for a shared room. Add equipment in a separate requirement. Each requirement reserves one available unit from the selected quantity. Select multiple entries in the same requirement to use any of them. Fixed equipment without a bed/chair requirement reserves its whole room.',
+                style: TextStyle(color: Sc.slate, height: 1.4),
+              ),
+              if (_requirements.any(
+                (group) => _requirementKinds(group).length > 1,
+              ))
+                const Text(
+                  'This setup mixes resource types in one requirement. Move them into separate requirements. New bookings are unavailable until this is corrected; existing appointments are preserved.',
+                  style: TextStyle(color: Sc.dangerText, height: 1.4),
+                ),
+              if (_resourceError != null) ...[
+                Text(
+                  _resourceError!,
+                  style: const TextStyle(color: Sc.dangerText),
+                ),
+                TextButton(
+                  onPressed: _loadResources,
+                  child: const Text('Retry resource loading'),
+                ),
+              ] else if (_resources == null)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: LinearProgressIndicator(color: Sc.teal),
+                )
+              else ...[
+                if (_resources!.where((resource) => resource.active).isEmpty)
+                  const Text(
+                    'Add physical resources in Settings → Rooms & equipment first.',
+                  ),
+                for (var index = 0; index < _requirements.length; index++)
+                  _requirement(index),
+                if (_requirements.length < 4 &&
+                    _resources!.any((resource) => resource.active))
+                  TextButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() => _requirements.add([])),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add resource requirement'),
+                  ),
+              ],
               const SizedBox(height: 24),
               ScButton(
                 label: widget.service == null ? 'Add service' : 'Save',
@@ -454,6 +551,57 @@ class _ServiceSheetState extends State<_ServiceSheet> {
     );
   }
 
+  Widget _requirement(int index) {
+    final group = _requirements[index];
+    final kinds = _requirementKinds(group);
+    final unit = kinds.length == 1 ? kinds.first : 'resource';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Requirement ${index + 1} — choose ONE $unit'),
+            ),
+            IconButton(
+              tooltip: 'Remove requirement',
+              onPressed: _busy
+                  ? null
+                  : () => setState(() => _requirements.removeAt(index)),
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+        for (final resource in _resources!.where(
+          (asset) => asset.active || group.contains(asset.id),
+        ))
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(resource.name),
+            subtitle: Text(
+              '${resource.kindLabel} · Quantity ${resource.quantity}',
+            ),
+            value: group.contains(resource.id),
+            onChanged:
+                _busy ||
+                    (!group.contains(resource.id) &&
+                        (group.length >= 4 ||
+                            kinds.length > 1 ||
+                            (kinds.isNotEmpty &&
+                                !kinds.contains(resource.kind))))
+                ? null
+                : (selected) => setState(() {
+                    if (selected == true && group.length < 4) {
+                      group.add(resource.id);
+                    } else if (selected != true) {
+                      group.remove(resource.id);
+                    }
+                  }),
+          ),
+      ],
+    );
+  }
+
   Future<void> _submit() async {
     if (_busy) return;
     final name = _name.text.trim();
@@ -464,6 +612,9 @@ class _ServiceSheetState extends State<_ServiceSheet> {
     // Checked here so a typo comes back instantly rather than as a round trip,
     // but the server checks the same things — this is courtesy, not the guard.
     final errors = <String, String>{
+      if (_requirements.any((group) => group.isEmpty)) 'resourceRequirements': 'Select at least one resource in every requirement, or remove the empty requirement',
+      if (_requirements.any((group) => _requirementKinds(group).length > 1))
+        'resourceRequirements': 'Put rooms, beds, chairs and equipment in separate requirements before saving',
       if (name.isEmpty || name.length > 80)
         'name': 'Use a name of 1–80 characters',
       if (minutes == null || minutes <= 0 || minutes > 1440)
@@ -493,6 +644,9 @@ class _ServiceSheetState extends State<_ServiceSheet> {
         durationMinutes: minutes!,
         bufferMinutes: buffer!,
         priceMinor: rupees! * 100,
+        resourceRequirements: _requirements,
+        requiresOwnerApproval: _approval,
+        approvalWindowMinutes: widget.service?.approvalWindowMinutes ?? 30,
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);

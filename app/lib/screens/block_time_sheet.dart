@@ -22,6 +22,7 @@ import '../widgets/sc_field.dart';
 Future<bool> showBlockTimeSheet(
   BuildContext context, {
   required CalendarController controller,
+  ResourceItem? resource,
 }) async {
   final created = await showModalBottomSheet<bool>(
     context: context,
@@ -30,18 +31,22 @@ Future<bool> showBlockTimeSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => _BlockTimeSheet(controller: controller),
+    builder: (_) => _BlockTimeSheet(controller: controller, resource: resource),
   );
   return created ?? false;
 }
 
 /// Sentinel for "the whole business", which the wire spells as a null staffId.
-const _everyone = StaffSummary(id: '', name: 'Everyone — the business is closed');
+const _everyone = StaffSummary(
+  id: '',
+  name: 'Everyone — the business is closed',
+);
 
 class _BlockTimeSheet extends StatefulWidget {
-  const _BlockTimeSheet({required this.controller});
+  const _BlockTimeSheet({required this.controller, this.resource});
 
   final CalendarController controller;
+  final ResourceItem? resource;
 
   @override
   State<_BlockTimeSheet> createState() => _BlockTimeSheetState();
@@ -126,34 +131,53 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(child: CircularProgressIndicator(color: Sc.teal)),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Sc.teal),
+                  ),
                 )
               else ...[
-                ScDropdown<StaffSummary>(
-                  label: 'Who',
-                  value: _who,
-                  items: staff,
-                  itemLabel: (s) => s.name,
-                  onChanged: _busy ? null : (s) => setState(() => _who = s ?? _everyone),
+                if (widget.resource == null)
+                  ScDropdown<StaffSummary>(
+                    label: 'Who',
+                    value: _who,
+                    items: staff,
+                    itemLabel: (s) => s.name,
+                    onChanged: _busy
+                        ? null
+                        : (s) => setState(() => _who = s ?? _everyone),
+                  )
+                else
+                  Text(
+                    'Downtime for ${widget.resource!.name}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                const SizedBox(height: 18),
+                _when(
+                  'From',
+                  _startsAt,
+                  (value) => setState(() {
+                    _startsAt = value;
+                    // Kept ahead of the start rather than validated after the
+                    // fact: an end before its start is not a decision anyone
+                    // makes, it is a half-finished edit.
+                    if (!_endsAt.isAfter(_startsAt)) {
+                      _endsAt = _startsAt.add(const Duration(hours: 1));
+                    }
+                  }),
                 ),
                 const SizedBox(height: 18),
-                _when('From', _startsAt, (value) => setState(() {
-                      _startsAt = value;
-                      // Kept ahead of the start rather than validated after the
-                      // fact: an end before its start is not a decision anyone
-                      // makes, it is a half-finished edit.
-                      if (!_endsAt.isAfter(_startsAt)) {
-                        _endsAt = _startsAt.add(const Duration(hours: 1));
-                      }
-                    })),
-                const SizedBox(height: 18),
-                _when('Until', _endsAt, (value) => setState(() => _endsAt = value)),
+                _when(
+                  'Until',
+                  _endsAt,
+                  (value) => setState(() => _endsAt = value),
+                ),
                 const SizedBox(height: 18),
                 ScField(
                   label: 'Reason',
                   controller: _reason,
                   hint: 'Eid, a wedding, a day off',
-                  helper: 'Optional. Only you see it — it shows on the calendar '
+                  helper:
+                      'Optional. Only you see it — it shows on the calendar '
                       'so the gap is not a mystery next week.',
                   enabled: !_busy,
                   textCapitalization: TextCapitalization.sentences,
@@ -162,7 +186,11 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
                   const SizedBox(height: 14),
                   Text(
                     _formError!,
-                    style: const TextStyle(fontSize: 12.5, color: Sc.dangerText, height: 1.4),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Sc.dangerText,
+                      height: 1.4,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -186,7 +214,11 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Sc.slate),
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: Sc.slate,
+          ),
         ),
         const SizedBox(height: 8),
         InkWell(
@@ -194,7 +226,9 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
           child: Container(
             constraints: const BoxConstraints(minHeight: 48),
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Sc.hairline, width: 1.5)),
+              border: Border(
+                bottom: BorderSide(color: Sc.hairline, width: 1.5),
+              ),
             ),
             padding: const EdgeInsets.only(bottom: 11, top: 4),
             child: Row(
@@ -209,7 +243,11 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
                     ),
                   ),
                 ),
-                const Icon(Icons.schedule_rounded, size: 18, color: Sc.slateLight),
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 18,
+                  color: Sc.slateLight,
+                ),
               ],
             ),
           ),
@@ -251,6 +289,7 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
       // The empty id is this sheet's sentinel for "the business"; the wire wants
       // a null, and the conversion happens here rather than leaking either way.
       staffId: _who.id.isEmpty ? null : _who.id,
+      resourceId: widget.resource?.id,
       startsAt: _startsAt,
       endsAt: _endsAt,
       reason: _reason.text.trim(),
@@ -261,7 +300,9 @@ class _BlockTimeSheetState extends State<_BlockTimeSheet> {
     if (result.error != null) {
       setState(() {
         _busy = false;
-        _formError = result.error!.fieldErrors.values.firstOrNull ?? result.error!.message;
+        _formError =
+            result.error!.fieldErrors.values.firstOrNull ??
+            result.error!.message;
       });
       return;
     }

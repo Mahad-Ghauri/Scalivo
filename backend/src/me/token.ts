@@ -3,38 +3,12 @@ import { ClientProfile } from '../models/ClientProfile.js';
 import { logger } from '../lib/logger.js';
 
 /**
- * The key to a customer's own page, and the one genuinely awkward decision in
- * milestone 3.3.
- *
- * **It does not expire.** That is not laziness about session management; it is
- * what the feature is. The page is meant to be installed to a home screen and
- * opened months later, and an icon that opens a dead page is worse than no icon.
- * A customer with no account cannot re-authenticate, so an expiring token would
- * have to be re-issued over WhatsApp on every visit — which means either the
- * business messages them unprompted (the one behaviour most likely to get the
- * number restricted — NOTES.md) or the installed shortcut simply stops working.
- *
- * So this is a durable bearer credential sitting in a chat thread, and the
- * honest thing is to say what that costs and bound it:
- *
- * - **Scope.** One token, one relationship (see ClientProfile.meToken). The
- *   worst case is one business's view of one customer, never a platform account.
- * - **Reach.** It reads appointments and a spend total, and it can book and rate
- *   as that customer. It cannot cancel, cannot move money, cannot change a phone
- *   number, and cannot see another customer. A booking it makes appears on the
- *   owner's calendar like any other, so abuse is visible rather than silent.
- * - **Entropy.** 192 bits from `randomBytes`. Not guessable, and not derived
- *   from the client or business id — a token must not let its holder work out
- *   who else exists.
- * - **Revocation.** Overwriting the field invalidates the old URL. There is no
- *   button for that yet, deliberately: nobody has asked for one, and the field
- *   is what makes it a five-line change when they do.
- * - **Not in logs.** The routes that take it must never log the path. See the
- *   `/me` handlers in public/routes.ts.
- *
- * What would replace it properly is a WhatsApp OTP — the same fix the web
- * booking path needs for its unverified phone number — and that is the right
- * place to solve it once, for both.
+ * A private link scoped to one business/customer relationship.
+ * New links expire after 180 days. A verified WhatsApp message can recover the
+ * current link; owner or customer rotation immediately revokes the old one.
+ * Sensitive writes additionally require a short-lived WhatsApp proof.
+ * Legacy links receive the same expiry on their next authenticated use.
+ * Existing installed shortcuts keep their token during migration. Never log tokens.
  */
 
 /** 24 bytes, base64url: 32 URL-safe characters, no escaping anywhere. */
@@ -58,14 +32,22 @@ export const newMeToken = (): string => randomBytes(TOKEN_BYTES).toString('base6
  * to show, and minting a token would hand out a link to an empty page.
  */
 export async function meTokenFor(businessId: string, clientId: string): Promise<string | null> {
-  const existing = await ClientProfile.findOne({ businessId, clientId }).select('meToken');
+  const existing = await ClientProfile.findOne({ businessId, clientId })
+    .select('meToken meTokenExpiresAt')
+    .maxTimeMS(5000);
   if (!existing) return null;
-  if (existing.meToken) return existing.meToken;
+  if (existing.meToken && !existing.meTokenExpiresAt)
+    await ClientProfile.updateOne(
+      { businessId, clientId, meToken: existing.meToken, meTokenExpiresAt: null },
+      { $set: { meTokenExpiresAt: new Date(Date.now() + 180 * 86400000) } },
+    ).maxTimeMS(5000);
+  if (existing.meToken && (!existing.meTokenExpiresAt || existing.meTokenExpiresAt > new Date()))
+    return existing.meToken;
 
   const token = newMeToken();
   const claimed = await ClientProfile.findOneAndUpdate(
-    { businessId, clientId, meToken: null },
-    { $set: { meToken: token } },
+    { businessId, clientId, $or: [{ meToken: null }, { meTokenExpiresAt: { $lte: new Date() } }] },
+    { $set: { meToken: token, meTokenExpiresAt: new Date(Date.now() + 180 * 86400000) } },
     { new: true },
   ).select('meToken');
 
@@ -89,7 +71,12 @@ export async function resolveMeToken(
 ): Promise<{ businessId: string; clientId: string } | null> {
   if (!ME_TOKEN_PATTERN.test(token)) return null;
 
-  const profile = await ClientProfile.findOne({ meToken: token }).select('businessId clientId');
+  const profile = await ClientProfile.findOne({
+    meToken: token,
+    $or: [{ meTokenExpiresAt: null }, { meTokenExpiresAt: { $gt: new Date() } }],
+  })
+    .select('businessId clientId meTokenExpiresAt')
+    .maxTimeMS(5000);
   if (!profile) {
     // No token in the log line: it is a credential, and this is the one place
     // tempted to print it.
@@ -97,5 +84,10 @@ export async function resolveMeToken(
     return null;
   }
 
+  if (!profile.meTokenExpiresAt)
+    await ClientProfile.updateOne(
+      { _id: profile._id, meToken: token, meTokenExpiresAt: null },
+      { $set: { meTokenExpiresAt: new Date(Date.now() + 180 * 86400000) } },
+    ).maxTimeMS(5000);
   return { businessId: profile.businessId, clientId: profile.clientId };
 }

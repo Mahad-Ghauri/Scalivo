@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -167,6 +168,7 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       Notification.deleteMany({ businessId }),
       Service.deleteMany({ businessId }),
@@ -209,7 +211,13 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
 
   /** Book the way the API would: hold, then convert. Leaves it PENDING. */
   async function book(startsAt: Date, forClient = clientId) {
-    const held = await holdSlot(redis, { businessId, serviceId: hydrafacial, startsAt, staffId, source: 'web' });
+    const held = await holdSlot(redis, {
+      businessId,
+      serviceId: hydrafacial,
+      startsAt,
+      staffId,
+      source: 'web',
+    });
     assertOk(held, 'the hold');
     const result = await createBooking(redis, {
       businessId,
@@ -343,7 +351,12 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
     it('drops a "sent" ack on the floor — it says nothing accepted did not', async () => {
       const { row, providerMessageId } = await confirmed();
 
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.SENT, occurredAt: new Date() });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.SENT,
+        occurredAt: new Date(),
+      });
 
       expect((await Notification.findById(row._id))!.status).toBe(DELIVERY_STATUS.ACCEPTED);
     });
@@ -356,8 +369,18 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
       // ack routinely lands after a later one. This is the pair that actually
       // reaches the write — 'sent' and 'pending' are dropped before it, so a
       // test built on those would pass against no guard at all.
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.READ, occurredAt: arrived });
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.DELIVERED, occurredAt: new Date() });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.READ,
+        occurredAt: arrived,
+      });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.DELIVERED,
+        occurredAt: new Date(),
+      });
 
       const after = await Notification.findById(row._id);
       expect(after!.status).toBe(DELIVERY_STATUS.READ);
@@ -368,8 +391,18 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
       const { row, providerMessageId } = await confirmed();
       const deliveredAt = new Date(Date.now() - 60_000);
 
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.DELIVERED, occurredAt: deliveredAt });
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.READ, occurredAt: new Date() });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.DELIVERED,
+        occurredAt: deliveredAt,
+      });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.READ,
+        occurredAt: new Date(),
+      });
 
       const after = await Notification.findById(row._id);
       expect(after!.status).toBe(DELIVERY_STATUS.READ);
@@ -382,7 +415,12 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
       const occurredAt = new Date();
 
       // WhatsApp can jump straight to read when the chat is already open.
-      await handleMessageAck({ providerMessageId, sessionId: SESSION_ID, status: ACK_STATUS.READ, occurredAt });
+      await handleMessageAck({
+        providerMessageId,
+        sessionId: SESSION_ID,
+        status: ACK_STATUS.READ,
+        occurredAt,
+      });
 
       const after = await Notification.findById(row._id);
       expect(after!.status).toBe(DELIVERY_STATUS.READ);
@@ -501,7 +539,10 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
     });
 
     it('fires each configured lead time exactly once', async () => {
-      await Business.updateOne({ _id: businessId }, { $set: { 'reminders.leadMinutes': [1440, 120] } });
+      await Business.updateOne(
+        { _id: businessId },
+        { $set: { 'reminders.leadMinutes': [1440, 120] } },
+      );
       const startsAt = at('16:00');
       const booking = await book(startsAt);
       provider.sent = [];

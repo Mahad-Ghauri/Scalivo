@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express from 'express';
@@ -151,7 +152,11 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
     // db 11 — 1–10 belong to the other infrastructure suites.
     redis = new Redis(process.env.REDIS_URL!, { db: 11 });
     date = nextTuesday();
-    await Promise.all([SlotOccupancy.syncIndexes(), Review.syncIndexes(), ClientProfile.syncIndexes()]);
+    await Promise.all([
+      SlotOccupancy.syncIndexes(),
+      Review.syncIndexes(),
+      ClientProfile.syncIndexes(),
+    ]);
 
     provider = new FakeProvider();
     const app = express();
@@ -199,6 +204,7 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
     const ids = [businessId, otherId];
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId: { $in: ids } }),
+      CapacityOccupancy.deleteMany({ businessId: { $in: ids } }),
       Booking.deleteMany({ businessId: { $in: ids } }),
       Notification.deleteMany({ businessId: { $in: ids } }),
       Service.deleteMany({ businessId: { $in: ids } }),
@@ -209,7 +215,13 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
     ]);
 
     const [hydra, dead, elsewhere] = await Service.insertMany([
-      { businessId, name: 'Hydrafacial', durationMinutes: 45, priceMinor: 800_000, displayOrder: 1 },
+      {
+        businessId,
+        name: 'Hydrafacial',
+        durationMinutes: 45,
+        priceMinor: 800_000,
+        displayOrder: 1,
+      },
       { businessId, name: 'Retired peel', durationMinutes: 30, priceMinor: 100_000, active: false },
       { businessId: otherId, name: 'Massage', durationMinutes: 60, priceMinor: 500_000 },
     ]);
@@ -463,7 +475,9 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
         },
       ]);
 
-      expect((await meView(businessId, clientId))!.pendingReview!.bookingId).toBe(String(newer!._id));
+      expect((await meView(businessId, clientId))!.pendingReview!.bookingId).toBe(
+        String(newer!._id),
+      );
 
       await Review.create({
         businessId,
@@ -475,7 +489,9 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
       });
 
       // Falls back to the older unrated one, not to nothing.
-      expect((await meView(businessId, clientId))!.pendingReview!.bookingId).toBe(String(older!._id));
+      expect((await meView(businessId, clientId))!.pendingReview!.bookingId).toBe(
+        String(older!._id),
+      );
 
       await Review.create({
         businessId,
@@ -533,16 +549,29 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
       const mine = await token();
 
       const slots = await (
-        await get(`/me/${mine}/availability?serviceId=${hydrafacial}&staffId=${ayesha}&date=${date}`)
+        await get(
+          `/me/${mine}/availability?serviceId=${hydrafacial}&staffId=${ayesha}&date=${date}`,
+        )
       ).json();
       expect(slots.slots.length).toBeGreaterThan(0);
 
       const slot = slots.slots[0];
       const hold = await (
-        await post(`/me/${mine}/holds`, { serviceId: hydrafacial, staffId: slot.staffId, startsAt: slot.startsAt })
+        await post(`/me/${mine}/holds`, {
+          serviceId: hydrafacial,
+          staffId: slot.staffId,
+          startsAt: slot.startsAt,
+        })
       ).json();
 
+      await Business.updateOne({ _id: businessId }, { $set: { 'whatsapp.sessionId': 'fake' } });
+      const started = await (await post(`/me/${mine}/verification`, {})).json();
+      const code = provider.sent.at(-1)!.text.match(/\b\d{6}\b/)![0];
+      const verified = await (
+        await post(`/me/${mine}/verification/confirm`, { challengeId: started.challengeId, code })
+      ).json();
       const res = await post(`/me/${mine}/bookings`, {
+        verificationProof: verified.verificationProof,
         serviceId: hydrafacial,
         staffId: hold.staffId,
         startsAt: hold.startsAt,
@@ -563,12 +592,18 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
     it('refuses a time somebody else has already taken', async () => {
       const mine = await token();
       const slots = await (
-        await get(`/me/${mine}/availability?serviceId=${hydrafacial}&staffId=${ayesha}&date=${date}`)
+        await get(
+          `/me/${mine}/availability?serviceId=${hydrafacial}&staffId=${ayesha}&date=${date}`,
+        )
       ).json();
       const slot = slots.slots[0];
 
       const hold = await (
-        await post(`/me/${mine}/holds`, { serviceId: hydrafacial, staffId: slot.staffId, startsAt: slot.startsAt })
+        await post(`/me/${mine}/holds`, {
+          serviceId: hydrafacial,
+          staffId: slot.staffId,
+          startsAt: slot.startsAt,
+        })
       ).json();
 
       // A second hold on the same time, while the first is live.
@@ -625,7 +660,10 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
         source: 'whatsapp',
       });
 
-      const refused = await post(`/me/${mine}/reviews`, { bookingId: String(theirs._id), rating: 1 });
+      const refused = await post(`/me/${mine}/reviews`, {
+        bookingId: String(theirs._id),
+        rating: 1,
+      });
       expect(refused.status).toBe(404);
       expect(await Review.findOne({ bookingId: String(theirs._id) })).toBeNull();
     });

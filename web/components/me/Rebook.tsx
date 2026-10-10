@@ -31,6 +31,8 @@ interface Props {
   usual: MeUsual | null;
   timezone: string;
   businessSlug: string;
+  verificationProof: string;
+  appointmentHolderId?: string | undefined;
 }
 
 type ApiError = { error?: string; reason?: string };
@@ -45,12 +47,18 @@ async function call<T>(
       ...init,
       signal: AbortSignal.timeout(15000),
       cache: 'no-store',
-      headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
+      headers: {
+        accept: 'application/json',
+        ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      },
     });
     const body = await response.json().catch(() => ({}));
     return response.ok ? { ok: true, data: body as T } : { ok: false, body: body as ApiError };
   } catch {
-    return { ok: false, body: { error: 'Could not reach Scalivo. Check your connection and try again.' } };
+    return {
+      ok: false,
+      body: { error: 'Could not reach Scalivo. Check your connection and try again.' },
+    };
   }
 }
 
@@ -71,12 +79,21 @@ function upcomingDates(timezone: string, count: number): string[] {
 const dayLabel = (date: string, timezone: string, index: number): string => {
   if (index === 0) return 'Today';
   if (index === 1) return 'Tomorrow';
-  return new Intl.DateTimeFormat('en-GB', { timeZone: timezone, weekday: 'short', day: 'numeric' }).format(
-    new Date(`${date}T12:00:00Z`),
-  );
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    weekday: 'short',
+    day: 'numeric',
+  }).format(new Date(`${date}T12:00:00Z`));
 };
 
-export function Rebook({ token, usual, timezone, businessSlug }: Props) {
+export function Rebook({
+  token,
+  usual,
+  timezone,
+  businessSlug,
+  verificationProof,
+  appointmentHolderId,
+}: Props) {
   const dates = upcomingDates(timezone, DAYS_SHOWN);
   const [date, setDate] = useState(dates[0]!);
   const [slots, setSlots] = useState<PublicSlot[] | null>(null);
@@ -121,7 +138,11 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
     const hold = await call<PublicHold>(token, '/holds', {
       method: 'POST',
       signal: AbortSignal.timeout(15000),
-      body: JSON.stringify({ serviceId: usual.serviceId, staffId: slot.staffId, startsAt: slot.startsAt }),
+      body: JSON.stringify({
+        serviceId: usual.serviceId,
+        staffId: slot.staffId,
+        startsAt: slot.startsAt,
+      }),
     });
     if (!hold.ok) {
       setError(hold.body.error ?? 'That time just went.');
@@ -138,6 +159,8 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
         staffId: hold.data.staffId,
         startsAt: hold.data.startsAt,
         holdToken: hold.data.token,
+        verificationProof,
+        appointmentHolderId,
       }),
     });
     setBusy(false);
@@ -159,7 +182,9 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
     return (
       <section className="mt-10 rounded-2xl border border-line p-6">
         <h2 className="text-[18px] font-bold tracking-[-0.02em]">Book again</h2>
-        <p className="mt-1 text-[15px] text-muted">Pick a service and a time on the booking page.</p>
+        <p className="mt-1 text-[15px] text-muted">
+          Pick a service and a time on the booking page.
+        </p>
         <Link
           href={`/${businessSlug}`}
           className="mt-4 inline-flex h-12 items-center rounded-full bg-ink px-6 text-[16px] font-semibold text-white hover:bg-black/80"
@@ -176,10 +201,16 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-open text-white">
           <CheckIcon className="h-6 w-6" />
         </span>
-        <h2 className="mt-4 text-[20px] font-bold tracking-[-0.02em]">You&rsquo;re booked</h2>
+        <h2 className="mt-4 text-[20px] font-bold tracking-[-0.02em]">
+          {booked.status === 'awaiting_approval'
+            ? 'Request received — awaiting approval'
+            : booked.status === 'confirmed'
+              ? 'You’re booked'
+              : 'Appointment saved — confirmation pending'}
+        </h2>
         <p className="mt-1 text-[15px] text-muted">
-          {booked.serviceName} with {booked.staffName}, {formatClock(booked.startsAt, timezone)}. The
-          confirmation is on its way to your WhatsApp.
+          {booked.serviceName} with {booked.staffName}, {formatClock(booked.startsAt, timezone)}.
+          The confirmation is on its way to your WhatsApp.
         </p>
         {/*
           A full reload rather than patching the list in place: the booking has
@@ -202,7 +233,7 @@ export function Rebook({ token, usual, timezone, businessSlug }: Props) {
       <h2 className="text-[18px] font-bold tracking-[-0.02em]">Book it again</h2>
       <p className="mt-1 text-[15px] text-muted">
         {usual.serviceName}
-        {usual.staffName ? ` with ${usual.staffName}` : ''} · {' '}
+        {usual.staffName ? ` with ${usual.staffName}` : ''} ·{' '}
         {formatDuration(usual.durationMinutes)} · {formatPrice(usual.priceMinor)}
       </p>
 

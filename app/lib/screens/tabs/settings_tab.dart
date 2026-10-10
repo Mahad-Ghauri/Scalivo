@@ -10,6 +10,7 @@ import '../../theme.dart';
 import '../qr_screen.dart';
 import '../services_screen.dart';
 import '../staff_screen.dart';
+import '../resources_screen.dart';
 import '../analytics_screen.dart';
 import '../reviews_screen.dart';
 import '../grow_screen.dart';
@@ -78,7 +79,8 @@ class _SettingsTabState extends State<SettingsTab> {
     final auth = context.watch<AuthController>();
     final settings = _settings;
 
-    if (_loading) return const Center(child: CircularProgressIndicator(color: Sc.teal));
+    if (_loading)
+      return const Center(child: CircularProgressIndicator(color: Sc.teal));
 
     if (settings == null) {
       return Center(
@@ -109,8 +111,11 @@ class _SettingsTabState extends State<SettingsTab> {
           Text(
             'Settings',
             style: TextStyle(
-              fontSize: MediaQuery.sizeOf(context).width < 360 &&
-                  MediaQuery.textScalerOf(context).scale(14) > 20 ? 28 : 34,
+              fontSize:
+                  MediaQuery.sizeOf(context).width < 360 &&
+                      MediaQuery.textScalerOf(context).scale(14) > 20
+                  ? 28
+                  : 34,
               fontWeight: FontWeight.w500,
               color: Sc.ink,
               letterSpacing: -0.2,
@@ -125,19 +130,39 @@ class _SettingsTabState extends State<SettingsTab> {
             title: 'Your business',
             child: Column(
               children: [
-                _navRow(icon: Icons.storefront_outlined, label: 'Business profile', detail: 'Public listing, location and booking intervals', onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BusinessProfileScreen()));
-                  if (mounted) _load();
-                }),
+                _navRow(
+                  icon: Icons.storefront_outlined,
+                  label: 'Business profile',
+                  detail: 'Public listing, location and booking intervals',
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const BusinessProfileScreen(),
+                      ),
+                    );
+                    if (mounted) _load();
+                  },
+                ),
                 const Divider(height: 22, color: Sc.divider),
-                _navRow(icon: Icons.event_note_outlined, label: 'Appointments', detail: 'Search and filter your booking history', onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AppointmentsScreen()))),
+                _navRow(
+                  icon: Icons.event_note_outlined,
+                  label: 'Appointments',
+                  detail: 'Search and filter your booking history',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AppointmentsScreen(),
+                    ),
+                  ),
+                ),
                 const Divider(height: 22, color: Sc.divider),
                 _navRow(
                   icon: Icons.notifications_active_outlined,
                   label: 'Briefings',
                   detail: 'Daily summaries, weekly reports and alerts',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const BriefingsScreen()),
+                    MaterialPageRoute<void>(
+                      builder: (_) => const BriefingsScreen(),
+                    ),
                   ),
                 ),
                 const Divider(height: 22, color: Sc.divider),
@@ -203,18 +228,33 @@ class _SettingsTabState extends State<SettingsTab> {
   Widget _whatsappCard(AuthController auth) {
     final health = auth.health;
     final (label, detail, tone) = switch (health) {
-      SessionHealth.live => ('Connected', 'Customers can book by message.', Sc.teal),
-      SessionHealth.down => ('Disconnected', 'Nobody can book right now.', Sc.danger),
-      SessionHealth.linking => ('Linking', 'Finish scanning the QR code.', Sc.warnIcon),
-      SessionHealth.notConnected => ('Not connected', 'Link a number to start.', Sc.slate),
+      SessionHealth.live => (
+        'Connected',
+        'Customers can book by message.',
+        Sc.teal,
+      ),
+      SessionHealth.down => (
+        'Disconnected',
+        'Nobody can book right now.',
+        Sc.danger,
+      ),
+      SessionHealth.linking => (
+        'Linking',
+        'Finish scanning the QR code.',
+        Sc.warnIcon,
+      ),
+      SessionHealth.notConnected => (
+        'Not connected',
+        'Link a number to start.',
+        Sc.slate,
+      ),
     };
 
     return _card(
       title: 'WhatsApp',
       child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const QrScreen()),
-        ),
+        onTap: () => Navigator.of(context)
+            .push(MaterialPageRoute<void>(builder: (_) => const QrScreen())),
         borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -239,11 +279,18 @@ class _SettingsTabState extends State<SettingsTab> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(detail, style: const TextStyle(fontSize: 12.5, color: Sc.slate)),
+                    Text(
+                      detail,
+                      style: const TextStyle(fontSize: 12.5, color: Sc.slate),
+                    ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, size: 20, color: Sc.slateLight),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: Sc.slateLight,
+              ),
             ],
           ),
         ),
@@ -275,6 +322,15 @@ class _SettingsTabState extends State<SettingsTab> {
             detail: 'Who works, on what, and when',
             onTap: () => _openCatalogue(const StaffScreen()),
           ),
+          const Divider(height: 22, color: Sc.divider),
+          _navRow(
+            icon: Icons.meeting_room_outlined,
+            label: 'Rooms & equipment',
+            detail: 'Physical capacity and shared equipment',
+            onTap: () => _openCatalogue(
+              ResourcesScreen(controller: context.read<CalendarController>()),
+            ),
+          ),
         ],
       ),
     );
@@ -289,7 +345,8 @@ class _SettingsTabState extends State<SettingsTab> {
   /// be missing from the walk-in sheet on the next, with nothing on screen to
   /// explain it.
   Future<void> _openCatalogue(Widget screen) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+    await Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => screen));
     if (!mounted) return;
     await context.read<CalendarController>().ensureCatalogue(force: true);
   }
@@ -322,11 +379,18 @@ class _SettingsTabState extends State<SettingsTab> {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(detail, style: const TextStyle(fontSize: 12.5, color: Sc.slate)),
+                  Text(
+                    detail,
+                    style: const TextStyle(fontSize: 12.5, color: Sc.slate),
+                  ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, size: 20, color: Sc.slateLight),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: Sc.slateLight,
+            ),
           ],
         ),
       ),
@@ -344,7 +408,11 @@ class _SettingsTabState extends State<SettingsTab> {
               const Expanded(
                 child: Text(
                   'Remind customers before their appointment',
-                  style: TextStyle(fontSize: 13.5, color: Sc.inkMuted, height: 1.4),
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Sc.inkMuted,
+                    height: 1.4,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -370,7 +438,11 @@ class _SettingsTabState extends State<SettingsTab> {
             ),
             const SizedBox(height: 10),
             for (final lead in _choices)
-              _leadRow(lead, settings.reminderLeadMinutes.contains(lead), settings),
+              _leadRow(
+                lead,
+                settings.reminderLeadMinutes.contains(lead),
+                settings,
+              ),
             const SizedBox(height: 10),
             const Text(
               // Worth saying plainly: the clamp is invisible otherwise, and an
@@ -388,18 +460,38 @@ class _SettingsTabState extends State<SettingsTab> {
   }
 
   Widget _leadRow(int lead, bool active, BusinessSettings settings) {
-    return Semantics(checked: active, enabled: !_saving,
-      child: InkWell(onTap: _saving ? null : () => _toggleLead(lead, settings),
-        child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 48),
-          child: Padding(padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(children: [
-              Icon(active ? Icons.check_circle_rounded : Icons.circle_outlined,
-                size: 22, color: active ? Sc.teal : Sc.slate),
-              const SizedBox(width: 12),
-              Expanded(child: Text(leadLabel(lead), style: TextStyle(fontSize: 14,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400, color: Sc.ink))),
-            ])),
-        )),
+    return Semantics(
+      checked: active,
+      enabled: !_saving,
+      child: InkWell(
+        onTap: _saving ? null : () => _toggleLead(lead, settings),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  active ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  size: 22,
+                  color: active ? Sc.teal : Sc.slate,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    leadLabel(lead),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                      color: Sc.ink,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -415,10 +507,17 @@ class _SettingsTabState extends State<SettingsTab> {
             // floor is 0 rather than a token minimum.
             onLess: settings.minNoticeMinutes <= 0
                 ? null
-                : () => _save(minNoticeMinutes: _stepNotice(settings.minNoticeMinutes, -1)),
+                : () => _save(
+                    minNoticeMinutes: _stepNotice(
+                      settings.minNoticeMinutes,
+                      -1,
+                    ),
+                  ),
             onMore: settings.minNoticeMinutes >= 1440
                 ? null
-                : () => _save(minNoticeMinutes: _stepNotice(settings.minNoticeMinutes, 1)),
+                : () => _save(
+                    minNoticeMinutes: _stepNotice(settings.minNoticeMinutes, 1),
+                  ),
             hint: 'How soon before a slot a customer may still book it.',
           ),
           const Divider(height: 24, color: Sc.divider),
@@ -427,14 +526,18 @@ class _SettingsTabState extends State<SettingsTab> {
             value: '${settings.bookingHorizonDays} days',
             onLess: settings.bookingHorizonDays <= 1
                 ? null
-                : () => _save(bookingHorizonDays: settings.bookingHorizonDays - 7 < 1
-                    ? 1
-                    : settings.bookingHorizonDays - 7),
+                : () => _save(
+                    bookingHorizonDays: settings.bookingHorizonDays - 7 < 1
+                        ? 1
+                        : settings.bookingHorizonDays - 7,
+                  ),
             onMore: settings.bookingHorizonDays >= 365
                 ? null
-                : () => _save(bookingHorizonDays: settings.bookingHorizonDays + 7 > 365
-                    ? 365
-                    : settings.bookingHorizonDays + 7),
+                : () => _save(
+                    bookingHorizonDays: settings.bookingHorizonDays + 7 > 365
+                        ? 365
+                        : settings.bookingHorizonDays + 7,
+                  ),
             hint: 'The furthest out anyone can book.',
           ),
         ],
@@ -461,16 +564,37 @@ class _SettingsTabState extends State<SettingsTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Sc.ink)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Sc.ink,
+          ),
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          _round(Icons.remove_rounded, onLess, 'Decrease $label'),
-          Expanded(child: Text(value, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Sc.ink))),
-          _round(Icons.add_rounded, onMore, 'Increase $label'),
-        ]),
+        Row(
+          children: [
+            _round(Icons.remove_rounded, onLess, 'Decrease $label'),
+            Expanded(
+              child: Text(
+                value,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Sc.ink,
+                ),
+              ),
+            ),
+            _round(Icons.add_rounded, onMore, 'Increase $label'),
+          ],
+        ),
         const SizedBox(height: 4),
-        Text(hint, style: const TextStyle(fontSize: 12, color: Sc.slate, height: 1.4)),
+        Text(
+          hint,
+          style: const TextStyle(fontSize: 12, color: Sc.slate, height: 1.4),
+        ),
       ],
     );
   }
@@ -479,8 +603,11 @@ class _SettingsTabState extends State<SettingsTab> {
     return IconButton(
       tooltip: label,
       onPressed: onTap != null && !_saving ? onTap : null,
-      style: IconButton.styleFrom(backgroundColor: Sc.chipFill,
-        minimumSize: const Size(48, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
+      style: IconButton.styleFrom(
+        backgroundColor: Sc.chipFill,
+        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
       icon: Icon(icon, size: 22, color: Sc.teal900),
     );
   }
@@ -491,7 +618,11 @@ class _SettingsTabState extends State<SettingsTab> {
       children: [
         Text(
           settings.name,
-          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: Sc.inkMuted),
+          style: const TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Sc.inkMuted,
+          ),
         ),
         const SizedBox(height: 3),
         Text(
@@ -508,7 +639,11 @@ class _SettingsTabState extends State<SettingsTab> {
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Sc.ink),
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Sc.ink,
+          ),
         ),
         const SizedBox(height: 10),
         Container(

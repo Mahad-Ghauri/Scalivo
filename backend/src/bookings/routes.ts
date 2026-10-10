@@ -1,3 +1,4 @@
+import { isCalendarDate } from '../lib/time.js';
 import { notifyClient } from '../calendar/notify.js';
 import express, { type Router } from 'express';
 import { z } from 'zod';
@@ -8,8 +9,9 @@ import {
   type BookingResult,
   type MessagingProvider,
 } from '@scalivo/shared';
-import { requireAuth, requireTenant } from '../auth/middleware.js';
+import { requireAuth, requireTenant, getAuth } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
+import { getSequenceAvailability } from './sequence.js';
 import { getAvailability, nextAvailable } from './availability.js';
 import { createBooking, holdSlot } from './create.js';
 import { setBookingOutcome } from './outcome.js';
@@ -17,14 +19,18 @@ import { confirmBooking } from '../notifications/confirm.js';
 import { fieldErrors, param } from '../http/params.js';
 import { Booking } from '../models/Booking.js';
 import { Business } from '../models/Business.js';
+import { ClientProfile } from '../models/ClientProfile.js';
 import { Client } from '../models/Client.js';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
 import { DateTime } from 'luxon';
+import { correctBookingOutcome } from './correction.js';
+import { BookingAudit } from '../models/BookingAudit.js';
 
 /** The owner can mark an appointment done or missed; cancel has its own route. */
 const outcomeBody = z.object({
   outcome: z.enum([BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW]),
+  earlyCompletionReason: z.string().trim().min(5).max(200).optional(),
 });
 
 /**
@@ -35,29 +41,35 @@ const outcomeBody = z.object({
  * handler — a cross-tenant request is refused without a query being issued.
  */
 
+const objectId = z.string().regex(/^[a-f\d]{24}$/i);
+
 const availabilityQuery = z.object({
-  serviceId: z.string().min(1),
+  serviceId: objectId,
   /** Business-local calendar date, not an instant. */
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD'),
-  staffId: z.string().min(1).optional(),
+  date: z.string().refine(isCalendarDate, 'Choose a valid calendar date'),
+  staffId: z.union([objectId, z.literal(ANY_STAFF)]).optional(),
+  bookingId: objectId.optional(),
 });
 
 const holdBody = z.object({
-  serviceId: z.string().min(1),
+  serviceId: objectId,
   startsAt: z.string().datetime({ offset: true }),
-  staffId: z.string().min(1).default(ANY_STAFF),
+  staffId: z.union([objectId, z.literal(ANY_STAFF)]).default(ANY_STAFF),
   source: z.enum(['whatsapp', 'web', 'owner']).default('web'),
 });
 
 const bookingBody = z.object({
-  serviceId: z.string().min(1),
-  staffId: z.string().min(1),
-  clientId: z.string().min(1),
+  serviceId: objectId,
+  staffId: objectId,
+  clientId: objectId,
+  appointmentHolderId: z
+    .string()
+    .regex(/^[a-f\d]{24}$/i)
+    .optional(),
   startsAt: z.string().datetime({ offset: true }),
-  holdToken: z.string().min(1),
+  holdToken: z.string().uuid(),
   source: z.enum(['whatsapp', 'web', 'owner']).default('web'),
 });
-
 
 const ownerDate = z
   .string()
@@ -113,6 +125,72 @@ const MESSAGE: Record<Exclude<BookingResult, { ok: true }>['reason'], string> = 
 export function createBookingRouter(redis: Redis, provider: MessagingProvider): Router {
   const router = express.Router();
   const json = express.json();
+  router.param('bookingId', (req, res, next, value: string) => {
+    if (!objectId.safeParse(value).success) {
+      res.status(404).json({ error: 'not found', reason: 'not_found' });
+      return;
+    }
+    next();
+  });
+  router.post(
+    '/:businessId/bookings/:bookingId/correction',
+    requireAuth,
+    requireTenant(),
+    json,
+    async (req, res) => {
+      const parsed = z
+        .object({
+          outcome: z.enum([
+            BOOKING_STATUS.COMPLETED,
+            BOOKING_STATUS.NO_SHOW,
+            BOOKING_STATUS.CANCELLED,
+          ]),
+          revision: z.number().int().nonnegative(),
+          reason: z.string().trim().min(5).max(200),
+        })
+        .safeParse(req.body);
+      if (!parsed.success || !/^[a-f\d]{24}$/i.test(param(req, 'bookingId'))) {
+        res.status(400).json({ error: 'Choose an outcome and give a correction reason' });
+        return;
+      }
+      const changed = await correctBookingOutcome({
+        businessId: param(req, 'businessId'),
+        bookingId: param(req, 'bookingId'),
+        actorId: getAuth(res).userId,
+        ...parsed.data,
+      });
+      if (!changed) {
+        res
+          .status(409)
+          .json({
+            error:
+              'The appointment changed or is not eligible for this correction. Refresh and try again.',
+          });
+        return;
+      }
+      res.status(204).end();
+    },
+  );
+  router.get(
+    '/:businessId/bookings/:bookingId/audit',
+    requireAuth,
+    requireTenant(),
+    async (req, res) => {
+      if (!/^[a-f\d]{24}$/i.test(param(req, 'bookingId'))) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const changes = await BookingAudit.find({
+        businessId: param(req, 'businessId'),
+        bookingId: param(req, 'bookingId'),
+      })
+        .sort({ revision: -1 })
+        .limit(50)
+        .lean()
+        .maxTimeMS(5000);
+      res.json({ changes });
+    },
+  );
 
   /**
    * The appointments list.
@@ -133,7 +211,9 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const matches = await Client.find({
         $or: [{ displayName: new RegExp(escaped, 'i') }, { phone: new RegExp(escaped) }],
-      }).select('_id').limit(500);
+      })
+        .select('_id')
+        .limit(500);
 
       if (matches.length === 0) {
         res.json({ bookings: [], total: 0, limit, skip });
@@ -154,7 +234,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     if (from || to) {
       const business = await Business.findById(businessId).select('timezone');
       const tz = business?.timezone || 'UTC';
-      
+
       filter.startsAt = {};
       if (from) {
         // Inclusive business-local midnight
@@ -162,18 +242,18 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       }
       if (to) {
         // Exclusive next business-local midnight
-        filter.startsAt.$lt = DateTime.fromISO(to, { zone: tz }).plus({ days: 1 }).startOf('day').toJSDate();
+        filter.startsAt.$lt = DateTime.fromISO(to, { zone: tz })
+          .plus({ days: 1 })
+          .startOf('day')
+          .toJSDate();
       }
     }
 
     const sortDir = sort === 'asc' ? 1 : -1;
 
     const [bookings, total] = await Promise.all([
-      Booking.find(filter)
-        .sort({ startsAt: sortDir, _id: sortDir })
-        .skip(skip)
-        .limit(limit),
-      Booking.countDocuments(filter)
+      Booking.find(filter).sort({ startsAt: sortDir, _id: sortDir }).skip(skip).limit(limit),
+      Booking.countDocuments(filter),
     ]);
 
     if (bookings.length === 0) {
@@ -201,6 +281,9 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         startsAt: b.startsAt,
         durationMinutes: b.durationMinutes,
         status: b.status,
+        approvalExpiresAt: b.approvalExpiresAt,
+        appointmentHolderName: b.appointmentHolderName,
+        revision: b.revision,
         priceMinor: b.priceMinor,
         source: b.source,
         client: c ? { id: String(c._id), name: c.displayName, phone: c.phone } : null,
@@ -236,9 +319,14 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       startsAt: booking.startsAt,
       durationMinutes: booking.durationMinutes,
       status: booking.status,
+      approvalExpiresAt: booking.approvalExpiresAt,
+      appointmentHolderName: booking.appointmentHolderName,
+      revision: booking.revision,
       priceMinor: booking.priceMinor,
       source: booking.source,
-      client: client ? { id: String(client._id), name: client.displayName, phone: client.phone } : null,
+      client: client
+        ? { id: String(client._id), name: client.displayName, phone: client.phone }
+        : null,
       service: service ? { id: String(service._id), name: service.name } : null,
       staff: staff ? { id: String(staff._id), name: staff.name } : null,
     });
@@ -256,16 +344,57 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       return;
     }
 
-    const { staffId, ...rest } = parsed.data;
+    const { bookingId, staffId, ...rest } = parsed.data;
+    const businessId = param(req, 'businessId');
+    if (
+      bookingId &&
+      !(await Booking.exists({ _id: bookingId, businessId, serviceId: rest.serviceId }).maxTimeMS(
+        5000,
+      ))
+    ) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
     const slots = await getAvailability(redis, {
-      businessId: param(req, 'businessId'),
+      businessId,
       ...rest,
       ...(staffId ? { staffId } : {}),
+      ...(bookingId ? { ignoreBookingId: bookingId } : {}),
     });
     res.json({ slots });
   });
 
   /** The next few openings, for "nothing that day" replies. */
+  router.post(
+    '/:businessId/sequences/availability',
+    requireAuth,
+    requireTenant(),
+    express.json({ limit: '4kb' }),
+    async (req, res) => {
+      const parsed = z
+        .object({
+          date: z.string().refine(isCalendarDate, 'Choose a valid calendar date'),
+          steps: z
+            .array(z.object({ serviceId: objectId, staffId: objectId }))
+            .min(2)
+            .max(5),
+        })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Choose services, staff and a valid date' });
+        return;
+      }
+      const slots = await getSequenceAvailability(redis, {
+        businessId: param(req, 'businessId'),
+        ...parsed.data,
+        source: 'owner',
+      });
+      res.json({
+        slots: slots.map((slot) => ({ ...slot, startsAt: slot.startsAt.toISOString() })),
+      });
+    },
+  );
+
   router.get('/:businessId/availability/next', requireAuth, requireTenant(), async (req, res) => {
     const serviceId = req.query.serviceId;
     if (typeof serviceId !== 'string') {
@@ -301,7 +430,9 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     });
 
     if (!result.ok) {
-      res.status(STATUS[result.reason]).json({ error: MESSAGE[result.reason], reason: result.reason });
+      res
+        .status(STATUS[result.reason])
+        .json({ error: MESSAGE[result.reason], reason: result.reason });
       return;
     }
     res.status(201).json(result.hold);
@@ -314,10 +445,21 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       return;
     }
 
+    if (
+      !(await ClientProfile.exists({
+        businessId: param(req, 'businessId'),
+        clientId: parsed.data.clientId,
+      }).maxTimeMS(5000))
+    ) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
     try {
       const result = await createBooking(redis, {
         businessId: param(req, 'businessId'),
         ...parsed.data,
+        source: 'owner',
         startsAt: new Date(parsed.data.startsAt),
       });
 
@@ -354,7 +496,9 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
 
       res.status(201).json({
         ...result.booking,
-        ...(confirmed?.ok && !confirmed.awaitingDeposit ? { status: BOOKING_STATUS.CONFIRMED } : {}),
+        ...(confirmed?.ok && !confirmed.awaitingDeposit
+          ? { status: BOOKING_STATUS.CONFIRMED }
+          : {}),
       });
     } catch (err) {
       logger.error({ err, businessId: param(req, 'businessId') }, 'booking failed');
@@ -377,12 +521,10 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       );
 
       if (!result.ok) {
-        res
-          .status(result.reason === 'not_found' ? 404 : 409)
-          .json({
-            error: result.reason === 'not_found' ? 'not found' : 'already cancelled or completed',
-            reason: result.reason,
-          });
+        res.status(result.reason === 'not_found' ? 404 : 409).json({
+          error: result.reason === 'not_found' ? 'not found' : 'already cancelled or completed',
+          reason: result.reason,
+        });
         return;
       }
       try {
@@ -434,32 +576,64 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         return;
       }
 
-      const TERMINAL: (typeof booking.status)[] = [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.NO_SHOW, BOOKING_STATUS.CANCELLED];
+      const TERMINAL: (typeof booking.status)[] = [
+        BOOKING_STATUS.COMPLETED,
+        BOOKING_STATUS.NO_SHOW,
+        BOOKING_STATUS.CANCELLED,
+      ];
       if (TERMINAL.includes(booking.status)) {
         res.status(409).json({ error: 'already marked', reason: 'already_terminal' });
         return;
       }
 
       if (booking.status !== BOOKING_STATUS.CONFIRMED) {
-        res.status(400).json({ error: 'Booking must be confirmed before marking complete or no-show', reason: 'invalid_status' });
+        res
+          .status(400)
+          .json({
+            error: 'Booking must be confirmed before marking complete or no-show',
+            reason: 'invalid_status',
+          });
         return;
       }
 
-      if (booking.startsAt.getTime() > Date.now()) {
-        res.status(400).json({ error: 'Booking has not started yet', reason: 'not_yet_occurred' });
+      const eligibleAt =
+        booking.startsAt.getTime() +
+        (parsed.data.outcome === BOOKING_STATUS.COMPLETED ? booking.durationMinutes : 10) * 60000;
+      if (
+        eligibleAt > Date.now() &&
+        !(
+          parsed.data.outcome === BOOKING_STATUS.COMPLETED &&
+          parsed.data.earlyCompletionReason &&
+          booking.startsAt.getTime() <= Date.now()
+        )
+      ) {
+        res
+          .status(400)
+          .json({
+            error:
+              parsed.data.outcome === BOOKING_STATUS.COMPLETED
+                ? 'The appointment has not finished yet'
+                : 'Wait ten minutes after the start before marking no-show',
+            reason: 'not_yet_occurred',
+          });
         return;
       }
 
-      const result = await setBookingOutcome(
-        bookingId,
-        businessId,
-        parsed.data.outcome,
-      );
+      const result = await setBookingOutcome(bookingId, businessId, parsed.data.outcome, {
+        expectStatus: BOOKING_STATUS.CONFIRMED,
+        expectRevision: booking.revision,
+        ...(parsed.data.earlyCompletionReason
+          ? { audit: { actorId: getAuth(res).userId, reason: parsed.data.earlyCompletionReason } }
+          : {}),
+      });
 
       if (!result.ok) {
         res
           .status(result.reason === 'not_found' ? 404 : 409)
-          .json({ error: result.reason === 'not_found' ? 'not found' : 'already marked', reason: result.reason });
+          .json({
+            error: result.reason === 'not_found' ? 'not found' : 'already marked',
+            reason: result.reason,
+          });
         return;
       }
       res.status(204).end();
@@ -484,6 +658,7 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
         { redis, provider },
         param(req, 'businessId'),
         param(req, 'bookingId'),
+        { ownerApproval: true },
       );
 
       if (!result.ok) {

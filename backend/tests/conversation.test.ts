@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import mongoose from 'mongoose';
 import { DateTime } from 'luxon';
 import { Redis } from 'ioredis';
@@ -11,6 +12,7 @@ import { FlowRun } from '../src/models/FlowRun.js';
 import { Business } from '../src/models/Business.js';
 import { Client } from '../src/models/Client.js';
 import { ClientProfile } from '../src/models/ClientProfile.js';
+import { AppointmentHolder } from '../src/models/AppointmentHolder.js';
 import { Service } from '../src/models/Service.js';
 import { SlotOccupancy } from '../src/models/SlotOccupancy.js';
 import { Staff } from '../src/models/Staff.js';
@@ -96,7 +98,6 @@ function inbound(body: string, overrides: Partial<InboundMessage> = {}): Inbound
   };
 }
 
-
 const infraUp = await infraReady({ replicaSet: true, redis: true });
 
 describe.skipIf(!infraUp)('conversation FSM', () => {
@@ -147,6 +148,7 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
 
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId }),
+      CapacityOccupancy.deleteMany({ businessId }),
       Booking.deleteMany({ businessId }),
       // Bookings now confirm, and a confirmation leaves a row behind.
       Notification.deleteMany({ businessId }),
@@ -157,12 +159,19 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       Service.deleteMany({ businessId }),
       Staff.deleteMany({ businessId }),
       BlockedTime.deleteMany({ businessId }),
+      AppointmentHolder.deleteMany({ businessId }),
       Client.deleteMany({ lids: LID }),
       redis.flushdb(),
     ]);
 
     const [a] = await Service.insertMany([
-      { businessId, name: 'Hydrafacial', durationMinutes: 45, priceMinor: 800_000, displayOrder: 1 },
+      {
+        businessId,
+        name: 'Hydrafacial',
+        durationMinutes: 45,
+        priceMinor: 800_000,
+        displayOrder: 1,
+      },
       { businessId, name: 'Laser', durationMinutes: 20, priceMinor: 500_000, displayOrder: 2 },
     ]);
     hydrafacial = String(a!._id);
@@ -182,7 +191,11 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       { businessId, name: 'Sana', serviceIds, workingHours: hours },
     ]);
 
-    const client = await Client.create({ phone: '923001234567', lids: [LID], displayName: 'Sana Khan' });
+    const client = await Client.create({
+      phone: '923001234567',
+      lids: [LID],
+      displayName: 'Sana Khan',
+    });
     clientId = String(client._id);
     provider.clear();
   });
@@ -196,6 +209,84 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     return say('1'); // first slot
   }
 
+  it('collects professionals for consecutive treatments, previews both times and commits only after consent', async () => {
+    vi.spyOn(gemini, 'generate').mockResolvedValue(
+      JSON.stringify({
+        action: 'booking',
+        service: 'Hydrafacial',
+        staff: null,
+        day: null,
+        window: null,
+        at: null,
+      }),
+    );
+    const opening = await say('Book Hydrafacial and Laser');
+    expect(opening).toContain('first treatment');
+    expect((await conversation())?.additionalServices).toHaveLength(1);
+    expect(await Booking.countDocuments({ businessId })).toBe(0);
+    await say('1');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SEQUENCE_STAFF);
+    await say('2');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_DATE);
+    expect((await conversation())?.staffId).toBeDefined();
+    expect((await conversation())?.additionalServices?.[0]?.staffId).toBeDefined();
+    await say('1');
+    expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
+    const preview = await say('1');
+    expect(preview).toContain('Hydrafacial with Ayesha');
+    expect(preview).toContain('Laser with Sana');
+    expect(await Booking.countDocuments({ businessId })).toBe(0);
+    const done = await say('yes');
+    expect(done).toContain("You're booked");
+    const saved = await Booking.find({ businessId }).sort({ startsAt: 1 });
+    expect(saved).toHaveLength(2);
+    expect(saved.every((booking) => booking.status === BOOKING_STATUS.CONFIRMED)).toBe(true);
+    expect(saved[1]!.startsAt.getTime() - saved[0]!.startsAt.getTime()).toBe(45 * 60000);
+  });
+
+  it.each([false, true])(
+    'keeps a selected appointment recipient through confirmation and can switch back to myself (self booking: %s)',
+    async (forMyself) => {
+      await say('hi');
+      expect(await say('APPOINTMENT FOR Sam')).toContain('Booking for Sam');
+      const selected = await AppointmentHolder.findOne({ businessId, clientId, name: 'Sam' });
+      expect(selected).not.toBeNull();
+      await say('1');
+      await say('3');
+      await say('1');
+      await say('1');
+      expect((await conversation())?.appointmentHolderId).toBe(String(selected!._id));
+      expect(await say('APPOINTMENT FOR MYSELF')).toContain('appointment will be for MYSELF');
+      expect((await conversation())?.appointmentHolderId).toBeUndefined();
+      if (!forMyself) await say('APPOINTMENT FOR Sam');
+      expect(await Booking.countDocuments({ businessId })).toBe(0);
+      await say('yes');
+      const saved = await Booking.findOne({ businessId });
+      expect(saved).toMatchObject({
+        appointmentHolderId: forMyself ? clientId : String(selected!._id),
+        appointmentHolderName: forMyself ? 'Sana Khan' : 'Sam',
+        status: BOOKING_STATUS.CONFIRMED,
+      });
+      expect(await AppointmentHolder.countDocuments({ businessId, clientId })).toBe(1);
+    },
+  );
+  it.each([null, '12345'])(
+    'requires a usable appointment name before committing when the stored name is %s',
+    async (displayName) => {
+      await walkToConfirming();
+      await Client.updateOne({ _id: clientId }, { displayName });
+      expect(await say('yes', { displayName: '12345' })).toContain('What name should I put');
+      expect((await conversation())?.state).toBe(CONVERSATION_STATE.AWAITING_NAME);
+      expect(await Booking.countDocuments({ businessId })).toBe(0);
+      expect(await say('12345', { displayName: '12345' })).toContain('Please send a name');
+      expect(await Booking.countDocuments({ businessId })).toBe(0);
+      expect(await say('Sana Khan', { displayName: '12345' })).toContain("You're booked");
+      expect((await Client.findById(clientId))!.displayName).toBe('Sana Khan');
+      expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CONFIRMED })).toBe(
+        1,
+      );
+    },
+  );
   it('books end to end from a cold "hi"', async () => {
     const opening = await say('hi');
     expect(opening).toContain('Hydrafacial');
@@ -320,9 +411,7 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       // Not advanced — discarded. Answering "reply YES or NO" to an opt-out is
       // the exact bug the interceptor ordering exists to prevent.
       expect(await conversation()).toBeNull();
-      expect(
-        (await ClientProfile.findOne({ businessId, clientId }))?.marketingOptOut,
-      ).toBe(true);
+      expect((await ClientProfile.findOne({ businessId, clientId }))?.marketingOptOut).toBe(true);
       expect(await Booking.countDocuments({ businessId })).toBe(0);
     });
 
@@ -414,7 +503,9 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
 
       await say('CANCEL');
       expect(await say('no')).toContain('unchanged');
-      expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CANCELLED })).toBe(0);
+      expect(await Booking.countDocuments({ businessId, status: BOOKING_STATUS.CANCELLED })).toBe(
+        0,
+      );
     });
 
     it('says so plainly when there is nothing to cancel', async () => {
@@ -554,8 +645,15 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
 
     it('books an offered 5:30 PM for a 30-minute service, then rejects a duplicate and 5:30 AM', async () => {
       await Service.updateOne({ _id: hydrafacial }, { $set: { durationMinutes: 30 } });
-      vi.spyOn(gemini, 'generate').mockResolvedValue(JSON.stringify({ action: 'booking',
-        service: 'Hydrafacial', staff: 'Ayesha', day: 'tomorrow', at: '17:30' }));
+      vi.spyOn(gemini, 'generate').mockResolvedValue(
+        JSON.stringify({
+          action: 'booking',
+          service: 'Hydrafacial',
+          staff: 'Ayesha',
+          day: 'tomorrow',
+          at: '17:30',
+        }),
+      );
       await say('hi');
       await say('1');
       await say('1');
@@ -568,9 +666,13 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
       expect(await say('yes')).toContain("You're booked");
       const booked = await Booking.findOne({ businessId, clientId });
       expect(DateTime.fromJSDate(booked!.startsAt, { zone: TZ }).toFormat('HH:mm')).toBe('17:30');
-      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 PM')).toContain('That exact time is not available');
+      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 PM')).toContain(
+        'That exact time is not available',
+      );
       expect(await say('yes')).not.toContain("You're booked");
-      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 AM')).toContain('That exact time is not available');
+      expect(await say('Hydrafacial with Ayesha tomorrow at 5:30 AM')).toContain(
+        'That exact time is not available',
+      );
       expect(await say('yes')).not.toContain("You're booked");
       expect(await Booking.countDocuments({ businessId, clientId })).toBe(1);
     });
@@ -602,17 +704,33 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     });
 
     it.each(['ambiguous', 'invalid', 'unavailable', 'model unavailable'] as const)(
-      'does not book an earlier selection after a new %s time request', async (reason) => {
+      'does not book an earlier selection after a new %s time request',
+      async (reason) => {
         await walkToConfirming();
         const original = await conversation();
-        const message = reason === 'ambiguous' ? 'book at 5;30' : reason === 'invalid' ? 'book at 25:00'
-          : reason === 'unavailable' ? 'book at 5;30 pm' : 'book at 3pm tomorrow';
-        vi.spyOn(gemini, 'generate').mockResolvedValue(reason === 'model unavailable' ? null
-          : JSON.stringify({ action: 'booking', at: '15:00' }));
+        const message =
+          reason === 'ambiguous'
+            ? 'book at 5;30'
+            : reason === 'invalid'
+              ? 'book at 25:00'
+              : reason === 'unavailable'
+                ? 'book at 5;30 pm'
+                : 'book at 3pm tomorrow';
+        vi.spyOn(gemini, 'generate').mockResolvedValue(
+          reason === 'model unavailable'
+            ? null
+            : JSON.stringify({ action: 'booking', at: '15:00' }),
+        );
         const reply = await say(message);
-        expect(reply).toContain(reason === 'ambiguous' ? 'Neither the AM nor PM time is available'
-          : reason === 'unavailable' ? 'That exact time is not available'
-          : reason === 'model unavailable' ? 'I could not understand the full booking request' : 'Please give one exact time');
+        expect(reply).toContain(
+          reason === 'ambiguous'
+            ? 'Neither the AM nor PM time is available'
+            : reason === 'unavailable'
+              ? 'That exact time is not available'
+              : reason === 'model unavailable'
+                ? 'I could not understand the full booking request'
+                : 'Please give one exact time',
+        );
         const fresh = await conversation();
         expect(fresh?.state).toBe(CONVERSATION_STATE.SELECTING_SLOT);
         expect(fresh?.holdToken).toBeUndefined();
@@ -620,36 +738,63 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
         expect(fresh?.holdToken).not.toBe(original?.holdToken);
         expect(await say('yes')).not.toContain("You're booked");
         expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
-      });
+      },
+    );
 
-    it.each(['closing', 'break', 'blocked', 'inactive staff', 'inactive service', 'notice', 'horizon'] as const)(
-      'rechecks %s changed after the confirmation prompt', async (change) => {
-        await walkToConfirming();
-        const held = (await conversation())!;
-        const start = new Date(held.slotStart!);
-        const local = DateTime.fromJSDate(start, { zone: TZ });
-        if (change === 'closing' || change === 'break') {
-          const hours = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek,
-            opensAt: '09:00', closesAt: change === 'closing' ? '09:00' : '18:00',
-            breaks: change === 'break' ? [{ startsAt: local.toFormat('HH:mm'),
-              endsAt: local.plus({ minutes: 45 }).toFormat('HH:mm') }] : [],
-          }));
-          await Staff.updateOne({ _id: held.heldStaffId }, { $set: { workingHours: hours } });
-        } else if (change === 'blocked') {
-          await BlockedTime.create({ businessId, staffId: held.heldStaffId, startsAt: start,
-            endsAt: new Date(start.getTime() + 45 * 60000), reason: 'Unavailable' });
-        } else if (change === 'inactive staff') {
-          await Staff.updateOne({ _id: held.heldStaffId }, { $set: { active: false } });
-        } else if (change === 'inactive service') {
-          await Service.updateOne({ _id: hydrafacial }, { $set: { active: false } });
-        } else {
-          await Business.updateOne({ _id: businessId }, { $set: change === 'notice'
-            ? { minNoticeMinutes: 60 * 24 * 31 } : { bookingHorizonDays: 0 } });
-        }
-        expect(await say('yes')).not.toContain("You're booked");
-        expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
-        expect(await SlotOccupancy.countDocuments({ businessId })).toBe(0);
-      });
+    it.each([
+      'closing',
+      'break',
+      'blocked',
+      'inactive staff',
+      'inactive service',
+      'notice',
+      'horizon',
+    ] as const)('rechecks %s changed after the confirmation prompt', async (change) => {
+      await walkToConfirming();
+      const held = (await conversation())!;
+      const start = new Date(held.slotStart!);
+      const local = DateTime.fromJSDate(start, { zone: TZ });
+      if (change === 'closing' || change === 'break') {
+        const hours = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+          dayOfWeek,
+          opensAt: '09:00',
+          closesAt: change === 'closing' ? '09:00' : '18:00',
+          breaks:
+            change === 'break'
+              ? [
+                  {
+                    startsAt: local.toFormat('HH:mm'),
+                    endsAt: local.plus({ minutes: 45 }).toFormat('HH:mm'),
+                  },
+                ]
+              : [],
+        }));
+        await Staff.updateOne({ _id: held.heldStaffId }, { $set: { workingHours: hours } });
+      } else if (change === 'blocked') {
+        await BlockedTime.create({
+          businessId,
+          staffId: held.heldStaffId,
+          startsAt: start,
+          endsAt: new Date(start.getTime() + 45 * 60000),
+          reason: 'Unavailable',
+        });
+      } else if (change === 'inactive staff') {
+        await Staff.updateOne({ _id: held.heldStaffId }, { $set: { active: false } });
+      } else if (change === 'inactive service') {
+        await Service.updateOne({ _id: hydrafacial }, { $set: { active: false } });
+      } else {
+        await Business.updateOne(
+          { _id: businessId },
+          {
+            $set:
+              change === 'notice' ? { minNoticeMinutes: 60 * 24 * 31 } : { bookingHorizonDays: 0 },
+          },
+        );
+      }
+      expect(await say('yes')).not.toContain("You're booked");
+      expect(await Booking.countDocuments({ businessId, clientId })).toBe(0);
+      expect(await SlotOccupancy.countDocuments({ businessId })).toBe(0);
+    });
 
     it('serialises two messages sent faster than processing', async () => {
       await say('hi');
@@ -697,7 +842,12 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     it('ignores an empty non-media event, and creates no client for it', async () => {
       const ghostLid = '99999999999999@lid';
       await Client.deleteMany({ lids: ghostLid });
-      await say('', { type: 'unknown', body: '', contactLid: ghostLid, contactPhone: '923330000000' });
+      await say('', {
+        type: 'unknown',
+        body: '',
+        contactLid: ghostLid,
+        contactPhone: '923330000000',
+      });
       expect(provider.sent).toHaveLength(0);
       expect(await Client.findOne({ lids: ghostLid })).toBeNull();
     });

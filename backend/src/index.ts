@@ -7,6 +7,9 @@ import { securityHeaders } from './http/headers.js';
 import { createAuthRouter } from './auth/routes.js';
 import { createBusinessRouter } from './businesses/routes.js';
 import { createCatalogRouter } from './catalog/routes.js';
+import { createResourceRouter } from './catalog/resources.js';
+import { startApprovalExpiryJob } from './bookings/approval.js';
+import { createHolderRouter } from './crm/holders.js';
 import { createCrmRouter } from './crm/routes.js';
 import { createReviewRouter } from './reviews/routes.js';
 import { createAnalyticsRouter } from './analytics/routes.js';
@@ -53,39 +56,40 @@ export function createApp(): Express {
   // Start once per application; verified inbound deliveries survive worker failures.
   startInboundWorker(redis, handleProviderEvent);
 
-  async function handleProviderEvent(event: import('@scalivo/shared').ProviderEvent,
+  async function handleProviderEvent(
+    event: import('@scalivo/shared').ProviderEvent,
   ): Promise<void> {
-        logger.info({ kind: event.kind, sessionId: event.payload.sessionId }, 'inbound provider event');
+    logger.info({ kind: event.kind, sessionId: event.payload.sessionId }, 'inbound provider event');
 
-        // Identity resolution now happens inside the router, as interceptor
-        // stage 2 — it has to run after dedupe and before the conversation
-        // lock, and only the router knows that ordering.
-        if (event.kind === 'message') {
-          await handleInboundMessage({ redis, provider }, event.payload);
-          return;
-        }
+    // Identity resolution now happens inside the router, as interceptor
+    // stage 2 — it has to run after dedupe and before the conversation
+    // lock, and only the router knows that ordering.
+    if (event.kind === 'message') {
+      await handleInboundMessage({ redis, provider }, event.payload);
+      return;
+    }
 
-        // SPIKE FINDING #2: a QR arriving unsolicited is the death signal, ~4ms
-        // ahead of the status that follows. `disconnected` fired zero times
-        // across the whole spike — watching for it alone sits silent through a
-        // dead session.
-        if (event.kind === 'session-qr') {
-          await handleSessionQr({ redis, provider }, event.payload);
-          return;
-        }
+    // SPIKE FINDING #2: a QR arriving unsolicited is the death signal, ~4ms
+    // ahead of the status that follows. `disconnected` fired zero times
+    // across the whole spike — watching for it alone sits silent through a
+    // dead session.
+    if (event.kind === 'session-qr') {
+      await handleSessionQr({ redis, provider }, event.payload);
+      return;
+    }
 
-        // FINDING #3: the only evidence a message actually arrived. Every other
-        // signal in the send path — including the provider's own 200 — is
-        // consistent with WhatsApp having silently dropped it.
-        if (event.kind === 'ack') {
-          await handleMessageAck(event.payload);
-          return;
-        }
+    // FINDING #3: the only evidence a message actually arrived. Every other
+    // signal in the send path — including the provider's own 200 — is
+    // consistent with WhatsApp having silently dropped it.
+    if (event.kind === 'ack') {
+      await handleMessageAck(event.payload);
+      return;
+    }
 
-        if (event.kind === 'session-status') {
-          await handleSessionStatus({ redis, provider }, event.payload);
-        }
-      }
+    if (event.kind === 'session-status') {
+      await handleSessionStatus({ redis, provider }, event.payload);
+    }
+  }
 
   // Lets the Flutter app run in a browser during development.
   //
@@ -123,7 +127,9 @@ export function createApp(): Express {
   // requireTenant guards the catalogue, availability and booking exactly as it
   // guards the session routes.
   app.use('/businesses', createCatalogRouter());
+  app.use('/businesses', createResourceRouter());
   app.use('/businesses', createCrmRouter());
+  app.use('/businesses', createHolderRouter());
   app.use('/businesses', createReviewRouter());
   app.use('/businesses', createAnalyticsRouter());
   app.use('/businesses', createGrowRouter());
@@ -189,6 +195,7 @@ async function main() {
   // be resold. SINGLE INSTANCE, like the others — two passes would both
   // inquire, and the loser's "slot released" message would be a duplicate.
   startDepositExpiryJob({ redis, provider: createMessagingProvider() });
+  startApprovalExpiryJob({ redis, provider: createMessagingProvider() });
 
   /**
    * Retention (SPEC §6). Two passes, both SINGLE INSTANCE like everything above,

@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { Service } from '../models/Service.js';
 import { Staff } from '../models/Staff.js';
+import { allocateExistingResources } from '../bookings/allocate-existing.js';
+import { configureBooking, ConfigurationConflict } from '../bookings/configuration.js';
+import { resourceRequirementsSchema, validateRequirements } from './resources.js';
 import { requireAuth, requireTenant } from '../auth/middleware.js';
 import { logger } from '../lib/logger.js';
 import { workingHoursSchema } from './hours.js';
@@ -33,6 +36,9 @@ const serviceBody = z.object({
   depositRequired: z.boolean().default(false),
   depositAmountMinor: z.number().int().positive().nullable().default(null),
   displayOrder: z.number().int().min(0).default(0),
+  resourceRequirements: resourceRequirementsSchema.default([]),
+  requiresOwnerApproval: z.boolean().default(false),
+  approvalWindowMinutes: z.number().int().min(5).max(1440).default(30),
 });
 
 /**
@@ -49,7 +55,10 @@ const serviceUpdate = serviceBody.partial().extend({ active: z.boolean().optiona
 const staffBody = z.object({
   name: z.string().trim().min(1).max(80),
   role: z.string().trim().max(80).nullable().optional(),
-  serviceIds: z.array(z.string().min(1)).default([]),
+  serviceIds: z
+    .array(z.string().regex(/^[a-f\d]{24}$/i))
+    .max(200)
+    .default([]),
   workingHours: workingHoursSchema.default([]),
 });
 
@@ -80,7 +89,10 @@ export function createCatalogRouter(): Router {
     const services = await Service.find({
       businessId: param(req, 'businessId'),
       ...(req.query.includeInactive === 'true' ? {} : { active: true }),
-    }).sort({ displayOrder: 1, name: 1 });
+    })
+      .sort({ displayOrder: 1, name: 1 })
+      .limit(200)
+      .maxTimeMS(5000);
 
     res.json({
       services: services.map((s) => ({
@@ -97,10 +109,27 @@ export function createCatalogRouter(): Router {
       return;
     }
 
-    const service = await Service.create({
-      businessId: param(req, 'businessId'),
-      ...parsed.data,
-    });
+    let service;
+    try {
+      service = await configureBooking(param(req, 'businessId'), async (session) => {
+        await validateRequirements(
+          param(req, 'businessId'),
+          parsed.data.resourceRequirements,
+          session,
+        );
+        const [created] = await Service.create(
+          [{ businessId: param(req, 'businessId'), ...parsed.data }],
+          { session },
+        );
+        return created!;
+      });
+    } catch (error) {
+      if (error instanceof ConfigurationConflict) {
+        res.status(409).json({ error: error.reason });
+        return;
+      }
+      throw error;
+    }
 
     logger.info(
       { businessId: param(req, 'businessId'), serviceId: String(service._id) },
@@ -138,8 +167,49 @@ export function createCatalogRouter(): Router {
       return;
     }
 
-    service.set(parsed.data);
-    await service.save();
+    try {
+      await configureBooking(param(req, 'businessId'), async (session) => {
+        const current = await Service.findOne({
+          _id: id,
+          businessId: param(req, 'businessId'),
+        }).session(session);
+        if (!current) throw new ConfigurationConflict('Service changed. Refresh and try again.');
+        const fresh = { ...current.toObject(), ...parsed.data };
+        if (fresh.depositRequired && fresh.depositAmountMinor === null)
+          throw new ConfigurationConflict('A deposit amount is required.');
+        if (parsed.data.resourceRequirements) {
+          await validateRequirements(
+            param(req, 'businessId'),
+            parsed.data.resourceRequirements,
+            session,
+          );
+          if (
+            JSON.stringify(
+              current.resourceRequirements.map((group) => ({
+                anyOfResourceIds: [...group.anyOfResourceIds],
+              })),
+            ) !== JSON.stringify(parsed.data.resourceRequirements)
+          ) {
+            await allocateExistingResources(
+              param(req, 'businessId'),
+              id!,
+              parsed.data.resourceRequirements,
+              current.bufferMinutes,
+              session,
+            );
+          }
+        }
+        current.set(parsed.data);
+        await current.save({ session });
+        service.set(current.toObject());
+      });
+    } catch (error) {
+      if (error instanceof ConfigurationConflict) {
+        res.status(409).json({ error: error.reason });
+        return;
+      }
+      throw error;
+    }
     res.json(service);
   });
 
@@ -150,10 +220,12 @@ export function createCatalogRouter(): Router {
   router.delete('/:businessId/services/:serviceId', ...guard, async (req, res) => {
     const id = objectId(req, 'serviceId');
     const service = id
-      ? await Service.findOneAndUpdate(
-          { _id: id, businessId: param(req, 'businessId') },
-          { $set: { active: false } },
-          { new: true },
+      ? await configureBooking(param(req, 'businessId'), async (session) =>
+          Service.findOneAndUpdate(
+            { _id: id, businessId: param(req, 'businessId') },
+            { $set: { active: false } },
+            { new: true, session },
+          ),
         )
       : null;
     if (!service) {
@@ -174,7 +246,10 @@ export function createCatalogRouter(): Router {
     const staff = await Staff.find({
       businessId: param(req, 'businessId'),
       ...(req.query.includeInactive === 'true' ? {} : { active: true }),
-    }).sort({ name: 1 });
+    })
+      .sort({ name: 1 })
+      .limit(200)
+      .maxTimeMS(5000);
 
     res.json({
       staff: staff.map((s) => ({
@@ -201,7 +276,10 @@ export function createCatalogRouter(): Router {
       return;
     }
 
-    const member = await Staff.create({ businessId, ...parsed.data });
+    const member = await configureBooking(businessId, async (session) => {
+      const [created] = await Staff.create([{ businessId, ...parsed.data }], { session });
+      return created!;
+    });
     logger.info({ businessId, staffId: String(member._id) }, 'staff created');
     res.status(201).json(member);
   });
@@ -228,7 +306,13 @@ export function createCatalogRouter(): Router {
 
     const id = objectId(req, 'staffId');
     const member = id
-      ? await Staff.findOneAndUpdate({ _id: id, businessId }, { $set: parsed.data }, { new: true })
+      ? await configureBooking(businessId, async (session) =>
+          Staff.findOneAndUpdate(
+            { _id: id, businessId },
+            { $set: parsed.data },
+            { new: true, session },
+          ),
+        )
       : null;
     if (!member) {
       res.status(404).json({ error: 'not found' });
@@ -246,10 +330,12 @@ export function createCatalogRouter(): Router {
   router.delete('/:businessId/staff/:staffId', ...guard, async (req, res) => {
     const id = objectId(req, 'staffId');
     const member = id
-      ? await Staff.findOneAndUpdate(
-          { _id: id, businessId: param(req, 'businessId') },
-          { $set: { active: false } },
-          { new: true },
+      ? await configureBooking(param(req, 'businessId'), async (session) =>
+          Staff.findOneAndUpdate(
+            { _id: id, businessId: param(req, 'businessId') },
+            { $set: { active: false } },
+            { new: true, session },
+          ),
         )
       : null;
     if (!member) {

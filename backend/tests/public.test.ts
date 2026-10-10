@@ -1,3 +1,4 @@
+import { CapacityOccupancy } from '../src/models/CapacityOccupancy.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express from 'express';
@@ -78,7 +79,11 @@ class FakeProvider implements MessagingProvider {
 }
 
 describe('business hours envelope', () => {
-  const shift = (opensAt: string, closesAt: string, breaks: { startsAt: string; endsAt: string }[] = []) => ({
+  const shift = (
+    opensAt: string,
+    closesAt: string,
+    breaks: { startsAt: string; endsAt: string }[] = [],
+  ) => ({
     dayOfWeek: 1,
     opensAt,
     closesAt,
@@ -135,6 +140,8 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
   };
 
   /** Responses read loosely — the shapes are what these tests assert, not what they assume. */
+  // Fixture payload fields are verified by assertions below, as in the other HTTP suites.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Loose = Omit<Response, 'json'> & { json(): Promise<any> };
   const get = (path: string) => fetch(`${base}${path}`) as Promise<Loose>;
   const post = (path: string, body: unknown) =>
@@ -189,7 +196,13 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
 
     const hidden = await Business.findOneAndUpdate(
       { slug: 'public-test-hidden' },
-      { slug: 'public-test-hidden', name: 'Hidden Clinic', category: 'hiddencat', city: 'Hiddenville', published: false },
+      {
+        slug: 'public-test-hidden',
+        name: 'Hidden Clinic',
+        category: 'hiddencat',
+        city: 'Hiddenville',
+        published: false,
+      },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     hiddenId = String(hidden._id);
@@ -197,6 +210,7 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
     const ids = [businessId, hiddenId];
     await Promise.all([
       SlotOccupancy.deleteMany({ businessId: { $in: ids } }),
+      CapacityOccupancy.deleteMany({ businessId: { $in: ids } }),
       Booking.deleteMany({ businessId: { $in: ids } }),
       Notification.deleteMany({ businessId: { $in: ids } }),
       Service.deleteMany({ businessId: { $in: ids } }),
@@ -207,7 +221,13 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
     ]);
 
     const [hydra, retired] = await Service.insertMany([
-      { businessId, name: 'Hydrafacial', durationMinutes: 45, priceMinor: 800_000, displayOrder: 1 },
+      {
+        businessId,
+        name: 'Hydrafacial',
+        durationMinutes: 45,
+        priceMinor: 800_000,
+        displayOrder: 1,
+      },
       { businessId, name: 'Retired peel', durationMinutes: 30, priceMinor: 100_000, active: false },
       { businessId: hiddenId, name: 'Secret facial', durationMinutes: 30, priceMinor: 100_000 },
     ]);
@@ -220,7 +240,13 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
       breaks: [{ startsAt: '13:00', endsAt: '14:00' }],
     }));
     const [a] = await Staff.insertMany([
-      { businessId, name: 'Dr. Ayesha', role: 'Aesthetic physician', serviceIds: [hydrafacial, String(retired!._id)], workingHours: hours },
+      {
+        businessId,
+        name: 'Dr. Ayesha',
+        role: 'Aesthetic physician',
+        serviceIds: [hydrafacial, String(retired!._id)],
+        workingHours: hours,
+      },
       { businessId: hiddenId, name: 'Hidden Staff', serviceIds: [], workingHours: hours },
     ]);
     staffA = String(a!._id);
@@ -230,8 +256,20 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
       { businessId, authorName: 'Hina', rating: 4, comment: 'Good', published: true },
       // Neither of these may ever reach a stranger.
       { businessId, authorName: 'Angry', rating: 2, comment: 'PRIVATE-LOW', published: true },
-      { businessId, authorName: 'Draft', rating: 5, comment: 'PRIVATE-UNPUBLISHED', published: false },
-      { businessId: hiddenId, authorName: 'Ghost', rating: 5, comment: 'PRIVATE-HIDDEN-BIZ', published: true },
+      {
+        businessId,
+        authorName: 'Draft',
+        rating: 5,
+        comment: 'PRIVATE-UNPUBLISHED',
+        published: false,
+      },
+      {
+        businessId: hiddenId,
+        authorName: 'Ghost',
+        rating: 5,
+        comment: 'PRIVATE-HIDDEN-BIZ',
+        published: true,
+      },
     ]);
   });
 
@@ -241,7 +279,14 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
       expect(res.status).toBe(200);
       const text = await res.text();
 
-      for (const secret of ['whatsapp', 'apiKeyRef', 'sessionId', 'secret-ref-must-not-leak', 'workingHours', 'PRIVATE-']) {
+      for (const secret of [
+        'whatsapp',
+        'apiKeyRef',
+        'sessionId',
+        'secret-ref-must-not-leak',
+        'workingHours',
+        'PRIVATE-',
+      ]) {
         expect(text).not.toContain(secret);
       }
 
@@ -275,9 +320,17 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
       expect(reviews).not.toContain('PRIVATE-');
 
       const service = String((await Service.findOne({ businessId: hiddenId }))!._id);
-      expect((await get(`/businesses/public-test-hidden/availability?serviceId=${service}&date=${date}`)).status).toBe(404);
       expect(
-        (await post('/businesses/public-test-hidden/holds', { serviceId: service, startsAt: at('10:00').toISOString() })).status,
+        (await get(`/businesses/public-test-hidden/availability?serviceId=${service}&date=${date}`))
+          .status,
+      ).toBe(404);
+      expect(
+        (
+          await post('/businesses/public-test-hidden/holds', {
+            serviceId: service,
+            startsAt: at('10:00').toISOString(),
+          })
+        ).status,
       ).toBe(404);
     });
 
@@ -296,6 +349,22 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
   });
 
   describe('web booking', () => {
+    async function verifiedNumber() {
+      const number = phone();
+      const challengeResponse = await post('/businesses/public-test/verification', {
+        phone: number,
+      });
+      expect(challengeResponse.status).toBe(201);
+      const challenge = await challengeResponse.json();
+      const code = provider.sent[provider.sent.length - 1]!.text.match(/code is (\d{6})/)?.[1];
+      expect(code).toBeDefined();
+      const verified = await post('/businesses/public-test/verification/confirm', {
+        challengeId: challenge.challengeId,
+        code,
+      });
+      expect(verified.status).toBe(200);
+      return { phone: number, verificationProof: (await verified.json()).verificationProof };
+    }
     async function holdAt(hhmm: string, staffId = 'any') {
       return post('/businesses/public-test/holds', {
         serviceId: hydrafacial,
@@ -305,8 +374,12 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
     }
 
     it('books end to end: availability → hold → booking, confirmed and messaged', async () => {
-      const { slots } = await (await get(`/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`)).json();
-      expect(slots.map((s: { startsAt: string }) => s.startsAt)).toContain(at('10:00').toISOString());
+      const { slots } = await (
+        await get(`/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`)
+      ).json();
+      expect(slots.map((s: { startsAt: string }) => s.startsAt)).toContain(
+        at('10:00').toISOString(),
+      );
 
       const holdRes = await holdAt('10:00');
       expect(holdRes.status).toBe(201);
@@ -321,18 +394,22 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
         startsAt: hold.startsAt,
         holdToken: hold.token,
         name: 'Web Customer',
-        phone: phone(),
+        ...(await verifiedNumber()),
       });
       expect(res.status).toBe(201);
       const receipt = await res.json();
-      expect(receipt).toMatchObject({ serviceName: 'Hydrafacial', staffName: 'Dr. Ayesha', status: BOOKING_STATUS.CONFIRMED });
+      expect(receipt).toMatchObject({
+        serviceName: 'Hydrafacial',
+        staffName: 'Dr. Ayesha',
+        status: BOOKING_STATUS.CONFIRMED,
+      });
       expect(receipt).not.toHaveProperty('clientId');
 
       const booking = await Booking.findById(receipt.id);
       expect(booking!.source).toBe('web');
       // 45 minutes on a 15-minute grid: three rows, the same shape as any booking.
       expect(await SlotOccupancy.countDocuments({ bookingId: receipt.id })).toBe(3);
-      expect(provider.sent).toHaveLength(1);
+      expect(provider.sent).toHaveLength(2); // Verification code plus booking confirmation.
     });
 
     it('hides a time WhatsApp is holding, and refuses to hold it', async () => {
@@ -345,7 +422,9 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
       });
       expect(held.ok).toBe(true);
 
-      const { slots } = await (await get(`/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`)).json();
+      const { slots } = await (
+        await get(`/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`)
+      ).json();
       const starts = slots.map((s: { startsAt: string }) => s.startsAt);
       expect(starts).not.toContain(at('11:00').toISOString());
       // 10:30 would run into the held 11:00 — every increment must be free.
@@ -362,7 +441,7 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
         startsAt: hold.startsAt,
         holdToken: hold.token,
         name: 'Web Customer',
-        phone: phone(),
+        ...(await verifiedNumber()),
       });
       expect(res.status).toBe(201);
 
@@ -384,7 +463,7 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
         startsAt: at('16:00').toISOString(),
         holdToken: '00000000-0000-4000-8000-000000000000',
         name: 'Chancer',
-        phone: phone(),
+        ...(await verifiedNumber()),
       });
       expect(res.status).toBe(409);
       expect((await res.json()).reason).toBe('hold_expired');
@@ -408,9 +487,17 @@ describe.skipIf(!infraUp)('public marketplace and web booking', () => {
     it('releases a hold early, and only with the right token', async () => {
       const hold = await (await holdAt('12:00')).json();
       const offered = async () =>
-        ((await (await get(`/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`)).json()).slots as {
-          startsAt: string;
-        }[]).map((s) => s.startsAt);
+        (
+          (
+            await (
+              await get(
+                `/businesses/public-test/availability?serviceId=${hydrafacial}&date=${date}`,
+              )
+            ).json()
+          ).slots as {
+            startsAt: string;
+          }[]
+        ).map((s) => s.startsAt);
 
       expect(await offered()).not.toContain(hold.startsAt);
 

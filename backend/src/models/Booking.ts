@@ -20,6 +20,15 @@ const bookingSchema = new Schema(
 
     startsAt: { type: Date, required: true },
     durationMinutes: { type: Number, required: true },
+    bufferMinutes: { type: Number, default: null },
+    resourceIds: { type: [String], default: [] },
+    appointmentHolderId: { type: String, default: null },
+    appointmentHolderName: { type: String, default: null },
+    approvalExpiresAt: { type: Date, default: null },
+    approvalRequired: { type: Boolean, default: false },
+    revision: { type: Number, default: 0 },
+    sequenceId: { type: String, default: null },
+    requestKey: { type: String, default: null, select: false },
 
     status: {
       type: String,
@@ -73,9 +82,18 @@ const bookingSchema = new Schema(
   { timestamps: true },
 );
 
+bookingSchema.index(
+  { businessId: 1, requestKey: 1 },
+  { unique: true, partialFilterExpression: { requestKey: { $type: 'string' } } },
+);
+
 // Calendar reads (a business's day/week) and CRM reads (one client's history).
 bookingSchema.index({ businessId: 1, startsAt: 1 });
+bookingSchema.index({ businessId: 1, sequenceId: 1 });
 bookingSchema.index({ businessId: 1, clientId: 1, startsAt: -1 });
+bookingSchema.index({ businessId: 1, resourceIds: 1, startsAt: 1 });
+bookingSchema.index({ businessId: 1, appointmentHolderId: 1, startsAt: 1 });
+bookingSchema.index({ status: 1, approvalExpiresAt: 1 });
 /** The review pass: one business's recently completed appointments. */
 bookingSchema.index({ businessId: 1, completedAt: 1 }, { sparse: true });
 /** The funnel's last step: one business's bookings by when they were MADE, not when they happen. */
