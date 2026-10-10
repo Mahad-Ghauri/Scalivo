@@ -42,6 +42,11 @@ export async function validateRequirements(
     throw new ConfigurationConflict(
       'Rooms, beds, chairs and equipment must be in separate requirements. Each requirement reserves one available unit.',
     );
+  const selectedKinds = new Set(kinds.values());
+  if (selectedKinds.has('room') && (selectedKinds.has('bed') || selectedKinds.has('chair')))
+    throw new ConfigurationConflict(
+      'Choose either a whole room or a bed/chair. A bed/chair already includes its room.',
+    );
   const parents = [
     ...new Set(
       resources.flatMap((resource) => (resource.fixedRoomId ? [resource.fixedRoomId] : [])),

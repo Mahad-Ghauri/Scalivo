@@ -1,6 +1,42 @@
 # Test results: booking resource controls
 
-## Latest run: quantity inventory and shared rooms
+## Latest run: service/resource save error handling
+
+Run date: **10 October 2026**.
+
+The production website was throwing expected catalog validation errors from server
+actions, causing Next.js to replace them with its generic Server Components error.
+Catalog saves now return the existing `{ ok, error }` result pattern, preserve
+editable form state on failure, and use generic feedback for unexpected failures.
+The web editor, Flutter editor, and API explicitly reject whole-room AND bed/chair
+requirements: a station already includes its room.
+
+| Check                                               | Result                                                      |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| Backend regression suite                            | **790/790 passed**, zero skipped/failed                     |
+| Flutter regression suite                            | **123/123 passed**                                          |
+| Focused booking-flow suites                         | **91 backend / 14 Flutter passed**                          |
+| Production-browser regressions                      | **13/13 passed**                                            |
+| Type checks, lint, production web build, whitespace | Passed                                                      |
+| Flutter analysis                                    | No errors/warnings; 20 existing informational style notices |
+
+Executed browser cases cover room-plus-bed client validation; correcting it to
+bed AND equipment; incompatible fixed-room equipment rejected by the API; unchanged
+saved configuration and retained selections after rejection; correcting and retrying
+the service; duplicate resource names and recovery; dependency-blocked retirement;
+adding chairs with quantity and room; creating a service; controlled server-action
+transport failure; an actual unexpected API 500; and successful retry afterward.
+
+The API 500 was injected only in a guarded temporary QA inventory record, then
+restored. Its failed save left the configuration revision unchanged. Unexpected
+failure responses exposed no internal validation details or render-error message.
+Messaging was disabled for the QA tenant, and no customer appointments were created.
+The scoped owner fixture and QA data were removed after testing. Skinare's saved
+service setup, new inventory, and bookings were not changed by this fix. These
+browser checks used the production build on port 8086; physical-device and real
+WhatsApp coverage remains as described in the earlier reports.
+
+## Earlier run: quantity inventory and shared rooms
 
 Run date: **10 October 2026**, business timezone **Asia/Karachi**.
 

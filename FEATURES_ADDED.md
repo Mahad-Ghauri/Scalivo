@@ -76,6 +76,11 @@ both the whole room and a station for the same treatment. Fixed equipment withou
 a bed/chair requirement continues to reserve its whole room; incompatible room
 combinations are rejected.
 
+Both service editors explain and reject whole-room AND bed/chair selection before
+saving. The API enforces the same rule. Expected save conflicts return useful
+messages on the production website, retaining the form for correction; unexpected
+server/network failures show generic retry feedback without internal details.
+
 Different customers can book simultaneously when their qualified staff and
 required resources are independently available. Having two available staff does
 not allow two treatments to use the same room or machine at once.
@@ -230,8 +235,8 @@ remaining gaps are recorded in [TEST_RESULTS.md](TEST_RESULTS.md).
 
 | Check                                            | Result                                                                                                                         |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Backend regression suite                         | 788 tests passed across 35 test files                                                                                          |
-| Flutter test suite                               | 121 tests passed                                                                                                               |
+| Backend regression suite                         | 790 tests passed across 35 test files                                                                                          |
+| Flutter test suite                               | 123 tests passed                                                                                                               |
 | Backend, shared, test, and web TypeScript checks | Passed                                                                                                                         |
 | Repository lint                                  | Passed                                                                                                                         |
 | Flutter analysis                                 | No errors or warnings; 20 existing informational brace-style notices                                                           |

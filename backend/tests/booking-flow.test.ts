@@ -578,6 +578,46 @@ describe.skipIf(!up)('shared booking capacity and identity', () => {
       ).status,
     ).toBe(409);
   });
+  it.each(['bed', 'chair'])(
+    'returns actionable validation for whole room plus %s without changing the service',
+    async (kind) => {
+      const station = await Resource.create({
+        businessId,
+        name: `Treatment ${kind}`,
+        kind,
+        quantity: 2,
+        fixedRoomId: room,
+      });
+      const requirements = [
+        { anyOfResourceIds: [room] },
+        { anyOfResourceIds: [String(station._id)] },
+      ];
+      const revision = (await Business.findById(businessId))!.bookingConfigRevision;
+      const updated = await request(`/services/${serviceId}`, 'PATCH', {
+        resourceRequirements: requirements,
+      });
+      expect(updated.status).toBe(409);
+      expect(await updated.json()).toMatchObject({
+        error: 'Choose either a whole room or a bed/chair. A bed/chair already includes its room.',
+      });
+      expect((await Business.findById(businessId))!.bookingConfigRevision).toBe(revision);
+      expect((await Service.findById(serviceId))!.resourceRequirements).toMatchObject([
+        { anyOfResourceIds: [room] },
+      ]);
+      const created = await request('/services', 'POST', {
+        name: 'Invalid workspace',
+        durationMinutes: 30,
+        priceMinor: 150000,
+        resourceRequirements: requirements,
+      });
+      expect(created.status).toBe(409);
+      expect(await created.json()).toMatchObject({
+        error: 'Choose either a whole room or a bed/chair. A bed/chair already includes its room.',
+      });
+      expect(await Service.exists({ businessId, name: 'Invalid workspace' })).toBeNull();
+    },
+  );
+
   it('checks maximum room inventory over a full day without exceeding command argument limits', async () => {
     const start = new Date('2030-01-15T00:00:00Z');
     const slots = Array.from({ length: 96 }, (_, i) => new Date(start.getTime() + i * 900000));

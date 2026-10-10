@@ -496,7 +496,7 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
               const Text(
-                'Choose a whole room for privacy, or a bed/chair for a shared room. Add equipment in a separate requirement. Each requirement reserves one available unit from the selected quantity. Select multiple entries in the same requirement to use any of them. Fixed equipment without a bed/chair requirement reserves its whole room.',
+                'Choose a whole room for privacy, or a bed/chair for a shared room. Add equipment in a separate requirement. Each requirement reserves one available unit from the selected quantity. Select multiple entries in the same requirement to use any of them. Fixed equipment without a bed/chair requirement reserves its whole room. Do not also require the whole room when choosing a bed/chair: it already includes its room.',
                 style: TextStyle(color: Sc.slate, height: 1.4),
               ),
               if (_requirements.any(
@@ -608,6 +608,7 @@ class _ServiceSheetState extends State<_ServiceSheet> {
     final minutes = int.tryParse(_duration.text.trim());
     final buffer = int.tryParse(_buffer.text.trim());
     final rupees = int.tryParse(_price.text.trim());
+    final selectedKinds = _requirements.expand(_requirementKinds).toSet();
 
     // Checked here so a typo comes back instantly rather than as a round trip,
     // but the server checks the same things — this is courtesy, not the guard.
@@ -615,6 +616,9 @@ class _ServiceSheetState extends State<_ServiceSheet> {
       if (_requirements.any((group) => group.isEmpty)) 'resourceRequirements': 'Select at least one resource in every requirement, or remove the empty requirement',
       if (_requirements.any((group) => _requirementKinds(group).length > 1))
         'resourceRequirements': 'Put rooms, beds, chairs and equipment in separate requirements before saving',
+      if (selectedKinds.contains('room') &&
+          (selectedKinds.contains('bed') || selectedKinds.contains('chair')))
+        'resourceRequirements': 'Choose either a whole room or a bed/chair. A bed/chair already includes its room.',
       if (name.isEmpty || name.length > 80)
         'name': 'Use a name of 1–80 characters',
       if (minutes == null || minutes <= 0 || minutes > 1440)

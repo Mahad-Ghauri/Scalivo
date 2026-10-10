@@ -62,12 +62,16 @@ export function ResourceManager({
     setBusy(true);
     setError('');
     try {
-      await saveResourceAction(businessId, editing?.id ?? null, {
+      const result = await saveResourceAction(businessId, editing?.id ?? null, {
         name: name.trim(),
         kind,
         quantity: units,
         fixedRoomId: kind !== 'room' && room ? room : null,
       });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setEditing(undefined);
       router.refresh();
     } catch {
@@ -88,7 +92,13 @@ export function ResourceManager({
     setBusy(true);
     setError('');
     try {
-      await saveResourceAction(businessId, resource.id, { active: !resource.active });
+      const result = await saveResourceAction(businessId, resource.id, {
+        active: !resource.active,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       router.refresh();
     } catch {
       setError(

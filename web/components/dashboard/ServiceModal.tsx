@@ -55,6 +55,9 @@ export function ServiceModal({
       ),
   );
   const mixedRequirements = requirementKinds.some((kinds) => kinds.size > 1);
+  const wholeRoomAndStation =
+    requirementKinds.some((kinds) => kinds.has('room')) &&
+    requirementKinds.some((kinds) => kinds.has('bed') || kinds.has('chair'));
 
   // Focus trap and escape close
   useEffect(() => {
@@ -109,6 +112,11 @@ export function ServiceModal({
       setLoading(false);
       return;
     }
+    if (wholeRoomAndStation) {
+      setError('Choose either a whole room or a bed/chair. A bed/chair already includes its room.');
+      setLoading(false);
+      return;
+    }
     const payload = {
       resourceRequirements: requirements.map((anyOfResourceIds) => ({ anyOfResourceIds })),
       requiresOwnerApproval: approval,
@@ -122,14 +130,17 @@ export function ServiceModal({
     };
 
     try {
-      if (isEditing) {
-        await updateServiceAction(businessId, existingService.id, payload);
-      } else {
-        await createServiceAction(businessId, payload);
+      const result = isEditing
+        ? await updateServiceAction(businessId, existingService.id, payload)
+        : await createServiceAction(businessId, payload);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
       onSuccess();
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : 'Failed to save service.');
+    } catch {
+      setError('Could not save the service. Please try again.');
+    } finally {
       setLoading(false);
     }
   }
@@ -166,7 +177,9 @@ export function ServiceModal({
 
         <div className="p-6 overflow-y-auto">
           {error && (
-            <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>
+            <div role="alert" className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -235,8 +248,14 @@ export function ServiceModal({
                 a separate requirement. Each requirement reserves one available unit from the
                 selected quantity. Multiple entries in one requirement are alternatives, so select
                 both room entries when either can be used. Fixed equipment without a bed/chair
-                requirement reserves its whole room.
+                requirement reserves its whole room. Do not also require the whole room when
+                choosing a bed/chair: it already includes its room.
               </p>
+              {wholeRoomAndStation && (
+                <p role="alert" className="text-sm text-red-700">
+                  Choose either a whole room or a bed/chair. A bed/chair already includes its room.
+                </p>
+              )}
               {mixedRequirements && (
                 <p role="alert" className="text-sm text-red-700">
                   This setup mixes resource types in one requirement. Move them into separate

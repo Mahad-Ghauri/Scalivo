@@ -475,6 +475,68 @@ void main() {
     },
   );
 
+  for (final kind in ['bed', 'chair']) {
+    testWidgets(
+      'service editor rejects whole room plus $kind and saves after removing the room requirement',
+      (tester) async {
+        tester.view.physicalSize = const Size(900, 2600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        resources.addAll([
+          {
+            'id': 'station',
+            'name': 'Treatment station',
+            'kind': kind,
+            'quantity': 2,
+            'active': true,
+            'fixedRoomId': 'room',
+          },
+          {
+            'id': 'pen',
+            'name': 'Facial pens',
+            'kind': 'equipment',
+            'quantity': 2,
+            'active': true,
+          },
+        ]);
+        requirements = [
+          ['room'],
+          ['station'],
+          ['pen'],
+        ];
+        await mount(tester, const ServicesScreen());
+        await tester.tap(find.text('QA Facial'));
+        await settle(tester);
+        await tester.tap(find.text('Save'));
+        await settle(tester);
+        expect(
+          find.text(
+            'Choose either a whole room or a bed/chair. A bed/chair already includes its room.',
+          ),
+          findsOneWidget,
+        );
+        expect(requests.where((request) => request.method == 'PATCH'), isEmpty);
+        await tester.tap(find.byTooltip('Remove requirement').first);
+        await settle(tester);
+        await tester.tap(find.text('Save'));
+        await settle(tester);
+        final saved = jsonDecode(
+          requests.singleWhere((request) => request.method == 'PATCH').body,
+        ) as Map<String, dynamic>;
+        expect(saved['resourceRequirements'], [
+          {
+            'anyOfResourceIds': ['station'],
+          },
+          {
+            'anyOfResourceIds': ['pen'],
+          },
+        ]);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets(
     'appointment recipient selection returns the family member without changing the contact',
     (tester) async {
