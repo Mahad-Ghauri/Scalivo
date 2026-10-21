@@ -110,6 +110,8 @@ export interface MeView {
 
 /** How many past appointments the page carries. */
 export const ME_PAST_LIMIT = 6;
+/** Bound future appointments without reading an unlimited customer history. */
+export const ME_UPCOMING_LIMIT = 100;
 
 /**
  * Why a rebook was refused, in the customer's terms.

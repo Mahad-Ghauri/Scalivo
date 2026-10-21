@@ -2,12 +2,23 @@ name: backend-ci
 
 on:
   push:
-    paths: ['backend/**', 'shared/**', '.github/workflows/backend-ci.yml']
+    paths:
+      [
+        'backend/**',
+        'shared/**',
+        'docker-compose.yml',
+        'pnpm-lock.yaml',
+        '.github/workflows/backend-ci.yml',
+      ]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -16,8 +27,11 @@ jobs:
         with: { node-version: 22, cache: pnpm }
 
       - run: pnpm install --frozen-lockfile
+      - name: Start integration test databases
+        run: docker compose up -d --wait --wait-timeout 120 mongo redis postgres
       - run: pnpm --filter @scalivo/shared build
       - run: pnpm --filter @scalivo/backend build
+      - run: pnpm --filter @scalivo/backend typecheck
       - run: pnpm lint
 
       # Time correctness must hold under a server timezone that is not PKT —
@@ -26,3 +40,9 @@ jobs:
         run: TZ=UTC pnpm --filter @scalivo/backend test
       - name: tests (TZ=America/New_York)
         run: TZ=America/New_York pnpm --filter @scalivo/backend test
+      - name: Database diagnostics on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 100 mongo redis postgres
+      - name: Remove runner test databases
+        if: always()
+        run: docker compose down --volumes

@@ -30,6 +30,7 @@ export function ServiceModal({
 
   const [name, setName] = useState(existingService?.name ?? '');
   const [duration, setDuration] = useState(existingService?.durationMinutes?.toString() ?? '60');
+  const [buffer, setBuffer] = useState(String(existingService?.bufferMinutes ?? 0));
   const [price, setPrice] = useState(
     existingService ? (existingService.priceMinor / 100).toString() : '1000',
   );
@@ -81,7 +82,8 @@ export function ServiceModal({
     setError(null);
 
     const priceNum = parseInt(price, 10);
-    const durationNum = parseInt(duration, 10);
+    const durationNum = Number(duration);
+    const bufferNum = Number(buffer);
     const depositNum = parseInt(depositAmount, 10);
 
     if (isNaN(priceNum) || priceNum < 0) {
@@ -90,8 +92,19 @@ export function ServiceModal({
       return;
     }
 
-    if (isNaN(durationNum) || durationNum <= 0) {
-      setError('Please enter a valid duration in minutes.');
+    if (
+      !duration.trim() ||
+      !Number.isInteger(durationNum) ||
+      durationNum < 1 ||
+      durationNum > 1440
+    ) {
+      setError('Enter a whole treatment duration from 1 to 1440 minutes.');
+      setLoading(false);
+      return;
+    }
+
+    if (!buffer.trim() || !Number.isInteger(bufferNum) || bufferNum < 0 || bufferNum > 1440) {
+      setError('Enter a whole cleanup duration from 0 to 1440 minutes.');
       setLoading(false);
       return;
     }
@@ -123,6 +136,7 @@ export function ServiceModal({
       approvalWindowMinutes: existingService?.approvalWindowMinutes ?? 30,
       name: name.trim(),
       durationMinutes: durationNum,
+      bufferMinutes: bufferNum,
       priceMinor: priceNum * 100, // Convert to minor units (paisa)
       depositRequired,
       depositAmountMinor: depositRequired ? depositNum * 100 : null,
@@ -199,13 +213,18 @@ export function ServiceModal({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-ink mb-1">
+                <label
+                  htmlFor="service-duration"
+                  className="block text-sm font-medium text-ink mb-1"
+                >
                   Duration (minutes)
                 </label>
                 <input
+                  id="service-duration"
                   type="number"
-                  min="5"
-                  step="5"
+                  min="1"
+                  max="1440"
+                  step="1"
                   required
                   className="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
                   value={duration}
@@ -225,6 +244,29 @@ export function ServiceModal({
                   disabled={loading}
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="service-cleanup" className="block text-sm font-medium text-ink mb-1">
+                Cleanup after treatment (minutes)
+              </label>
+              <input
+                id="service-cleanup"
+                type="number"
+                min="0"
+                max="1440"
+                step="1"
+                required
+                className="w-full rounded-md border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-brand"
+                value={buffer}
+                onChange={(event) => setBuffer(event.target.value)}
+                disabled={loading}
+                aria-describedby="service-cleanup-help"
+              />
+              <p id="service-cleanup-help" className="mt-1 text-sm text-muted">
+                Staff and required resources stay reserved during cleanup. Use 0 if no cleanup is
+                needed.
+              </p>
             </div>
 
             <fieldset className="space-y-3 border-t border-line pt-3" disabled={loading}>

@@ -98,6 +98,7 @@ export default async function MePage({ params }: { params: Promise<{ token: stri
                   {formatWhen(appointment.startsAt, me.timezone)} · with {appointment.staffName}
                 </p>
                 <DepositNudge appointment={appointment} />
+                <ApprovalNudge appointment={appointment} />
               </li>
             ))}
           </ul>
@@ -179,11 +180,7 @@ function NextUp({ appointment, timezone }: { appointment: MeAppointment; timezon
         {formatDuration(appointment.durationMinutes)} · {formatPrice(appointment.priceMinor)}
       </p>
       <DepositNudge appointment={appointment} />
-      {appointment.status === BOOKING_STATUS.AWAITING_APPROVAL && (
-        <p className="mt-3 text-sm font-semibold">
-          Awaiting owner approval — this appointment is not confirmed yet.
-        </p>
-      )}
+      <ApprovalNudge appointment={appointment} />
       {appointment.appointmentHolderName && (
         <p className="mt-2 text-sm">Appointment for {appointment.appointmentHolderName}</p>
       )}
@@ -191,11 +188,17 @@ function NextUp({ appointment, timezone }: { appointment: MeAppointment; timezon
   );
 }
 
-/**
- * Only for a booking whose slot is still conditional on money. The backend
- * clears `depositToken` the moment the deposit stops being owed, so this cannot
- * invite somebody to pay twice.
- */
+/** Pending requests need the same clear label in next-up and later cards. */
+function ApprovalNudge({ appointment }: { appointment: MeAppointment }) {
+  if (appointment.status !== BOOKING_STATUS.AWAITING_APPROVAL) return null;
+  return (
+    <p className="mt-3 text-sm font-semibold">
+      Awaiting owner approval — this appointment is not confirmed yet.
+    </p>
+  );
+}
+
+/** Only offer payment while the backend says a deposit is actually owed. */
 function DepositNudge({ appointment }: { appointment: MeAppointment }) {
   if (appointment.status !== BOOKING_STATUS.AWAITING_DEPOSIT || !appointment.depositToken)
     return null;

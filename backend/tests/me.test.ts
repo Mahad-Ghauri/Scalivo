@@ -9,6 +9,7 @@ import {
   BOOKING_STATUS,
   DEPOSIT_STATUS,
   LOYALTY_MINOR_PER_POINT,
+  ME_UPCOMING_LIMIT,
   SESSION_STATUS,
   type MessagingProvider,
   type SendResult,
@@ -362,6 +363,80 @@ describe.skipIf(!infraUp)("a customer's own page", () => {
       expect(view!.upcoming[0]!.staffName).toBe('Dr. Ayesha');
       expect(view!.past).toHaveLength(1);
       expect(view!.past[0]!.status).toBe(BOOKING_STATUS.COMPLETED);
+    });
+
+    it('shows pending approvals only to their customer and reflects approval or cancellation', async () => {
+      const base = {
+        businessId,
+        clientId,
+        serviceId: hydrafacial,
+        staffId: ayesha,
+        durationMinutes: 45,
+        priceMinor: 800_000,
+        source: 'whatsapp' as const,
+      };
+      const [pending] = await Booking.insertMany([
+        { ...base, startsAt: at('11:00'), status: BOOKING_STATUS.AWAITING_APPROVAL },
+        { ...base, startsAt: at('10:00'), status: BOOKING_STATUS.CONFIRMED },
+        {
+          ...base,
+          clientId: strangerId,
+          startsAt: at('12:00'),
+          status: BOOKING_STATUS.AWAITING_APPROVAL,
+        },
+        {
+          ...base,
+          businessId: otherId,
+          serviceId: otherService,
+          staffId: otherStaff,
+          startsAt: at('13:00'),
+          status: BOOKING_STATUS.AWAITING_APPROVAL,
+        },
+      ]);
+      const privateToken = await token();
+      const response = await get(`/me/${privateToken}`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.upcoming).toHaveLength(2);
+      expect(body.upcoming.map((appointment: { status: string }) => appointment.status)).toEqual([
+        BOOKING_STATUS.CONFIRMED,
+        BOOKING_STATUS.AWAITING_APPROVAL,
+      ]);
+      expect(body.upcoming[1]).toMatchObject({ id: String(pending!._id), depositToken: null });
+
+      await Booking.updateOne(
+        { _id: pending!._id },
+        { $set: { status: BOOKING_STATUS.CONFIRMED } },
+      );
+      expect((await meView(businessId, clientId))!.upcoming[1]!.status).toBe(
+        BOOKING_STATUS.CONFIRMED,
+      );
+      await Booking.updateOne(
+        { _id: pending!._id },
+        { $set: { status: BOOKING_STATUS.CANCELLED } },
+      );
+      expect((await meView(businessId, clientId))!.upcoming).toHaveLength(1);
+    });
+
+    it('bounds upcoming appointments while keeping the nearest ones first', async () => {
+      const start = at('09:00').getTime();
+      const bookings = await Booking.insertMany(
+        Array.from({ length: ME_UPCOMING_LIMIT + 1 }, (_, index) => ({
+          businessId,
+          clientId,
+          serviceId: hydrafacial,
+          staffId: ayesha,
+          startsAt: new Date(start + index * 15 * 60000),
+          durationMinutes: 15,
+          priceMinor: 1000,
+          status: BOOKING_STATUS.CONFIRMED,
+          source: 'whatsapp',
+        })),
+      );
+      const view = await meView(businessId, clientId);
+      expect(view!.upcoming).toHaveLength(ME_UPCOMING_LIMIT);
+      expect(view!.upcoming[0]!.id).toBe(String(bookings[0]!._id));
+      expect(view!.upcoming.at(-1)!.id).toBe(String(bookings[ME_UPCOMING_LIMIT - 1]!._id));
     });
 
     it('offers the payment link only while the deposit is actually owed', async () => {

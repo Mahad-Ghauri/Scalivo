@@ -2,6 +2,7 @@ import {
   BOOKING_STATUS,
   DEPOSIT_STATUS,
   ME_PAST_LIMIT,
+  ME_UPCOMING_LIMIT,
   type MeAppointment,
   type MePendingReview,
   type MeUsual,
@@ -89,9 +90,17 @@ export async function meView(businessId: string, clientId: string): Promise<MeVi
       clientId,
       startsAt: { $gte: now },
       status: {
-        $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.AWAITING_DEPOSIT, BOOKING_STATUS.CONFIRMED],
+        $in: [
+          BOOKING_STATUS.PENDING,
+          BOOKING_STATUS.AWAITING_APPROVAL,
+          BOOKING_STATUS.AWAITING_DEPOSIT,
+          BOOKING_STATUS.CONFIRMED,
+        ],
       },
-    }).sort({ startsAt: 1 }),
+    })
+      .sort({ startsAt: 1 })
+      .limit(ME_UPCOMING_LIMIT)
+      .maxTimeMS(5000),
     Booking.find({
       businessId,
       clientId,

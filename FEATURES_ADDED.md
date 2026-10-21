@@ -151,6 +151,17 @@ without this option continue through the existing confirmation process.
 Owner push alerts use the project's existing Firebase setup and registered owner
 devices. Push delivery requires that configuration to be present.
 
+The private customer page includes requests awaiting owner approval in upcoming
+appointments. Both the next appointment and later requests explicitly say they
+are not confirmed yet. Upcoming reads return the nearest 100 appointments, remain
+scoped to the verified link's business/customer relationship, and do not expose
+another customer's requests.
+
+The owner website now edits cleanup time in the service form, using the same
+backend field as the app. Cleanup accepts whole minutes from 0 to 1440; new
+services default to 0 and existing services retain their saved value when opened.
+Staff and required resources remain reserved throughout that cleanup interval.
+
 ## 6. Consecutive treatments in one visit
 
 A visit can contain **two to five treatments**, with a qualified professional for
@@ -235,8 +246,8 @@ remaining gaps are recorded in [TEST_RESULTS.md](TEST_RESULTS.md).
 
 | Check                                            | Result                                                                                                                         |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Backend regression suite                         | 790 tests passed across 35 test files                                                                                          |
-| Flutter test suite                               | 123 tests passed                                                                                                               |
+| Backend regression suite                         | 799 tests passed in UTC and again in America/New_York, with CI infrastructure enforcement enabled                              |
+| Flutter test suite                               | Last recorded run: 123 passed on 10 October 2026; not rerun in the 21 October backend/web-only update                          |
 | Backend, shared, test, and web TypeScript checks | Passed                                                                                                                         |
 | Repository lint                                  | Passed                                                                                                                         |
 | Flutter analysis                                 | No errors or warnings; 20 existing informational brace-style notices                                                           |
@@ -262,6 +273,12 @@ role restrictions, verification failures, recipient limits, sequence rollback,
 approval expiry, rescheduling, cancellation, and outcome corrections. These
 results are regression evidence, not a claim that every possible production
 scenario has been tested.
+
+Backend CI starts the existing MongoDB replica set, Redis, and PostgreSQL Compose
+services and waits for health checks before running the suites. It type-checks
+tests, runs both timezones, and fails if a required datastore is unavailable.
+Temporary Redis/PostgreSQL probes close even on failure. Local development can
+still skip infrastructure-dependent suites when those services are stopped.
 
 ## Deferred and unverified areas
 

@@ -1,6 +1,52 @@
 # Test results: booking resource controls
 
-## Latest run: service/resource save error handling
+## Latest run: approval visibility, web cleanup editing, and CI reliability
+
+Run date: **21 October 2026**.
+
+| Check                                                   | Result                                        |
+| ------------------------------------------------------- | --------------------------------------------- |
+| Full backend suite, strict CI mode, TZ=UTC              | **799/799 passed**, zero skipped/failed       |
+| Full backend suite, strict CI mode, TZ=America/New_York | **799/799 passed**, zero skipped/failed       |
+| Focused customer-page and readiness suites              | **33/33 passed**                              |
+| Production-browser/API checks                           | **14/14 passed**                              |
+| Shared/backend build, backend-test and web type checks  | Passed                                        |
+| Lint, production web build, whitespace                  | Passed                                        |
+| Actual unavailable MongoDB check                        | CI helper throws instead of silently skipping |
+
+Customer regressions cover pending approval visibility, customer/tenant isolation,
+status changes after approval/cancellation, nearest-first ordering, and the nearest
+100 upcoming appointments. The production page labels approval requests in both
+the next-up card and later cards, and remains excluded from search indexing.
+
+Cleanup checks cover prefilled and reopened values, negative/oversized/fractional/
+empty input, JavaScript validation with native validation bypassed, zero cleanup,
+editing and creating services, and a real booking's availability boundary. A
+30-minute treatment with 30-minute cleanup blocks 09:45 and permits 10:00 after
+a 09:00 booking. Existing catalog authentication and backend validation are reused.
+
+Readiness regressions cover all required services, unavailable MongoDB, standalone
+MongoDB, Redis failure, PostgreSQL connection/query failures, probe cleanup, and
+local optional skipping. The workflow provisions the existing Compose services,
+waits for readiness, type-checks tests, runs both timezones, prints bounded database
+diagnostics on failure, and removes the runner's disposable databases afterward.
+The hosted GitHub Actions run itself is not claimed; it requires pushing the change.
+
+Local integration tests used test MongoDB/Redis databases and a separate
+`scalivo_test` PostgreSQL database. Browser checks used an isolated temporary API
+and fresh QA database on ports 3002/8087, with phone-less fixtures, no background
+jobs, and a provider that refuses outbound messaging. No existing business records
+were modified. Temporary QA records, credentials, and preview processes were
+cleaned up afterward. An invalid initial roster fixture was corrected to use the
+existing schema; it was a test setup error, and its exact database was removed
+after verifying every collection's contents.
+
+No Flutter files or runtime contracts changed, so the Flutter suite was not rerun;
+the temporary Flutter SDK from the earlier run is no longer present. Native-device
+acceptance, password/email recovery, media storage, and calendar export remain
+outside this focused batch. No dependencies were added.
+
+## Earlier run: service/resource save error handling
 
 Run date: **10 October 2026**.
 

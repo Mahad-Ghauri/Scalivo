@@ -7,7 +7,7 @@ import { Redis } from 'ioredis';
  * These tests need real MongoDB and Redis — `docker compose up -d mongo redis`
  * from the repo root. Without them a suite SKIPS rather than fails, so
  * `pnpm test` still runs on a laptop with nothing booted. A skip is not a pass,
- * and CI must run them.
+ * and CI fails rather than skipping when required infrastructure is unavailable.
  */
 
 export interface InfraNeeds {
@@ -39,32 +39,51 @@ export async function infraReady(needs: InfraNeeds = {}): Promise<boolean> {
     await mongoose.connect(process.env.MONGO_URI!, { serverSelectionTimeoutMS: 2000 });
 
     if (needs.replicaSet) {
-      const info = (await mongoose.connection.db?.admin().command({ hello: 1 })) as {
+      const info = (await mongoose.connection.db
+        ?.admin()
+        .command({ hello: 1, maxTimeMS: 2000 })) as {
         setName?: string;
       };
-      if (!info?.setName) return false;
+      if (!info?.setName) throw new Error('MongoDB replica set required');
     }
 
     if (needs.redis) {
       const probe = new Redis(process.env.REDIS_URL!, {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
+        connectTimeout: 2000,
+        commandTimeout: 2000,
+        retryStrategy: () => null,
       });
-      await probe.connect();
-      await probe.ping();
-      await probe.quit();
+      try {
+        await probe.connect();
+        await probe.ping();
+      } finally {
+        probe.disconnect();
+      }
     }
 
     if (needs.postgres) {
       const { Client } = await import('pg');
-      const probe = new Client({ connectionString: process.env.POSTGRES_URL, connectionTimeoutMillis: 2000 });
-      await probe.connect();
-      await probe.query('SELECT 1');
-      await probe.end();
+      const probe = new Client({
+        connectionString: process.env.POSTGRES_URL,
+        connectionTimeoutMillis: 2000,
+        query_timeout: 2000,
+      });
+      try {
+        await probe.connect();
+        await probe.query('SELECT 1');
+      } finally {
+        await probe.end();
+      }
     }
 
     return true;
   } catch {
+    if (process.env.CI === 'true')
+      throw new Error(
+        'Required test infrastructure is unavailable. Start MongoDB (replica set), Redis and PostgreSQL before running CI tests.',
+      );
     return false;
   }
 }
