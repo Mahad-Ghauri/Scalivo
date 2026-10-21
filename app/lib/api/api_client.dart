@@ -705,11 +705,12 @@ class ApiClient {
           (step) => ![step['serviceId'], step['staffId']].every(
             (id) => id != null && RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(id),
           ),
-        ))
+        )) {
       throw const ApiException(
         ApiErrorKind.validation,
         'Choose valid treatments and staff',
       );
+    }
     if (![
           serviceId,
           staffId,
@@ -735,8 +736,9 @@ class ApiClient {
                   slot.appointments.first.serviceId != serviceId ||
                   slot.appointments.first.staffId != staffId ||
                   slot.appointments.first.startsAt != slot.startsAt,
-            ))
+            )) {
           throw const FormatException('Invalid consecutive visit');
+        }
         if (slots.any(
           (slot) =>
               slot.staffId != staffId ||
@@ -867,11 +869,12 @@ class ApiClient {
       }
     }
     final colour = profile['themeColor'] ?? '';
-    if (colour.isNotEmpty && !RegExp(r'^#[a-fA-F0-9]{6}$').hasMatch(colour))
+    if (colour.isNotEmpty && !RegExp(r'^#[a-fA-F0-9]{6}$').hasMatch(colour)) {
       throw const ApiException(
         ApiErrorKind.validation,
         'Use a colour such as #1a2b3c',
       );
+    }
     return _growth(
       businessId,
       'PATCH',
@@ -1165,8 +1168,9 @@ class ApiClient {
               await streamed.stream.listen(null).cancel();
               throw TimeoutException('Request timed out');
             }
-            if (maxResponseBytes == null)
+            if (maxResponseBytes == null) {
               return http.Response.fromStream(streamed);
+            }
             final chunks = StreamIterator(streamed.stream);
             responseChunks = chunks;
             final bytes = <int>[];
@@ -1219,8 +1223,9 @@ class ApiClient {
     }
 
     if (response.statusCode == 204 || response.body.isEmpty) {
-      if (response.statusCode >= 400)
+      if (response.statusCode >= 400) {
         throw _errorFor(response.statusCode, const {});
+      }
       return const {};
     }
 

@@ -79,8 +79,9 @@ class _SettingsTabState extends State<SettingsTab> {
     final auth = context.watch<AuthController>();
     final settings = _settings;
 
-    if (_loading)
+    if (_loading) {
       return const Center(child: CircularProgressIndicator(color: Sc.teal));
+    }
 
     if (settings == null) {
       return Center(

@@ -138,8 +138,9 @@ class CalendarController extends ChangeNotifier {
   Future<void> ensureCatalogue({bool force = false}) async {
     // `setup == null` is part of the condition so the checklist is fetched at
     // least once even on a business whose catalogue is already cached.
-    if (!force && setup != null && services.isNotEmpty && staffList.isNotEmpty)
+    if (!force && setup != null && services.isNotEmpty && staffList.isNotEmpty) {
       return;
+    }
     try {
       final loaded = await Future.wait([
         _api.services(_businessId),

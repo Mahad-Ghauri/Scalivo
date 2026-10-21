@@ -38,8 +38,9 @@ class SequenceAppointment {
       staffId = wireText(json['staffId'], max: 80),
       startsAt = wireDate(json['startsAt']),
       durationMinutes = wireCount(json['durationMinutes']) {
-    if (durationMinutes < 1 || durationMinutes > 1440)
+    if (durationMinutes < 1 || durationMinutes > 1440) {
       throw const FormatException('Invalid treatment duration');
+    }
   }
   final String serviceId;
   final String staffId;

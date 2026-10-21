@@ -37,18 +37,20 @@ class _AppointmentHoldersScreenState extends State<AppointmentHoldersScreen> {
         _auth.business!.id,
         widget.clientId,
       );
-      if (mounted)
+      if (mounted) {
         setState(() {
           _holders = holders;
           _loading = false;
           _error = null;
         });
+      }
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _error = error.message;
         });
+      }
     }
   }
 

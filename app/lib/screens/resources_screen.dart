@@ -108,9 +108,10 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
           !resource.active,
         );
       } on ApiException catch (error) {
-        if (mounted && context.mounted)
+        if (mounted && context.mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text(error.message)));
+        }
       }
     }
     if (!mounted) return;
@@ -183,8 +184,9 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                                 controller: widget.controller,
                                 resource: asset,
                               ) &&
-                              mounted)
+                              mounted) {
                             await _load();
+                          }
                         } else {
                           await _toggle(asset);
                         }
@@ -259,10 +261,11 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                                     block.id,
                                   );
                                 } on ApiException catch (error) {
-                                  if (mounted && context.mounted)
+                                  if (mounted && context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(content: Text(error.message)),
                                     );
+                                  }
                                 }
                                 if (!mounted) return;
                                 setState(() => _busy.remove(block.id));
@@ -341,11 +344,12 @@ class _ResourceSheetState extends State<_ResourceSheet> {
       );
       if (mounted) Navigator.pop(context, true);
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _busy = false;
           _error = error.message;
         });
+      }
     }
   }
 

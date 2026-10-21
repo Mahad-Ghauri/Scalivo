@@ -109,14 +109,16 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
     if (confirmed != true || !mounted) return;
     try {
       await _api.revokeCustomerLink(_businessId, widget.clientId);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Customer link revoked.')));
+      }
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -154,13 +156,14 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
               ),
               onSelected: (value) {
                 if (value == 'recompute') _recompute();
-                if (value == 'holders')
+                if (value == 'holders') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
                           AppointmentHoldersScreen(clientId: widget.clientId),
                     ),
                   );
+                }
                 if (value == 'revoke') _revokeLink();
               },
               itemBuilder: (_) => const [
@@ -188,8 +191,9 @@ class _ClientProfileScreenState extends State<ClientProfileScreen> {
   }
 
   Widget _body(ClientProfileDetail? profile) {
-    if (_loading)
+    if (_loading) {
       return const Center(child: CircularProgressIndicator(color: Sc.teal));
+    }
 
     if (profile == null) {
       return Center(

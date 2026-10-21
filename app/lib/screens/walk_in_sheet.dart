@@ -96,8 +96,9 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       // Pre-selected when there is only one real answer. A single-service,
       // single-staff salon should not be asked two questions it cannot get
       // wrong — and pre-selecting the first of many would be a guess.
-      if (widget.controller.services.length == 1)
+      if (widget.controller.services.length == 1) {
         _service = widget.controller.services.first;
+      }
       final eligible = widget.controller.staffList
           .where((s) => _service != null && s.serviceIds.contains(_service!.id))
           .toList();
@@ -544,10 +545,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
     });
 
     final random = Random.secure();
-    if (_additional.isNotEmpty)
+    if (_additional.isNotEmpty) {
       _requestId ??= base64UrlEncode(
         List<int>.generate(24, (_) => random.nextInt(256)),
       ).replaceAll('=', '');
+    }
     final failure = await widget.controller.walkIn(
       serviceId: _service!.id,
       staffId: _staff!.id,
