@@ -120,8 +120,19 @@ temp/
 *.tmp
 *.bak
 
-
+*brag-output/composition/.hyperframes/
+*brag-output
 *ponytail/
+*brag/
 CLAUDE.md
 graphify-out/
 Social App Login Flutter Implementation/
+
+# ─────────────────────────────────────────────────────────────
+# Video projects (HyperFrames promo) & their generated caches
+# ─────────────────────────────────────────────────────────────
+videos/
+.hyperframes/
+.thumbnails/
+.waveform-cache/
+.media/
