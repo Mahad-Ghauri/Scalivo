@@ -123,6 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final fieldCount = _errors.values.where((v) => v != null).length;
 
     return SheetScaffold(
+      animateIn: true,
       heroHeight: 116 + MediaQuery.paddingOf(context).top + (MediaQuery.textScalerOf(context).scale(14) > 20 ? 48 : 0),
       overlap: 0,
       hero: SafeArea(
@@ -179,7 +180,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(height: 18),
                   ],
-                  ScField(
+                  EntranceItem(index: 0, child: ScField(
                     label: 'Business name',
                     controller: _businessName,
                     hint: 'Skinare Aesthetics',
@@ -187,9 +188,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     errorText: _errors['businessName'],
                     textCapitalization: TextCapitalization.words,
                     textInputAction: TextInputAction.next,
-                  ),
+                  )),
                   const SizedBox(height: 19),
-                  LayoutBuilder(builder: (context, constraints) {
+                  EntranceItem(index: 1, child: LayoutBuilder(builder: (context, constraints) {
                     final stacked = constraints.maxWidth < 300 || MediaQuery.textScalerOf(context).scale(14) > 20;
                     final width = stacked ? constraints.maxWidth : (constraints.maxWidth - 18) / 2;
                     return Wrap(spacing: 18, runSpacing: 19, children: [
@@ -201,9 +202,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         label: 'City', value: _city, items: _cities, itemLabel: (c) => c,
                         enabled: !busy, onChanged: (v) => setState(() => _city = v ?? _city))),
                     ]);
-                  }),
+                  })),
                   const SizedBox(height: 19),
-                  ScField(
+                  EntranceItem(index: 2, child: ScField(
                     label: 'Owner name',
                     controller: _ownerName,
                     hint: 'Hina Nawaz',
@@ -211,9 +212,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     errorText: _errors['ownerName'],
                     textCapitalization: TextCapitalization.words,
                     textInputAction: TextInputAction.next,
-                  ),
+                  )),
                   const SizedBox(height: 19),
-                  ScField(
+                  EntranceItem(index: 3, child: ScField(
                     label: 'Email',
                     controller: _email,
                     hint: 'you@business.com',
@@ -221,18 +222,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     errorText: _errors['email'],
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                  ),
+                  )),
                   const SizedBox(height: 19),
-                  ScField(
+                  EntranceItem(index: 4, child: ScField(
                     label: 'Password',
                     controller: _password,
                     password: true,
                     enabled: !busy,
                     errorText: _errors['password'],
                     helper: 'Minimum 8 characters',
-                  ),
+                  )),
                   const SizedBox(height: 19),
-                  ScField(
+                  EntranceItem(index: 5, child: ScField(
                     label: 'Confirm password',
                     controller: _confirm,
                     password: true,
@@ -240,16 +241,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     errorText: _errors['confirm'],
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _submit(),
-                  ),
+                  )),
                   const SizedBox(height: 26),
-                  ScButton(
+                  EntranceItem(index: 6, child: ScButton(
                     label: 'Sign up',
                     loadingLabel: 'Creating',
                     loading: busy,
                     onPressed: _submit,
-                  ),
+                  )),
                   const SizedBox(height: 16),
-          Wrap(
+          EntranceItem(index: 7, child: Wrap(
             alignment: WrapAlignment.center,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
@@ -269,7 +270,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
             ],
-          ),
+          )),
         ],
       ),
       ),

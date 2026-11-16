@@ -82,6 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
     const overlap = 0.0;
 
     return SheetScaffold(
+      animateIn: true,
       heroHeight: heroHeight,
       overlap: overlap,
       hero: SafeArea(
@@ -111,9 +112,9 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Sign in', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w500, letterSpacing: -0.7)),
+                  const EntranceItem(index: 0, child: Text('Sign in', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w500, letterSpacing: -0.7))),
                   const SizedBox(height: 5),
-                  const Text('Your diary, people and bookings.', style: TextStyle(fontSize: 13, color: Sc.slate)),
+                  const EntranceItem(index: 1, child: Text('Your diary, people and bookings.', style: TextStyle(fontSize: 13, color: Sc.slate))),
                   const SizedBox(height: 24),
                   if (auth.error != null && auth.error!.fieldErrors.isEmpty) ...[
                     ScBanner(
@@ -129,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 22),
                   ],
-                  ScField(
+                  EntranceItem(index: 2, child: ScField(
                     label: 'Email Address',
                     controller: _email,
                     hint: 'you@business.com',
@@ -138,9 +139,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     onSubmitted: (_) => _passwordFocus.requestFocus(),
-                  ),
+                  )),
                   const SizedBox(height: 24),
-                  ScField(
+                  EntranceItem(index: 3, child: ScField(
                     label: 'Password',
                     controller: _password,
                     password: true,
@@ -148,9 +149,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     errorText: _passwordError,
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _submit(),
-                  ),
+                  )),
                   const SizedBox(height: 8),
-                  Align(
+                  EntranceItem(index: 4, child: Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: busy ? null : () => _showResetHelp(context),
@@ -164,18 +165,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                       ),
                     ),
-                  ),
+                  )),
                   const SizedBox(height: 8),
-                  _rememberMe(busy),
+                  EntranceItem(index: 5, child: _rememberMe(busy)),
                   const SizedBox(height: 26),
-                  ScButton(
+                  EntranceItem(index: 6, child: ScButton(
                     label: 'Login',
                     loadingLabel: 'Logging in',
                     loading: busy,
                     onPressed: _submit,
-                  ),
+                  )),
                   const SizedBox(height: 20),
-          Wrap(
+          EntranceItem(index: 7, child: Wrap(
             alignment: WrapAlignment.center,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
@@ -202,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ],
-          ),
+          )),
         ],
       ),
       ),
