@@ -18,18 +18,14 @@ export function BusinessSwitcher({ businesses, currentBusinessId }: Props) {
 
   const current = businesses.find((b) => b.id === currentBusinessId) ?? businesses[0]!;
 
-  // If there's only one business, just display it without a dropdown.
-  if (businesses.length === 1) {
-    return (
-      <div className="flex h-10 items-center px-4 rounded-full border border-line bg-surface">
-        <span className="text-[15px] font-semibold text-ink truncate">{current.name}</span>
-      </div>
-    );
-  }
-
+  // A dropdown even with one business: the owner with one is exactly the one
+  // who needs "Add a branch" (3.7).
   return (
     <div className="relative">
       <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 rounded-full border border-line bg-white px-4 h-10 hover:bg-surface transition-colors"
       >
@@ -56,6 +52,13 @@ export function BusinessSwitcher({ businesses, currentBusinessId }: Props) {
                 <p className="text-[13px] text-muted mt-0.5 capitalize">{business.category}</p>
               </Link>
             ))}
+            <Link
+              href="/dashboard/new"
+              onClick={() => setIsOpen(false)}
+              className="block border-t border-line px-4 py-3 text-[15px] font-semibold text-ink hover:bg-surface transition-colors"
+            >
+              + Add a branch
+            </Link>
           </div>
         </>
       )}

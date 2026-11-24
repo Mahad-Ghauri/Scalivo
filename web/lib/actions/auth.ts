@@ -113,6 +113,58 @@ export async function registerAction(
   redirect('/dashboard');
 }
 
+/**
+ * Adds a branch to the signed-in owner (3.7). A branch is its own business —
+ * its own WhatsApp number, staff, hours and marketplace listing — so this is
+ * registration's business half, against an account that already exists.
+ *
+ * The cookie swap is required, not tidy-up: the token carries the owner's
+ * businessIds, and the old one would 404 on every page of the new branch.
+ */
+const newBusinessSchema = registrationSchema.pick({ businessName: true, category: true, city: true });
+
+export async function addBusinessAction(
+  prevState: RegisterState | undefined,
+  formData: FormData,
+): Promise<RegisterState> {
+  const parsed = newBusinessSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    const fields: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path[0];
+      if (typeof key === 'string' && !fields[key]) fields[key] = issue.message;
+    }
+    return { error: 'Check the highlighted fields.', fields };
+  }
+
+  let businessId: string;
+  try {
+    const data = await fetchApi<{ token: string; businessId: string }>('/auth/businesses', {
+      method: 'POST',
+      body: JSON.stringify(parsed.data),
+    });
+    await setSessionCookie(data.token);
+    businessId = data.businessId;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 401) redirect('/login');
+      if (error.status === 429) {
+        return { error: 'Too many new branches in a short time. Try again in a while.' };
+      }
+      const body = error.data as { error?: string; fields?: Record<string, string> } | undefined;
+      return {
+        error: body?.error ?? 'Could not add the branch.',
+        ...(body?.fields ? { fields: body.fields } : {}),
+      };
+    }
+    return { error: 'Something went wrong. Please try again later.' };
+  }
+
+  // Into the new branch, where its setup (services, staff, WhatsApp) starts.
+  redirect(`/dashboard/${businessId}`);
+}
+
 export async function logoutAction() {
   await clearSessionCookie();
   redirect('/login');

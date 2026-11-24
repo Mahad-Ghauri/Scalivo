@@ -30,6 +30,23 @@ const registration = z.object({
   password: z.string().min(8),
 });
 
+/**
+ * A further business for an owner who already has an account (3.7). A branch
+ * is modelled as its own Business — its own number, session, timezone, staff
+ * and listing — so this is registration's business half and nothing more.
+ */
+const newBusiness = registration.pick({ businessName: true, category: true, city: true });
+
+/** Field-keyed, so a form can underline the offending input. */
+function fieldErrors(error: z.ZodError): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = issue.path[0];
+    if (typeof key === 'string' && !fields[key]) fields[key] = issue.message;
+  }
+  return fields;
+}
+
 const deviceToken = z.object({
   fcmToken: z.string().min(1)
     .max(4096)
@@ -113,6 +130,8 @@ export function createAuthRouter(redis: Redis): Router {
    */
   const loginLimit = rateLimit(redis, 'login', 20, 15 * 60);
   const registerLimit = rateLimit(redis, 'register', 5, 60 * 60);
+  // Authenticated, but each call still claims a slug for good.
+  const addBusinessLimit = rateLimit(redis, 'add-business', 10, 60 * 60);
 
   router.post('/login', loginLimit, express.json(), async (req, res) => {
     const parsed = credentials.safeParse(req.body);
@@ -164,12 +183,7 @@ export function createAuthRouter(redis: Redis): Router {
     if (!parsed.success) {
       // Field-keyed so the app can underline the offending input rather than
       // showing one generic banner. The Create Account screen is designed for it.
-      const fields: Record<string, string> = {};
-      for (const issue of parsed.error.issues) {
-        const key = issue.path[0];
-        if (typeof key === 'string' && !fields[key]) fields[key] = issue.message;
-      }
-      res.status(400).json({ error: 'invalid registration', fields });
+      res.status(400).json({ error: 'invalid registration', fields: fieldErrors(parsed.error) });
       return;
     }
 
@@ -213,6 +227,61 @@ export function createAuthRouter(redis: Redis): Router {
         businessIds: user.businessIds,
       }),
       role: user.role,
+    });
+  });
+
+  /**
+   * Adds a business (a branch) to the calling owner, and returns a fresh token.
+   *
+   * The token is not optional: `businessIds` is a claim, so the old token would
+   * 404 on every route of the new branch until the owner logged in again.
+   *
+   * Owners only. Staff accounts already fail closed on owner routes
+   * (assertTenantAccess), and minting a tenant would be a way around that.
+   * Admins are cross-tenant already and have no use for it.
+   */
+  router.post('/businesses', addBusinessLimit, requireAuth, express.json(), async (req, res) => {
+    const auth = getAuth(res);
+    if (auth.role !== 'owner') {
+      res.status(403).json({ error: 'only an owner can add a business' });
+      return;
+    }
+
+    const parsed = newBusiness.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid business', fields: fieldErrors(parsed.error) });
+      return;
+    }
+
+    const business = await Business.create({
+      slug: await uniqueSlug(parsed.data.businessName),
+      name: parsed.data.businessName,
+      category: parsed.data.category,
+      city: parsed.data.city,
+    });
+
+    const user = await User.findByIdAndUpdate(
+      auth.userId,
+      { $addToSet: { businessIds: String(business._id) } },
+      { new: true },
+    );
+    if (!user) {
+      // A token outlives its account. Same compensating delete as /register:
+      // a business nobody can reach would hold its slug forever.
+      await Business.deleteOne({ _id: business._id });
+      res.status(401).json({ error: 'invalid token' });
+      return;
+    }
+
+    logger.info({ businessId: String(business._id), userId: auth.userId }, 'business added to owner');
+
+    res.status(201).json({
+      businessId: String(business._id),
+      token: signToken({
+        userId: String(user._id),
+        role: user.role as UserRole,
+        businessIds: user.businessIds,
+      }),
     });
   });
 
