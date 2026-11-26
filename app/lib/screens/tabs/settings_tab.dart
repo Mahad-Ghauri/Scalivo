@@ -12,6 +12,7 @@ import '../services_screen.dart';
 import '../staff_screen.dart';
 import '../resources_screen.dart';
 import '../analytics_screen.dart';
+import '../follow_ups_screen.dart';
 import '../reviews_screen.dart';
 import '../grow_screen.dart';
 import '../client_import_screen.dart';
@@ -174,6 +175,17 @@ class _SettingsTabState extends State<SettingsTab> {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const AnalyticsScreen(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.event_repeat_rounded,
+                  label: 'Follow-ups',
+                  detail: 'Customers due back, and who needs a call',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FollowUpsScreen(),
                     ),
                   ),
                 ),

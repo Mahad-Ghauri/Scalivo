@@ -263,7 +263,10 @@ class CalendarController extends ChangeNotifier {
     }
   }
 
-  Future<ApiException?> walkIn({
+  /// The booking and its optional follow-up are reported separately: a
+  /// follow-up that fails to save must not read as a failed booking, or the
+  /// owner retries and books the customer twice.
+  Future<({ApiException? error, ApiException? followUpError})> walkIn({
     required String serviceId,
     required String staffId,
     required DateTime startsAt,
@@ -273,20 +276,56 @@ class CalendarController extends ChangeNotifier {
     String? appointmentHolderId,
     List<Map<String, String>>? additionalServices,
     String? requestId,
+    int? followUpDays,
+    String? followUpNote,
+  }) async {
+    ApiException? followUpError;
+    final error = await _mutate(() async {
+      final res = await _api.walkIn(
+        _businessId,
+        serviceId: serviceId,
+        staffId: staffId,
+        startsAt: startsAt,
+        name: name,
+        phone: phone,
+        clientId: clientId,
+        appointmentHolderId: appointmentHolderId,
+        additionalServices: additionalServices,
+        requestId: requestId,
+      );
+      final booking = res['booking'];
+      if (followUpDays == null || booking is! Map || booking['id'] is! String) {
+        return;
+      }
+      try {
+        await _api.setFollowUp(
+          _businessId,
+          booking['id'] as String,
+          afterDays: followUpDays,
+          note: followUpNote,
+        );
+      } on ApiException catch (err) {
+        followUpError = err;
+      }
+    });
+    return (error: error, followUpError: followUpError);
+  }
+
+  Future<ApiException?> setFollowUp(
+    CalendarEntry entry, {
+    required int afterDays,
+    String? note,
   }) => _mutate(
-    () => _api.walkIn(
+    () => _api.setFollowUp(
       _businessId,
-      serviceId: serviceId,
-      staffId: staffId,
-      startsAt: startsAt,
-      name: name,
-      phone: phone,
-      clientId: clientId,
-      appointmentHolderId: appointmentHolderId,
-      additionalServices: additionalServices,
-      requestId: requestId,
+      entry.id,
+      afterDays: afterDays,
+      note: note,
     ),
   );
+
+  Future<ApiException?> clearFollowUp(CalendarEntry entry) =>
+      _mutate(() => _api.clearFollowUp(_businessId, entry.id));
 
   /// Declare time off-limits.
   ///

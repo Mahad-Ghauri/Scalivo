@@ -144,7 +144,7 @@ class PushService {
   static String? notificationRoute(Map<String, dynamic> data) {
     final route = data[kPushRoute];
     final businessId = data['businessId'];
-    if (route is! String || !['/qr', '/briefings', '/appointments'].contains(route)) return null;
+    if (route is! String || !['/qr', '/briefings', '/appointments', '/follow-ups'].contains(route)) return null;
     if (businessId == null) return route;
     if (businessId is! String || !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(businessId)) return null;
     return Uri(path: route, queryParameters: {'businessId': businessId}).toString();

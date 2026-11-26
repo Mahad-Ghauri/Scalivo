@@ -155,6 +155,7 @@ class CalendarEntry {
     required this.source,
     this.revision = 0,
     this.reminderState,
+    this.followUp,
   });
 
   final String id;
@@ -181,6 +182,9 @@ class CalendarEntry {
   /// The customer's side of the reminders: 'confirmed' (replied 1),
   /// 'awaiting' (reminded, silent) or 'undelivered'. Null before any reminder.
   final String? reminderState;
+
+  /// The owner-set follow-up on this visit, or null.
+  final FollowUpInfo? followUp;
 
   bool get isTerminal =>
       status == 'completed' || status == 'no_show' || status == 'cancelled';
@@ -212,6 +216,9 @@ class CalendarEntry {
     priceMinor: json['priceMinor'] as int? ?? 0,
     source: json['source'] as String? ?? 'whatsapp',
     reminderState: parseReminderState(json['reminderState']),
+    followUp: json['followUp'] is Map<String, dynamic>
+        ? FollowUpInfo.fromJson(json['followUp'] as Map<String, dynamic>, timezone)
+        : null,
   );
 }
 
@@ -359,11 +366,17 @@ class ServiceItem {
     this.resourceRequirements = const [],
     this.requiresOwnerApproval = false,
     this.approvalWindowMinutes = 30,
+    this.followUpDays,
+    this.followUpNote,
   });
 
   final String id;
   final String name;
   final int durationMinutes;
+
+  /// Default follow-up for this service; pre-fills the owner's choice.
+  final int? followUpDays;
+  final String? followUpNote;
 
   /// Turnaround. The grid claims it so nothing can be booked into it, but the
   /// appointment is drawn at its service length — see CalendarEntry.endsAt.
@@ -402,6 +415,8 @@ class ServiceItem {
             .toList(growable: false),
     requiresOwnerApproval: json['requiresOwnerApproval'] as bool? ?? false,
     approvalWindowMinutes: json['approvalWindowMinutes'] as int? ?? 30,
+    followUpDays: json['followUpDays'] as int?,
+    followUpNote: json['followUpNote'] as String?,
   );
 }
 
@@ -813,4 +828,97 @@ class SetupChecklist {
         .map(SetupStep.fromJson)
         .toList(growable: false),
   );
+}
+
+/// Follow-up states, as the backend names them.
+const followUpStatuses = {
+  'scheduled',
+  'offered',
+  'nudged',
+  'booked',
+  'declined',
+  'lapsed',
+  'cancelled',
+};
+
+/// A follow-up the owner set on a visit: "come back in N days".
+class FollowUpInfo {
+  const FollowUpInfo({
+    required this.status,
+    required this.dueAt,
+    required this.serviceId,
+    this.staffId,
+    this.note,
+  });
+
+  final String status;
+  final DateTime dueAt;
+  final String serviceId;
+  final String? staffId;
+  final String? note;
+
+  /// Only a scheduled follow-up can change: once the customer has been
+  /// messaged, editing it would make the message they hold wrong.
+  bool get editable => status == 'scheduled' || status == 'cancelled';
+  bool get active => status != 'cancelled';
+
+  factory FollowUpInfo.fromJson(Map<String, dynamic> json, String timezone) {
+    final status = json['status'];
+    if (status is! String || !followUpStatuses.contains(status)) {
+      throw const FormatException('Invalid follow-up');
+    }
+    return FollowUpInfo(
+      status: status,
+      dueAt: _utc(json['dueAt'], timezone),
+      serviceId: json['serviceId'] as String,
+      staffId: json['staffId'] as String?,
+      note: json['note'] as String?,
+    );
+  }
+}
+
+/// One row of the owner's follow-up list.
+class FollowUpListItem {
+  const FollowUpListItem({
+    required this.bookingId,
+    required this.status,
+    required this.dueAt,
+    required this.visitAt,
+    required this.serviceName,
+    this.note,
+    this.lapsedReason,
+    this.staffName,
+    this.clientName,
+    this.clientPhone,
+  });
+
+  final String bookingId;
+  final String status;
+  final DateTime dueAt;
+  final DateTime visitAt;
+  final String serviceName;
+  final String? note;
+  final String? lapsedReason;
+  final String? staffName;
+  final String? clientName;
+  final String? clientPhone;
+
+  factory FollowUpListItem.fromJson(Map<String, dynamic> json, String timezone) {
+    final status = json['status'];
+    if (status is! String || !followUpStatuses.contains(status)) {
+      throw const FormatException('Invalid follow-up');
+    }
+    return FollowUpListItem(
+      bookingId: json['bookingId'] as String,
+      status: status,
+      dueAt: _utc(json['dueAt'], timezone),
+      visitAt: _utc(json['visitAt'], timezone),
+      serviceName: json['serviceName'] as String? ?? 'Service',
+      note: json['note'] as String?,
+      lapsedReason: json['lapsedReason'] as String?,
+      staffName: json['staffName'] as String?,
+      clientName: json['clientName'] as String?,
+      clientPhone: json['clientPhone'] as String?,
+    );
+  }
 }

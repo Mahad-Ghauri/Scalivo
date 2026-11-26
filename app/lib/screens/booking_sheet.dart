@@ -12,6 +12,7 @@ import '../api/models.dart';
 import '../format.dart';
 import '../state/calendar_controller.dart';
 import '../theme.dart';
+import '../widgets/follow_up_fields.dart';
 
 /// What the owner can do to one appointment.
 ///
@@ -110,6 +111,8 @@ class _BookingSheetState extends State<_BookingSheet> {
             _detail(Icons.sell_outlined, money(entry.priceMinor)),
             if (entry.clientPhone != null)
               _detail(Icons.phone_outlined, entry.clientPhone!),
+            if (entry.status != 'cancelled' && entry.status != 'no_show')
+              _followUpRow(),
             const SizedBox(height: 18),
 
             if (entry.isTerminal)
@@ -147,7 +150,7 @@ class _BookingSheetState extends State<_BookingSheet> {
                                 title: 'Mark this visit complete?',
                                 message: 'This updates the customer’s visit history. Corrections require an audit reason.',
                                 confirmLabel: 'MARK COMPLETE',
-                                action: () => widget.controller.complete(entry),
+                                action: _completeThenAskFollowUp,
                               )
                             : null,
                       ),
@@ -240,6 +243,155 @@ class _BookingSheetState extends State<_BookingSheet> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Complete, then ask the one question the owner can only answer now:
+  /// does this customer need to come back? Skipped when one is already set.
+  Future<ApiException?> _completeThenAskFollowUp() async {
+    final failure = await widget.controller.complete(entry);
+    if (failure != null || !mounted) return failure;
+    if (entry.followUp?.active ?? false) return null;
+    final choice = await _followUpDialog(
+      title: 'Does this customer need to come back?',
+      cancelLabel: 'NO FOLLOW-UP',
+    );
+    if (choice == null || !mounted) return null;
+    final saved = await widget.controller.setFollowUp(
+      entry,
+      afterDays: choice.days,
+      note: choice.note,
+    );
+    // The visit IS complete; a follow-up failure is reported, not returned —
+    // returning it would keep the sheet open as if completing had failed.
+    if (saved != null && mounted) _report(saved);
+    return null;
+  }
+
+  ServiceItem? get _service => widget.controller.services
+      .where((s) => s.id == entry.serviceId)
+      .firstOrNull;
+
+  Future<({int days, String? note})?> _followUpDialog({
+    required String title,
+    String cancelLabel = 'CANCEL',
+  }) {
+    final existing = entry.followUp?.active ?? false ? entry.followUp : null;
+    final days = TextEditingController(
+      text: existing != null
+          ? '${existing.dueAt.difference(entry.startsAt).inDays.clamp(1, 365)}'
+          : '${_service?.followUpDays ?? 21}',
+    );
+    final note = TextEditingController(
+      text: existing?.note ?? _service?.followUpNote ?? '',
+    );
+    String? error;
+    return showDialog<({int days, String? note})>(
+      context: context,
+      builder: (dialog) => StatefulBuilder(
+        builder: (dialog, update) => AlertDialog(
+          backgroundColor: Sc.paper,
+          title: Text(title, style: const TextStyle(fontSize: 19, color: Sc.ink)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FollowUpFields(
+                enabled: true,
+                showToggle: false,
+                onToggle: (_) {},
+                days: days,
+                note: note,
+              ),
+              if (error != null)
+                Text(error!, style: const TextStyle(color: Sc.dangerText, fontSize: 12.5)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: Text(cancelLabel, style: const TextStyle(color: Sc.slate)),
+            ),
+            TextButton(
+              onPressed: () {
+                final n = FollowUpFields.parseDays(days.text);
+                if (n == null) {
+                  update(() => error = 'Enter a whole number of days from 1 to 365.');
+                  return;
+                }
+                Navigator.pop(dialog, (days: n, note: FollowUpFields.cleanNote(note.text)));
+              },
+              child: const Text('SAVE FOLLOW-UP'),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() {
+      days.dispose();
+      note.dispose();
+    });
+  }
+
+  static const _followUpLabel = {
+    'scheduled': 'scheduled',
+    'offered': 'customer messaged',
+    'nudged': 'reminded once',
+    'booked': 'booked ✅',
+    'declined': 'customer said not now',
+    'lapsed': 'needs a call',
+  };
+
+  Widget _followUpRow() {
+    final f = entry.followUp?.active ?? false ? entry.followUp : null;
+    if (f == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _busy ? null : _editFollowUp,
+          icon: const Icon(Icons.event_repeat_rounded, size: 16),
+          label: const Text('Add follow-up'),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Row(
+        children: [
+          const Icon(Icons.event_repeat_rounded, size: 15, color: Sc.slateLight),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              'Follow-up ${relativeDay(f.dueAt)} · ${_followUpLabel[f.status] ?? f.status}'
+              '${f.note != null ? '\n${f.note}' : ''}',
+              style: const TextStyle(fontSize: 13.5, color: Sc.inkMuted),
+            ),
+          ),
+          if (f.editable) ...[
+            TextButton(
+              onPressed: _busy ? null : _editFollowUp,
+              child: const Text('Edit'),
+            ),
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => _run(() => widget.controller.clearFollowUp(entry)),
+              child: const Text('Remove', style: TextStyle(color: Sc.dangerText)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editFollowUp() async {
+    final choice = await _followUpDialog(title: 'Follow-up');
+    if (choice == null || !mounted) return;
+    await _run(
+      () => widget.controller.setFollowUp(
+        entry,
+        afterDays: choice.days,
+        note: choice.note,
       ),
     );
   }

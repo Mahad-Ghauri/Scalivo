@@ -236,7 +236,8 @@ class ApiClient {
     );
   }
 
-  Future<void> walkIn(
+  /// Returns the response so a caller can attach a follow-up to the booking.
+  Future<Map<String, dynamic>> walkIn(
     String businessId, {
     required String serviceId,
     required String staffId,
@@ -280,6 +281,44 @@ class ApiClient {
       },
     ),
   );
+
+  /// Attach or replace a visit's follow-up. Defaults on the server: the
+  /// visit's service and professional.
+  Future<FollowUpInfo> setFollowUp(
+    String businessId,
+    String bookingId, {
+    required int afterDays,
+    String? note,
+  }) async {
+    final json = await _send(
+      'PUT',
+      '/businesses/$businessId/bookings/$bookingId/follow-up',
+      body: {'afterDays': afterDays, 'note': note},
+    );
+    return FollowUpInfo.fromJson(
+      json['followUp'] as Map<String, dynamic>,
+      businessTimezone,
+    );
+  }
+
+  Future<void> clearFollowUp(String businessId, String bookingId) =>
+      _send('DELETE', '/businesses/$businessId/bookings/$bookingId/follow-up');
+
+  /// `status`: 'open' (default), 'lapsed' (needs a call) or 'all'.
+  Future<List<FollowUpListItem>> followUps(
+    String businessId, {
+    String status = 'open',
+  }) async {
+    final json = await _send(
+      'GET',
+      '/businesses/$businessId/follow-ups',
+      query: {'status': status},
+    );
+    return (json['followUps'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((row) => FollowUpListItem.fromJson(row, businessTimezone))
+        .toList(growable: false);
+  }
 
   /// `outcome` is 'completed' or 'no_show'. Cancelling has its own route
   /// because it is the only one that frees the slot.

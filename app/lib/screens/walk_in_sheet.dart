@@ -15,6 +15,7 @@ import '../api/api_client.dart';
 import '../api/models.dart';
 import '../format.dart';
 import '../state/calendar_controller.dart';
+import '../widgets/follow_up_fields.dart';
 import '../theme.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_dropdown.dart';
@@ -59,6 +60,9 @@ class _WalkInSheet extends StatefulWidget {
 class _WalkInSheetState extends State<_WalkInSheet> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  final _followUpDays = TextEditingController(text: '21');
+  final _followUpNote = TextEditingController();
+  bool _followUp = false;
 
   ServiceItem? _service;
   StaffSummary? _staff;
@@ -85,6 +89,8 @@ class _WalkInSheetState extends State<_WalkInSheet> {
   void dispose() {
     _name.dispose();
     _phone.dispose();
+    _followUpDays.dispose();
+    _followUpNote.dispose();
     super.dispose();
   }
 
@@ -169,6 +175,11 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                       ? null
                       : (s) => setState(() {
                           _service = s;
+                          // Pre-filled from the service's default, and
+                          // switched on when the service has one.
+                          _followUp = s?.followUpDays != null;
+                          _followUpDays.text = '${s?.followUpDays ?? 21}';
+                          _followUpNote.text = s?.followUpNote ?? '';
                           _selectedTime = false;
                           _requestId = null;
                           _staff = null;
@@ -341,6 +352,14 @@ class _WalkInSheetState extends State<_WalkInSheet> {
                       'reminder, and a separate profile from their WhatsApp history.',
                   enabled: !_busy && _client == null,
                   keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 18),
+                FollowUpFields(
+                  enabled: _followUp,
+                  busy: _busy,
+                  onToggle: (on) => setState(() => _followUp = on),
+                  days: _followUpDays,
+                  note: _followUpNote,
                 ),
                 if (_formError != null) ...[
                   const SizedBox(height: 14),
@@ -539,6 +558,14 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       return;
     }
 
+    final followUpDays = _followUp
+        ? FollowUpFields.parseDays(_followUpDays.text)
+        : null;
+    if (_followUp && followUpDays == null) {
+      setState(() => _formError = 'Follow-up days must be a whole number from 1 to 365.');
+      return;
+    }
+
     setState(() {
       _busy = true;
       _formError = null;
@@ -550,7 +577,7 @@ class _WalkInSheetState extends State<_WalkInSheet> {
         List<int>.generate(24, (_) => random.nextInt(256)),
       ).replaceAll('=', '');
     }
-    final failure = await widget.controller.walkIn(
+    final result = await widget.controller.walkIn(
       serviceId: _service!.id,
       staffId: _staff!.id,
       startsAt: _startsAt,
@@ -563,7 +590,10 @@ class _WalkInSheetState extends State<_WalkInSheet> {
           {'serviceId': step.service!.id, 'staffId': step.staff!.id},
       ],
       requestId: _additional.isEmpty ? null : _requestId,
+      followUpDays: followUpDays,
+      followUpNote: _followUp ? FollowUpFields.cleanNote(_followUpNote.text) : null,
     );
+    final failure = result.error;
 
     if (!mounted) return;
     setState(() => _busy = false);
@@ -576,6 +606,18 @@ class _WalkInSheetState extends State<_WalkInSheet> {
       return;
     }
 
+    if (result.followUpError != null) {
+      // Booked either way — say so, and where to add the follow-up instead.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            "Booked, but the follow-up wasn't saved: "
+            '${result.followUpError!.message}. Add it from the appointment.',
+          ),
+        ),
+      );
+    }
     Navigator.of(context).pop(true);
   }
 
