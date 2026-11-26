@@ -5,6 +5,7 @@ import {
   type CalendarDay,
   type CalendarEntry,
   type CalendarView,
+  followUpSummary,
   reminderState,
 } from '@scalivo/shared';
 import { BlockedTime } from '../models/BlockedTime.js';
@@ -138,6 +139,7 @@ export async function getCalendar(query: CalendarQuery): Promise<CalendarView | 
       priceMinor: booking.priceMinor,
       source: booking.source,
       reminderState: reminderState(booking),
+      followUp: followUpSummary(booking.followUp),
     });
   }
 

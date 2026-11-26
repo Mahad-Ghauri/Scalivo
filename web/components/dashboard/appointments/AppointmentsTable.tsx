@@ -3,7 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { BOOKING_STATUS, type BookingStatus, type ReminderState } from '@scalivo/shared';
+import {
+  BOOKING_STATUS,
+  type BookingStatus,
+  type FollowUpSummary,
+  type ReminderState,
+} from '@scalivo/shared';
 import { ReminderBadge } from '../ReminderBadge';
 import { formatPrice } from '@/lib/format';
 
@@ -16,8 +21,14 @@ export interface AppointmentDTO {
   priceMinor: number;
   source: string;
   reminderState?: ReminderState;
+  followUp?: FollowUpSummary | null;
   client: { id: string; name: string | null; phone: string | null } | null;
-  service: { id: string; name: string } | null;
+  service: {
+    id: string;
+    name: string;
+    followUpDays?: number | null;
+    followUpNote?: string | null;
+  } | null;
   staff: { id: string; name: string } | null;
 }
 

@@ -34,6 +34,13 @@ const serviceSchema = new Schema(
     displayOrder: { type: Number, default: 0 },
 
     /**
+     * Default follow-up for this service ("session 2 in 21 days"). Only a
+     * default: the owner confirms or changes it per booking. Null = none.
+     */
+    followUpDays: { type: Number, default: null },
+    followUpNote: { type: String, default: null },
+
+    /**
      * Retiring a service hides it from the menu without breaking history.
      *
      * There is no hard delete on purpose: every Booking stores a serviceId, and

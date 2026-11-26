@@ -51,7 +51,19 @@ export async function applyPendingPrompt(
    * The prompt is left armed (the router clears it only when it was applied),
    * so the same "1" confirms the appointment once the flow is over.
    */
-  if (pending.kind === 'reminder' && conversation) return conversation;
+  if (pending.kind !== 'rating' && conversation) return conversation;
+
+  if (pending.kind === 'followup') {
+    return {
+      invalidCount: 0,
+      state: CONVERSATION_STATE.AWAITING_FOLLOWUP_REPLY,
+      followUp: {
+        sourceBookingId: pending.bookingId,
+        ...(pending.slotStart ? { slotStart: pending.slotStart } : {}),
+        ...(pending.staffId ? { staffId: pending.staffId } : {}),
+      },
+    };
+  }
 
   return {
     ...(conversation ?? { invalidCount: 0 }),

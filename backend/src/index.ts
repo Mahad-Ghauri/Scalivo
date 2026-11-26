@@ -25,6 +25,8 @@ import { startReconcileJob } from './session-health/reconcile.js';
 import { handleMessageAck } from './notifications/ack.js';
 import { startReminderJob } from './notifications/reminders.js';
 import { startEscalationJob } from './notifications/escalation.js';
+import { startFollowUpJob } from './followups/job.js';
+import { createFollowUpRouter } from './followups/routes.js';
 import { startReviewRequestJob } from './reviews/request.js';
 import { startNudgeJob } from './retention/nudges.js';
 import { startCampaignJob } from './retention/campaigns.js';
@@ -138,6 +140,7 @@ export function createApp(): Express {
   app.use('/businesses', createAgentRouter({ redis, provider }));
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
+  app.use('/businesses', createFollowUpRouter());
 
   // Anonymous: the marketplace and web booking. Gated on `published`, not on a
   // tenant — see public/routes.ts for why it can never live under /businesses.
@@ -190,6 +193,10 @@ async function main() {
   // Every minute, SINGLE INSTANCE: owner alerts for unconfirmed or undelivered
   // reminders. Each alert is claimed on the booking, so overlaps cannot double-push.
   startEscalationJob();
+
+  // Every five minutes, SINGLE INSTANCE: offers, nudges and lapses owner-set
+  // follow-ups. Each transition is a conditional update, so overlaps send nothing twice.
+  startFollowUpJob({ redis, provider: createMessagingProvider() });
 
   // Every five minutes rather than every minute: a rating request is due a
   // couple of hours after an appointment ends, and nobody can tell the

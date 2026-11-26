@@ -36,6 +36,8 @@ export const CONVERSATION_STATE = {
   AWAITING_REVIEW_COMMENT: 'awaiting_review_comment',
   /** A reminder asked "1 confirm · 2 reschedule · 3 cancel"; never persisted. */
   AWAITING_REMINDER_REPLY: 'awaiting_reminder_reply',
+  /** A follow-up offer asked "1 book this slot · 2 other times · 3 not now"; never persisted. */
+  AWAITING_FOLLOWUP_REPLY: 'awaiting_followup_reply',
   /**
    * Picking WHICH existing booking. Shared by cancel and reschedule because the
    * question is identical — `intent` carries which one asked, so a customer who
@@ -133,6 +135,9 @@ export interface Conversation {
    * holds the present cannot answer a question about the past.
    */
   opener?: FlowOpener;
+
+  /** AWAITING_FOLLOWUP_REPLY only: the offer being answered. */
+  followUp?: { sourceBookingId: string; slotStart?: string; staffId?: string };
 }
 
 /** docs/fsm-design.md §4.2 — enough to absorb typos, few enough to escape a loop. */

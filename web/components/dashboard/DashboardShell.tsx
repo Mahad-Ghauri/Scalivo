@@ -18,6 +18,7 @@ const ROUTES = [
   { name: 'Overview', href: '' },
   { name: 'Calendar', href: '/calendar' },
   { name: 'Appointments', href: '/appointments' },
+  { name: 'Follow-ups', href: '/follow-ups' },
   { name: 'Customers', href: '/customers' },
   { name: 'Reviews', href: '/reviews' },
   { name: 'Services', href: '/services' },

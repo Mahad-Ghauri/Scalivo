@@ -1,5 +1,5 @@
 import type { BookingStatus } from '../constants/booking-status.js';
-import type { Booking, ReminderState } from './booking.js';
+import type { Booking, FollowUpSummary, ReminderState } from './booking.js';
 
 /**
  * What the owner's calendar shows.
@@ -32,6 +32,8 @@ export interface CalendarEntry {
   source: Booking['source'];
   /** Customer-side reminder badge; see reminderState(). */
   reminderState?: ReminderState;
+  /** The owner-set follow-up on this visit, if any. */
+  followUp?: FollowUpSummary | null;
 }
 
 /** Time the owner has declared unavailable. A null staffId closes the business. */

@@ -68,6 +68,9 @@ export interface Service {
   depositRequired: boolean;
   depositAmountMinor: number | null;
   displayOrder: number;
+  /** Default follow-up ("session 2 in 21 days"); the owner confirms per booking. */
+  followUpDays?: number | null;
+  followUpNote?: string | null;
   /**
    * Retired services stop being offered but keep their history. There is no
    * hard delete: bookings reference a serviceId, and removing the row turns

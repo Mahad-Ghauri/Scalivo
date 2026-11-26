@@ -3,6 +3,7 @@ import type { CalendarEntry, Service, Staff } from '@scalivo/shared';
 import { formatPrice } from '@/lib/marketplace';
 import { CalendarDetailActions } from './CalendarDetailActions';
 import { ReminderBadge } from './ReminderBadge';
+import { FollowUpEditor } from './FollowUpEditor';
 
 interface CalendarDetailPanelProps {
   businessId: string;
@@ -103,6 +104,18 @@ export function CalendarDetailPanel({
             <ReminderBadge state={entry.reminderState} />
           </div>
         </div>
+
+        {entry.status !== 'cancelled' && entry.status !== 'no_show' && (
+          <FollowUpEditor
+            key={entry.id}
+            businessId={businessId}
+            bookingId={entry.id}
+            followUp={entry.followUp}
+            defaultDays={services.find((s) => s.id === entry.serviceId)?.followUpDays}
+            defaultNote={services.find((s) => s.id === entry.serviceId)?.followUpNote}
+            timezone={timezone}
+          />
+        )}
 
         {/* Action placeholders for Phase 3b/3c - explicitly inert */}
         <CalendarDetailActions

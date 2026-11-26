@@ -8,6 +8,7 @@ import {
   BOOKING_STATUS,
   type BookingResult,
   type MessagingProvider,
+  followUpSummary,
   reminderState,
 } from '@scalivo/shared';
 import { requireAuth, requireTenant, getAuth } from '../auth/middleware.js';
@@ -327,10 +328,18 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
       priceMinor: booking.priceMinor,
       source: booking.source,
       reminderState: reminderState(booking),
+      followUp: followUpSummary(booking.followUp),
       client: client
         ? { id: String(client._id), name: client.displayName, phone: client.phone }
         : null,
-      service: service ? { id: String(service._id), name: service.name } : null,
+      service: service
+        ? {
+            id: String(service._id),
+            name: service.name,
+            followUpDays: service.followUpDays ?? null,
+            followUpNote: service.followUpNote ?? null,
+          }
+        : null,
       staff: staff ? { id: String(staff._id), name: staff.name } : null,
     });
   });

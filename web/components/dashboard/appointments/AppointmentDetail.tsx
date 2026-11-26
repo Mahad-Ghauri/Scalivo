@@ -7,6 +7,7 @@ import { BOOKING_STATUS, type BookingStatus } from '@scalivo/shared';
 import { formatPrice } from '@/lib/format';
 import type { AppointmentDTO } from './AppointmentsTable';
 import { ReminderBadge } from '../ReminderBadge';
+import { FollowUpEditor } from '../FollowUpEditor';
 
 interface AppointmentDetailProps {
   businessId: string;
@@ -22,6 +23,8 @@ export function AppointmentDetail({ businessId, appointmentId, timezone }: Appoi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appointment, setAppointment] = useState<AppointmentDTO | null>(null);
+  /** Set by "Mark Completed": stay open and ask about a follow-up. */
+  const [justCompleted, setJustCompleted] = useState(false);
   
   useEffect(() => {
     async function load() {
@@ -75,6 +78,13 @@ export function AppointmentDetail({ businessId, appointmentId, timezone }: Appoi
     try {
       await setAppointmentOutcomeAction(businessId, appointmentId, outcome);
       router.refresh();
+      if (outcome === BOOKING_STATUS.COMPLETED) {
+        // The moment the owner knows whether they need to come back.
+        setAppointment(await getAppointmentAction(businessId, appointmentId));
+        setJustCompleted(true);
+        setLoading(false);
+        return;
+      }
       close();
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Failed to set outcome');
@@ -169,6 +179,20 @@ export function AppointmentDetail({ businessId, appointmentId, timezone }: Appoi
                 </div>
               </div>
               
+              {appointment.status !== BOOKING_STATUS.CANCELLED &&
+                appointment.status !== BOOKING_STATUS.NO_SHOW && (
+                  <FollowUpEditor
+                    key={`${appointment.id}-${justCompleted}`}
+                    businessId={businessId}
+                    bookingId={appointment.id}
+                    followUp={appointment.followUp}
+                    defaultDays={appointment.service?.followUpDays}
+                    defaultNote={appointment.service?.followUpNote}
+                    timezone={timezone}
+                    emphasise={justCompleted}
+                  />
+                )}
+
               {!isTerminal && (
                 <div className="border-t border-line pt-6 flex flex-col gap-3">
                    <h3 className="text-sm font-semibold text-ink mb-2">Actions</h3>

@@ -176,7 +176,8 @@ export async function handleInboundMessage(
     // An answered prompt must not capture the next message too.
     if (
       conversation?.state === CONVERSATION_STATE.AWAITING_RATING ||
-      conversation?.state === CONVERSATION_STATE.AWAITING_REMINDER_REPLY
+      conversation?.state === CONVERSATION_STATE.AWAITING_REMINDER_REPLY ||
+      conversation?.state === CONVERSATION_STATE.AWAITING_FOLLOWUP_REPLY
     ) {
       await clearPendingPrompt(deps.redis, businessId, clientId);
     }

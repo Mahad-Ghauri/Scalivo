@@ -128,8 +128,12 @@ const pendingPromptKey = (businessId: string, clientId: string) =>
  * answers whatever they were asked last.
  */
 export interface PendingPrompt {
-  kind: 'rating' | 'reminder';
+  kind: 'rating' | 'reminder' | 'followup';
+  /** For a follow-up: the visit it follows, not a booking to act on. */
   bookingId: string;
+  /** Follow-up only: the slot offered as option 1, and who it is with. */
+  slotStart?: string;
+  staffId?: string;
 }
 
 export async function readPendingPrompt(

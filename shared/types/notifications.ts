@@ -57,6 +57,13 @@ export const NOTIFICATION_KIND = {
    * somebody has to remember to increment.
    */
   CAMPAIGN: 'campaign',
+
+  /**
+   * "Your laser session 2 is due — want Sat 11:00?" A follow-up the OWNER asked
+   * for on a completed visit. Care, not marketing: the customer is mid-way
+   * through a treatment. Still honours opt-out (checked by the job).
+   */
+  FOLLOW_UP: 'follow_up',
 } as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KIND)[keyof typeof NOTIFICATION_KIND];

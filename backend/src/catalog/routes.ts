@@ -39,6 +39,8 @@ const serviceBody = z.object({
   resourceRequirements: resourceRequirementsSchema.default([]),
   requiresOwnerApproval: z.boolean().default(false),
   approvalWindowMinutes: z.number().int().min(5).max(1440).default(30),
+  followUpDays: z.number().int().min(1).max(365).nullable().default(null),
+  followUpNote: z.string().trim().max(200).nullable().default(null),
 });
 
 /**

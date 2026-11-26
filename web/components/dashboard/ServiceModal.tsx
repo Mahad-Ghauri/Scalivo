@@ -43,6 +43,9 @@ export function ServiceModal({
   );
 
   const [approval, setApproval] = useState(existingService?.requiresOwnerApproval ?? false);
+  const [followUpOn, setFollowUpOn] = useState(!!existingService?.followUpDays);
+  const [followUpDays, setFollowUpDays] = useState(String(existingService?.followUpDays ?? 21));
+  const [followUpNote, setFollowUpNote] = useState(existingService?.followUpNote ?? '');
   const [requirements, setRequirements] = useState<string[][]>(
     (existingService?.resourceRequirements ?? []).map((group) => [...group.anyOfResourceIds]),
   );
@@ -140,6 +143,8 @@ export function ServiceModal({
       priceMinor: priceNum * 100, // Convert to minor units (paisa)
       depositRequired,
       depositAmountMinor: depositRequired ? depositNum * 100 : null,
+      followUpDays: followUpOn ? Number(followUpDays) : null,
+      followUpNote: followUpOn ? followUpNote.trim() || null : null,
       active,
     };
 
@@ -370,6 +375,50 @@ export function ServiceModal({
                 Add resource requirement
               </button>
             </fieldset>
+
+            <div className="pt-2 border-t border-line">
+              <label className="flex items-center space-x-2 text-sm font-medium text-ink">
+                <input
+                  type="checkbox"
+                  className="rounded text-brand focus:ring-brand"
+                  checked={followUpOn}
+                  onChange={(e) => setFollowUpOn(e.target.checked)}
+                  disabled={loading}
+                />
+                <span>Usually needs a follow-up</span>
+              </label>
+              {followUpOn && (
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    After
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      required
+                      className="w-20 rounded-md border border-line px-2 py-1 text-sm"
+                      value={followUpDays}
+                      onChange={(e) => setFollowUpDays(e.target.value)}
+                      disabled={loading}
+                    />
+                    days
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    placeholder="Default note, e.g. Next session of your course"
+                    className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                    value={followUpNote}
+                    onChange={(e) => setFollowUpNote(e.target.value)}
+                    disabled={loading}
+                  />
+                  <p className="text-xs text-muted">
+                    Pre-fills the follow-up when you book or complete this service. You can change it
+                    each time.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <div className="pt-2 border-t border-line">
               <label className="flex items-center space-x-2 text-sm font-medium text-ink">

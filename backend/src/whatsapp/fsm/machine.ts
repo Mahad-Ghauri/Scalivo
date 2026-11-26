@@ -22,6 +22,8 @@ import {
   slotsFor,
 } from '../../bookings/availability.js';
 import { holdKeys, releaseHold, heldPlan } from '../../bookings/holds.js';
+import { declineFollowUp } from '../../followups/job.js';
+import { toBusinessLocal } from '../../lib/time.js';
 import { cancelBooking, createBooking, holdSlot } from '../../bookings/create.js';
 import { attachComment, recordRating } from '../../reviews/record.js';
 import { rescheduleReservation } from '../../calendar/reschedule.js';
@@ -1129,6 +1131,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
   if (ctx.conversation?.state === CONVERSATION_STATE.AWAITING_REMINDER_REPLY) {
     return answerReminder(redis, ctx, ctx.conversation);
   }
+  if (ctx.conversation?.state === CONVERSATION_STATE.AWAITING_FOLLOWUP_REPLY) {
+    return answerFollowUp(redis, ctx, ctx.conversation);
+  }
   const conversation = ctx.conversation;
   const recipient = /^appointment for (.+)$/i.exec(ctx.text.trim());
   const recipientStates: string[] = [
@@ -1498,6 +1503,7 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     case CONVERSATION_STATE.GREETING:
     case CONVERSATION_STATE.AWAITING_DEPOSIT:
     case CONVERSATION_STATE.AWAITING_REMINDER_REPLY: // handled at the top of advance()
+    case CONVERSATION_STATE.AWAITING_FOLLOWUP_REPLY: // likewise
     case CONVERSATION_STATE.RESCHEDULING:
       return { replies: [], conversation: null };
   }
@@ -1617,6 +1623,71 @@ async function answerReminder(
     bookingId,
     invalidCount: 0,
   });
+}
+
+/**
+ * The answer to a follow-up offer: "1 book this slot · 2 other times · 3 not now".
+ *
+ * "1" goes through the ordinary confirm step (hold → "Reply YES"), so a
+ * follow-up booking is made by exactly the same code as any other, and a slot
+ * that went in the meantime is re-offered rather than double-booked. The job
+ * notices the new booking and closes the follow-up as BOOKED.
+ *
+ * As with reminders, anything else is a normal message, not invalid input.
+ */
+const FOLLOWUP_OTHER = /^(2|other( times?)?|another time)[.!]?$/i;
+const FOLLOWUP_NOT_NOW = /^(3|no|n|nope|nahi|not now|no thanks)[.!]?$/i;
+
+async function answerFollowUp(
+  redis: Redis,
+  ctx: TurnContext,
+  conversation: Conversation,
+): Promise<TurnResult> {
+  const text = ctx.text.trim();
+  const offer = conversation.followUp;
+  const choice = REMINDER_CONFIRM.test(text)
+    ? 'book'
+    : FOLLOWUP_OTHER.test(text)
+      ? 'other'
+      : FOLLOWUP_NOT_NOW.test(text)
+        ? 'decline'
+        : null;
+  if (!choice || !offer) return advance(redis, { ...ctx, conversation: null });
+
+  const source = await Booking.findOne({
+    _id: offer.sourceBookingId,
+    businessId: ctx.businessId,
+    clientId: ctx.clientId,
+  }).select('followUp');
+  const f = source?.followUp;
+  if (!f || (f.status !== 'offered' && f.status !== 'nudged')) {
+    return advance(redis, { ...ctx, conversation: null });
+  }
+
+  if (choice === 'decline') {
+    await declineFollowUp(ctx.businessId, offer.sourceBookingId, ctx.now ?? new Date());
+    return { replies: [copy.followUpDeclined], conversation: null };
+  }
+
+  const base: Conversation = {
+    state: CONVERSATION_STATE.SELECTING_DATE,
+    serviceId: f.serviceId,
+    ...((offer.staffId ?? f.staffId) ? { staffId: (offer.staffId ?? f.staffId)! } : {}),
+    invalidCount: 0,
+  };
+
+  if (choice === 'book' && offer.slotStart && offer.staffId) {
+    const slotStart = new Date(offer.slotStart);
+    const date = toBusinessLocal(slotStart, ctx.timezone).toISODate()!;
+    return promptConfirm(
+      redis,
+      ctx,
+      { ...base, state: CONVERSATION_STATE.SELECTING_SLOT, staffId: offer.staffId, date },
+      slotStart,
+    );
+  }
+
+  return promptDate(redis, ctx, base);
 }
 
 /** Build the CANCELLING / RESCHEDULING prompt from the customer's real bookings. */

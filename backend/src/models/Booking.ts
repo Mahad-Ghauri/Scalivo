@@ -1,5 +1,5 @@
 import { Schema, model } from 'mongoose';
-import { BOOKING_STATUS, DEPOSIT_STATUS, GROW_CHANNELS } from '@scalivo/shared';
+import { BOOKING_STATUS, DEPOSIT_STATUS, FOLLOW_UP_STATUS, GROW_CHANNELS } from '@scalivo/shared';
 
 /**
  * An appointment. `startsAt` is always UTC.
@@ -73,6 +73,35 @@ const bookingSchema = new Schema(
      * Stamped by a conditional update (`field: null`), which is the claim: two
      * overlapping ticks cannot both win it, so the owner is never pinged twice.
      */
+    /**
+     * A follow-up the owner asked for ("laser session 2 in 21 days").
+     * Null when none. The job in followups/job.ts walks `status` forward;
+     * see FOLLOW_UP_STATUS in shared for the states.
+     */
+    followUp: {
+      type: new Schema(
+        {
+          dueAt: { type: Date, required: true },
+          serviceId: { type: String, required: true },
+          staffId: { type: String, default: null },
+          note: { type: String, default: null },
+          status: {
+            type: String,
+            enum: Object.values(FOLLOW_UP_STATUS),
+            default: FOLLOW_UP_STATUS.SCHEDULED,
+          },
+          setAt: { type: Date, required: true },
+          offeredAt: { type: Date, default: null },
+          nudgedAt: { type: Date, default: null },
+          closedAt: { type: Date, default: null },
+          lapsedReason: { type: String, default: null },
+          bookedBookingId: { type: String, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+
     /** First reminder that actually went out — the "awaiting reply" badge. */
     remindedAt: { type: Date, default: null },
     unconfirmedAlertAt: { type: Date, default: null },
@@ -125,5 +154,8 @@ bookingSchema.index(
   { depositToken: 1 },
   { unique: true, partialFilterExpression: { depositToken: { $type: 'string' } } },
 );
+
+/** The follow-up job's scan: open follow-ups only. */
+bookingSchema.index({ 'followUp.status': 1, 'followUp.dueAt': 1 }, { sparse: true });
 
 export const Booking = model('Booking', bookingSchema);

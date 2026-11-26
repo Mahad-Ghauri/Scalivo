@@ -9,6 +9,7 @@ import {
   getSequenceAvailabilityAction,
   getAppointmentHoldersAction,
 } from '@/lib/actions/booking';
+import { setFollowUpAction } from '@/lib/actions/followups';
 
 interface BookingFormProps {
   businessId: string;
@@ -35,6 +36,10 @@ export function BookingForm({
   const [holders, setHolders] = useState<{ id: string; name: string }[]>([]);
   const [holderError, setHolderError] = useState(false);
   const [extra, setExtra] = useState<{ serviceId: string; staffId: string }[]>([]);
+  // Optional follow-up, prefilled from the service's default when it has one.
+  const [followUpOn, setFollowUpOn] = useState(false);
+  const [followUpDays, setFollowUpDays] = useState('21');
+  const [followUpNote, setFollowUpNote] = useState('');
   const requestId = useRef<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sequenceSlots, setSequenceSlots] = useState<SequenceSlot[]>([]);
@@ -160,9 +165,24 @@ export function BookingForm({
       startsAt: timeStr,
     });
 
-    setIsSubmitting(false);
+    if (!res.success || !followUpOn) setIsSubmitting(false);
 
     if (res.success) {
+      // Attached after the booking exists: a follow-up that fails to save must
+      // not undo a booking that succeeded — the owner is told and can add it
+      // from the appointment instead.
+      if (followUpOn && res.booking?.id) {
+        const fu = await setFollowUpAction(businessId, res.booking.id, {
+          afterDays: Number(followUpDays),
+          note: followUpNote.trim() || null,
+        });
+        setIsSubmitting(false);
+        if (!fu.success) {
+          setGenericError(`Booked, but the follow-up wasn't saved: ${fu.error}`);
+          router.refresh();
+          return;
+        }
+      }
       setSuccessMessage('Booking successfully created!');
       // Wait a moment for screen readers to announce, then close
       closeTimer.current = setTimeout(() => {
@@ -214,6 +234,10 @@ export function BookingForm({
           onChange={(e) => {
             setServiceId(e.target.value);
             setStaffId(extra.length ? '' : 'any');
+            const picked = services.find((s) => s.id === e.target.value);
+            setFollowUpOn(!!picked?.followUpDays);
+            setFollowUpDays(String(picked?.followUpDays ?? 21));
+            setFollowUpNote(picked?.followUpNote ?? '');
           }}
           className="h-11 w-full rounded-lg border border-line bg-white px-3 py-2 text-[15px] outline-none transition-colors hover:border-ink/20 focus:border-ink focus:ring-1 focus:ring-ink"
           required
@@ -482,6 +506,48 @@ export function BookingForm({
           )}
         </div>
       </div>
+
+      <fieldset className="rounded-lg border border-line p-3">
+        <label className="flex items-center gap-2 text-[14px] font-semibold text-ink">
+          <input
+            type="checkbox"
+            checked={followUpOn}
+            onChange={(e) => setFollowUpOn(e.target.checked)}
+            className="rounded text-brand focus:ring-brand"
+          />
+          Needs a follow-up
+        </label>
+        {followUpOn && (
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center gap-2 text-[14px] text-ink">
+              Come back in
+              <input
+                type="number"
+                min={1}
+                max={365}
+                required
+                value={followUpDays}
+                onChange={(e) => setFollowUpDays(e.target.value)}
+                className="w-20 rounded-md border border-line px-2 py-1 text-[14px]"
+                aria-label="Days until follow-up"
+              />
+              days after this appointment
+            </label>
+            <input
+              type="text"
+              maxLength={200}
+              value={followUpNote}
+              onChange={(e) => setFollowUpNote(e.target.value)}
+              placeholder="Note for the customer, e.g. Session 2 of 6"
+              className="w-full rounded-md border border-line px-3 py-2 text-[14px]"
+            />
+            <p className="text-xs text-muted">
+              Once the visit is marked complete, the customer gets a WhatsApp message 3 days before
+              with a time they can book in one reply.
+            </p>
+          </div>
+        )}
+      </fieldset>
 
       <div className="mt-4 flex justify-end">
         <button

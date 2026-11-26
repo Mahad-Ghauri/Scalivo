@@ -289,6 +289,8 @@ async function bumpAttempt(id: unknown, lastError: string): Promise<void> {
  */
 function stillOwed(kind: string, status: string | undefined): boolean {
   if (kind === NOTIFICATION_KIND.REVIEW_REQUEST) return status === BOOKING_STATUS.COMPLETED;
+  // A follow-up hangs off the visit that happened.
+  if (kind === NOTIFICATION_KIND.FOLLOW_UP) return status === BOOKING_STATUS.COMPLETED;
   // The payment link matters only while the booking is still waiting for it:
   // one queued during an outage and sent after the customer paid would ask
   // them to pay twice.

@@ -227,6 +227,32 @@ export const reminder = (details: {
 export const reminderConfirmed = (details: { startsAt: Date; timezone: string }) =>
   `Thanks, you're confirmed ✅ See you ${formatLocal(details.startsAt, details.timezone)}.`;
 
+/**
+ * The follow-up offer. Leads with the reason (the owner's note, or the service)
+ * because it arrives weeks after the last message in this chat, and names a
+ * concrete slot so "1" is a whole booking, not the start of a menu.
+ */
+export const followUpOffer = (d: {
+  businessName: string;
+  serviceName: string;
+  note: string | null;
+  dueAt: Date;
+  timezone: string;
+  slot: { startsAt: Date; staffName: string } | null;
+  nudge: boolean;
+}) =>
+  (d.nudge ? `Just checking in from ${d.businessName} 🙂\n` : `Hi from ${d.businessName}!\n`) +
+  `Your follow-up ${d.serviceName} is due around ${formatLocal(d.dueAt, d.timezone, 'ccc d LLL')}.` +
+  (d.note ? `\n${d.note}` : '') +
+  '\n\n' +
+  (d.slot
+    ? `Want ${formatLocal(d.slot.startsAt, d.timezone)} with ${d.slot.staffName}?\n\n` +
+      `Reply 1 to book it · 2 for other times · 3 for not now`
+    : `Reply 1 to pick a time · 3 for not now`);
+
+export const followUpDeclined =
+  "No problem — we won't remind you about this one. Send HI whenever you'd like to book.";
+
 /** The reply arrived after the owner cancelled/moved it, or after it started. */
 export const reminderBookingGone =
   "That appointment is no longer upcoming. Send HI if you'd like to book a new one.";

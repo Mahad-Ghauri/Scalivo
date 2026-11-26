@@ -150,3 +150,71 @@ export interface SequenceSlot {
   startsAt: string;
   appointments: { serviceId: string; staffId: string; startsAt: string; durationMinutes: number }[];
 }
+
+/**
+ * A follow-up the owner attached to a booking: "come back in N days for X".
+ *
+ *   scheduled → waiting for the visit to complete and the due window to open
+ *   offered   → customer messaged with a suggested slot (1 book · 2 other · 3 no)
+ *   nudged    → one gentle reminder after no reply
+ *   booked    → the customer has a later booking for that service
+ *   declined  → customer replied "not now"
+ *   lapsed    → no reply / unreachable / opted out — on the owner's call list
+ *   cancelled → the visit never happened, or the owner removed it
+ */
+export const FOLLOW_UP_STATUS = {
+  SCHEDULED: 'scheduled',
+  OFFERED: 'offered',
+  NUDGED: 'nudged',
+  BOOKED: 'booked',
+  DECLINED: 'declined',
+  LAPSED: 'lapsed',
+  CANCELLED: 'cancelled',
+} as const;
+export type FollowUpStatus = (typeof FOLLOW_UP_STATUS)[keyof typeof FOLLOW_UP_STATUS];
+
+/** Days before dueAt the customer is first messaged. */
+export const FOLLOW_UP_OFFER_DAYS_BEFORE = 3;
+/** Days of silence before the nudge, and again before it lapses. */
+export const FOLLOW_UP_NUDGE_AFTER_DAYS = 3;
+
+/** One row of the owner's "Follow-ups" list. */
+export interface FollowUpItem {
+  bookingId: string;
+  status: FollowUpStatus;
+  dueAt: Date;
+  note: string | null;
+  lapsedReason: string | null;
+  serviceId: string;
+  serviceName: string;
+  staffId: string | null;
+  staffName: string | null;
+  clientId: string;
+  clientName: string | null;
+  clientPhone: string | null;
+  /** The visit this follows. */
+  visitAt: Date;
+  bookedBookingId: string | null;
+}
+
+/** What a booking's screens show about its follow-up. */
+export interface FollowUpSummary {
+  status: FollowUpStatus;
+  dueAt: Date;
+  serviceId: string;
+  staffId: string | null;
+  note: string | null;
+}
+
+export function followUpSummary(
+  f: { status: string; dueAt: Date; serviceId: string; staffId?: string | null; note?: string | null } | null | undefined,
+): FollowUpSummary | null {
+  if (!f) return null;
+  return {
+    status: f.status as FollowUpStatus,
+    dueAt: f.dueAt,
+    serviceId: f.serviceId,
+    staffId: f.staffId ?? null,
+    note: f.note ?? null,
+  };
+}
