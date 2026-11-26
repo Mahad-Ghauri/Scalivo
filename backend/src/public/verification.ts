@@ -7,6 +7,16 @@ import { Business } from '../models/Business.js';
 import { normalisePhone } from '../lib/phone.js';
 
 const TTL = 300;
+
+/**
+ * Per-BUSINESS ceiling on verification codes sent, on top of the per-IP and
+ * per-number limits. Those two stop one caller; they do nothing against many
+ * IPs each typing different numbers, and every code is a message from the
+ * business's own WhatsApp number to someone who may never have contacted it —
+ * exactly the traffic that gets a number reported and banned. A real salon
+ * verifies a handful of web customers an hour.
+ */
+export const VERIFICATION_BUSINESS_LIMITS = { perHour: 30, perDay: 150 } as const;
 function parseStored(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown;
@@ -60,6 +70,19 @@ export async function beginVerification(
     `verification:limit:${phoneKey}`,
   );
   if (typeof count !== 'number' || count > 5) return { ok: false as const, reason: 'rate_limited' };
+  const hour = Math.floor(Date.now() / 3_600_000);
+  const sends = await redis.eval(
+    `local h = redis.call('INCR', KEYS[1]); if h == 1 then redis.call('EXPIRE', KEYS[1], 3600) end
+     local d = redis.call('INCR', KEYS[2]); if d == 1 then redis.call('EXPIRE', KEYS[2], 86400) end
+     if h > tonumber(ARGV[1]) or d > tonumber(ARGV[2]) then return 0 end
+     return 1`,
+    2,
+    `verification:business:${businessId}:h:${hour}`,
+    `verification:business:${businessId}:d:${Math.floor(hour / 24)}`,
+    VERIFICATION_BUSINESS_LIMITS.perHour,
+    VERIFICATION_BUSINESS_LIMITS.perDay,
+  );
+  if (sends !== 1) return { ok: false as const, reason: 'rate_limited' };
   const challengeId = randomUUID();
   const code = String(randomInt(100000, 1000000));
   await redis.set(

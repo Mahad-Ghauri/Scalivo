@@ -21,6 +21,50 @@ Signed in as business A, every id-taking route was aimed at business B's records
 After the fixes all probes are refused, nothing of B's appears in A's responses,
 and B's records are unchanged.
 
+### Security: anonymous surfaces (customer `/me` links, public booking, payments)
+
+Reviewed by reading every route under `/public` and `/payments`.
+
+| Finding | Severity | Status |
+| --- | --- | --- |
+| `trust proxy` could not be configured, so behind a reverse proxy every customer shared one per-IP rate-limit bucket (e.g. 10 verifications/hour for the whole system) | Medium (deployment) | **Fixed**: `TRUST_PROXY` env (hop count, default 0) |
+| Web verification sends a WhatsApp code from the business's own number to any number typed in; limits were per IP and per number only, so many IPs with fresh numbers could get the business number reported as spam | Medium | **Fixed**: per-business cap, 30/hour and 150/day (`tests/verification-cap.test.ts`) |
+| No rate limit on public availability, hold release, deposit view/checkout, payment return | Low | **Fixed**: per-IP limits added |
+| `/me` link tokens are stored in plaintext (calendar-feed tokens are hashed) | Low | **Accepted**: the system re-sends the existing link, which needs the raw token; 192-bit, 180-day expiry |
+| A distributed caller could keep a business's slots held (2-minute web holds, 30 per IP per 10 min) | Low | **Accepted / monitor**: holds expire; a per-business cap on concurrent web holds is the next step if seen |
+
+Confirmed sound: `/me` tokens (192-bit, expiring); every `/me` change requires a fresh
+WhatsApp-verified proof, and bookings are scoped to the link's own business and customer;
+verification codes are HMAC-hashed, 5 attempts per code, 5 codes per number per hour;
+JazzCash returns verified with a constant-time HMAC compare plus merchant id and amount
+checks; unknown transaction refs are ignored; marking paid is a conditional update
+(replay-safe); production refuses to start with the simulated payment provider; deposit
+tokens are 144-bit.
+
+### SEO (4.3)
+
+Checked by fetching every page type, as a crawler would, from the web app pointed at a
+seeded sandbox backend (separate database, no WhatsApp gateway).
+
+| Check | Result |
+| --- | --- |
+| Status codes | Pages 200; unknown business, `/me`, `/pay` 404 with `noindex` |
+| Titles, descriptions, canonicals, Open Graph, Twitter | Present and page-specific on home, business and landing pages; `lang="en"`; one `<h1>` per page; no `<img>` without `alt` |
+| Structured data | Home: `WebSite` + `SearchAction`. Business: `MedicalClinic`/LocalBusiness subtype with address, hours, price range, offer catalog and `aggregateRating`, plus `BreadcrumbList`. All parse as valid JSON-LD |
+| Sitemap | Home, search, landing pages and published businesses, with real `lastmod` |
+| Private pages | Dashboard and auth `noindex`; `/me` and `/pay` `noindex` |
+
+| Finding | Status |
+| --- | --- |
+| No indexable city or category pages: every `/search?…` URL canonicalised to `/search`, so "clinics in Multan" could not rank, and the business breadcrumb pointed at a URL the site called non-canonical | **Fixed**: `/search?category=…&city=…` with a known value and at least one result is a landing page with its own canonical, title, description and OG, and is in the sitemap. Free-text queries, unknown values and empty results are `noindex, follow` |
+| `/me/` and `/pay/` were both `noindex` and disallowed in robots.txt, so crawlers could never read the `noindex` and could index the bare token URL if it was posted publicly | **Fixed**: removed from robots.txt, `X-Robots-Tag: noindex` header added |
+| Token pages sent the full URL, token included, in `Referer` when a customer clicked out (WhatsApp, payment gateway) | **Fixed**: `Referrer-Policy: no-referrer` on `/me` and `/pay` |
+| `/search` shared the home page's `og:url` and title | **Fixed** with page-specific Open Graph |
+| No `telephone` in LocalBusiness data | **By design**: the WhatsApp number is never exposed publicly (enforced by `backend/tests/public.test.ts`) |
+| `og:image` for file-based images resolves to `localhost` in development | Expected in dev (Next uses `metadataBase` in production); **verify on the deployed site** |
+
+The production build could not be run in this environment because Google Fonts could not be downloaded (the sandbox blocks network access). The checks used `next dev`, which renders metadata the same way.
+
 ### Load (`tests/load/load.load.ts`)
 
 | Scenario | n | Succeeded | p50 ms | p95 ms | p99 ms | Throughput/s |

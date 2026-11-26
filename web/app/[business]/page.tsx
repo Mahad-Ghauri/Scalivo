@@ -1,3 +1,4 @@
+import { landingPath } from '@/lib/landing';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -104,7 +105,7 @@ export default async function BusinessPage({ params }: { params: Params }) {
             // The city crumb only appears when there is a real filtered page
             // behind it. A crumb that leads nowhere is worse than a shorter trail.
             ...(business.city
-              ? [{ name: business.city, path: `/search?city=${encodeURIComponent(business.city)}` }]
+              ? [{ name: business.city, path: landingPath(null, business.city) }]
               : []),
             { name: business.name, path: `/${business.slug}` },
           ]}

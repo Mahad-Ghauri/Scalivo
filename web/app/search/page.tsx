@@ -7,12 +7,47 @@ import { SiteHeader } from '@/components/SiteHeader';
 import { VenueGrid } from '@/components/VenueCard';
 import { categoryLabel, listCategories, listCities, searchBusinesses } from '@/lib/marketplace';
 import { firstParam, toFilters, type RawSearchParams } from '@/lib/search-params';
+import { knownFacet, landingPath, landingTitle } from '@/lib/landing';
 
-export const metadata: Metadata = {
-  title: 'Search',
-  description: 'Search salons, clinics, gyms and studios taking bookings across Multan and Lahore.',
-  alternates: { canonical: '/search' },
-};
+/**
+ * Indexable when the URL is a landing page — only a real category and/or city,
+ * with results. A free-text query, an unknown value, extra parameters or an
+ * empty list is `noindex, follow`: thin or duplicate, but its links still count.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}): Promise<Metadata> {
+  const params = await searchParams;
+  const [categories, cities] = await Promise.all([listCategories(), listCities()]);
+  const category = knownFacet(categories, firstParam(params.category));
+  const city = knownFacet(cities, firstParam(params.city));
+  const extra = Object.keys(params).some((k) => k !== 'category' && k !== 'city');
+  const unknown =
+    (params.category !== undefined && !category) || (params.city !== undefined && !city);
+
+  const url = landingPath(category?.value, city?.value);
+  const heading = landingTitle(category ? categoryLabel(category.value) : null, city?.label ?? null);
+  const results =
+    category || city ? (await searchBusinesses('', toFilters(category?.value, city?.value))).length : null;
+  const indexable = !extra && !unknown && results !== 0;
+
+  const title = category || city ? heading : 'Search';
+  const description =
+    category || city
+      ? `${heading}: compare prices, hours, staff and reviews, then book online or over WhatsApp.`
+      : 'Search salons, clinics, gyms and studios taking bookings across Multan and Lahore.';
+
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    ...(indexable ? {} : { robots: { index: false, follow: true } }),
+    openGraph: { type: 'website', siteName: 'Scalivo', url, title, description },
+    twitter: { card: 'summary_large_image', title, description },
+  };
+}
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const params = await searchParams;

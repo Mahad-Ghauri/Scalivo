@@ -350,6 +350,8 @@ export function createPublicRouter(redis: Redis, provider: MessagingProvider): R
    */
   router.get(
     '/businesses/:slug/availability',
+    // The most expensive anonymous read; same allowance as /me availability.
+    rateLimit(redis, 'availability', 240, 10 * 60),
     safely(async (req, res) => {
       const parsed = availabilityQuery.safeParse(req.query);
       if (!parsed.success) {
@@ -406,6 +408,7 @@ export function createPublicRouter(redis: Redis, provider: MessagingProvider): R
 
   router.post(
     '/businesses/:slug/holds/release',
+    rateLimit(redis, 'hold-release', 60, 10 * 60),
     json,
     safely(async (req, res) => {
       const parsed = releaseBody.safeParse(req.body);

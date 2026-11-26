@@ -1,5 +1,6 @@
 import express, { type Router } from 'express';
 import { env } from '../config/env.js';
+import { rateLimit } from '../http/guards.js';
 import { logger } from '../lib/logger.js';
 import type { SendDeps } from '../notifications/send.js';
 import { depositView, handleReturn, startCheckout } from './deposits.js';
@@ -22,31 +23,45 @@ import { SimulatedProvider } from './simulated.js';
 export function createDepositRouter(deps: SendDeps): { publicRouter: Router; gatewayRouter: Router } {
   const publicRouter = express.Router();
 
-  publicRouter.get('/deposits/:token', async (req, res) => {
-    const view = await depositView(String(req.params.token));
-    if (!view) {
-      res.status(404).json({ error: 'not found' });
-      return;
-    }
-    res.json(view);
-  });
+  publicRouter.get(
+    '/deposits/:token',
+    rateLimit(deps.redis, 'deposit-view', 120, 10 * 60),
+    async (req, res) => {
+      const view = await depositView(String(req.params.token));
+      if (!view) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.json(view);
+    },
+  );
 
-  publicRouter.post('/deposits/:token/checkout', async (req, res) => {
-    const result = await startCheckout(String(req.params.token));
-    if (!result.ok) {
-      res
-        .status(result.reason === 'not_found' ? 404 : 409)
-        .json({ error: result.reason === 'not_found' ? 'not found' : 'this deposit can no longer be paid', reason: result.reason });
-      return;
-    }
-    res.json(result.redirect);
-  });
+  publicRouter.post(
+    '/deposits/:token/checkout',
+    rateLimit(deps.redis, 'deposit-checkout', 20, 10 * 60),
+    async (req, res) => {
+      const result = await startCheckout(String(req.params.token));
+      if (!result.ok) {
+        res
+          .status(result.reason === 'not_found' ? 404 : 409)
+          .json({
+            error:
+              result.reason === 'not_found' ? 'not found' : 'this deposit can no longer be paid',
+            reason: result.reason,
+          });
+        return;
+      }
+      res.json(result.redirect);
+    },
+  );
 
   const gatewayRouter = express.Router();
 
   // JazzCash posts form-encoded; the simulator's buttons do too.
   gatewayRouter.post(
     '/:provider/return',
+    // The browser's POST back from the gateway — one per payment attempt.
+    rateLimit(deps.redis, 'payment-return', 60, 10 * 60),
     express.urlencoded({ extended: false, limit: '32kb' }),
     async (req, res) => {
       if (req.params.provider !== paymentProvider().name) {

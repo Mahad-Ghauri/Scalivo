@@ -8,18 +8,16 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: '*',
       allow: '/',
       /**
-       * Personal pages reached by an unguessable token: a customer's own
-       * appointments (3.3) and a deposit payment. Belt and braces — both send
-       * `noindex` themselves, and neither is linked from anywhere a crawler can
-       * reach — but a token pasted into a public forum would otherwise be a page
-       * a crawler is free to fetch and keep.
+       * The personal token pages, `/me/` (3.3) and `/pay/`, are deliberately NOT
+       * disallowed. They are kept out of search by `noindex`, in the page and as
+       * an X-Robots-Tag header (next.config.mjs). A crawler blocked here never
+       * fetches the page, so never sees that `noindex` — and Google then indexes
+       * the bare URL, token and all, if someone posts the link publicly.
        *
-       * Note what this does NOT do: robots.txt is a request, not access control.
-       * The credential is the token's entropy, never this line.
+       * Either way robots.txt is a request, not access control: the credential
+       * is the token's entropy.
        */
       disallow: [
-        '/me/',
-        '/pay/',
         /**
          * The owner's side of the product. None of it can rank — the dashboard
          * redirects a signed-out visitor, and sign-in pages are noindex — so

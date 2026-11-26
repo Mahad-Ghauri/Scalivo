@@ -40,6 +40,7 @@ import { createPaymentProvider, usePaymentProvider } from './payments/registry.j
 
 export function createApp(): Express {
   const app = express();
+  if (env.TRUST_PROXY > 0) app.set('trust proxy', env.TRUST_PROXY);
   // First, so a response written by any route below already carries them —
   // including the ones that answer before reaching a handler.
   app.use(securityHeaders);

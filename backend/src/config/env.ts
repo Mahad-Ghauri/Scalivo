@@ -6,6 +6,15 @@ import { z } from 'zod';
  */
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+
+  /**
+   * How many reverse proxies sit in front of the API (nginx, a load balancer).
+   * Every per-IP rate limit reads req.ip, which is only the customer's address
+   * when Express trusts exactly that many X-Forwarded-For hops. 0 (the default)
+   * trusts none — right when the API is exposed directly. Too low and every
+   * customer shares the proxy's bucket; too high and callers can pick their IP.
+   */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   PORT: z.coerce.number().default(3000),
 
   MONGO_URI: z.string().url(),
