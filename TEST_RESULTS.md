@@ -1,5 +1,63 @@
 # Test results: booking resource controls
 
+## Phase 4 hardening: tenant isolation and load test
+
+Run date: **27 November 2026**, local MacBook (Intel), MongoDB 7 replica set and
+Redis 7 in Docker. Load tests run the real routers, transactions, holds and inbound
+queue over HTTP; only WhatsApp is faked.
+Reproduce with `npx vitest run --config vitest.load.config.ts` in `backend/`.
+
+### Security: cross-tenant probe (`tests/tenant-isolation.test.ts`)
+
+Signed in as business A, every id-taking route was aimed at business B's records
+(24 path probes, 15 body/query probes, 12 list/export filters).
+
+| Finding | Severity | Status |
+| --- | --- | --- |
+| `POST /clients/:id/recompute` upserted a profile for **any** global client id, linking it to the caller's business and returning its name and phone | High (PII disclosure across tenants) | **Fixed**: 404 unless the client already belongs to the business |
+| `POST /blocked-time` accepted another business's `staffId` (orphan row only; every block query is business-scoped) | Low | **Fixed**: 400 |
+| `GET /bookings/:id/audit` answered 200 + empty history for another business's booking | Informational | **Fixed**: 404, consistent with other booking routes |
+
+After the fixes all probes are refused, nothing of B's appears in A's responses,
+and B's records are unchanged.
+
+### Load (`tests/load/load.load.ts`)
+
+| Scenario | n | Succeeded | p50 ms | p95 ms | p99 ms | Throughput/s |
+| --- | --- | --- | --- | --- | --- | --- |
+| 100 concurrent bookings, same slot | 100 | **1** (99 × 409) | 517 | 762 | 924 | 108 |
+| Overlapping durations racing (45 min @10:30 vs 30 min @11:00) | 60 | **1** | 372 | 383 | 457 | 131 |
+| 300 bookings, 10 staff, concurrency 30 (60 deliberate collisions) | 300 | 240 (all distinct slots; collisions refused) | 1098 | 6220 | 10354 | 17 |
+| 100 bookings, concurrency 5 (realistic) | 100 | 100 | 153 | 254 | 306 | 30 |
+| Calendar day view, 240 appointments, concurrency 50 | 300 | 300 | 274 | 1085 | 1369 | 149 |
+| Calendar day view, concurrency 5 | 100 | 100 | 31 | 38 | 40 | 160 |
+| Availability, concurrency 50 | 300 | 300 | 243 | 460 | 661 | 183 |
+| Webhook ingest: 400 messages × 2 (duplicate delivery), concurrency 50 | 800 | 800 | 37 | 52 | 79 | 1254 |
+
+Invariants checked after every booking scenario: no two live bookings overlap for
+any staff member, and the occupancy grid holds exactly two 15-minute cells per
+30-minute booking.
+
+**Inbound processing, before and after the fix.** The inbound worker took one
+delivery per second, which capped the whole system at **1 inbound event/s across all
+tenants**. Delivery acks count as events, so one batch of reminders would build a
+backlog of minutes. It now drains the queue each tick, still strictly in order:
+
+| | Handled | Time | Rate |
+| --- | --- | --- | --- |
+| Before | 119 of 400 | 120 s (gave up) | 1.0/s |
+| After | **400 of 400**, each exactly once, 0 failed | 13.8 s | **29/s** |
+
+**Known limit, not changed.** Booking transactions in one business are serialised
+by a per-business fence document (`Business.bookingFence`). That is what makes the
+room-versus-bed-in-room check safe: the two bookings write different occupancy rows,
+so no unique index can arbitrate them. Under 30 simultaneous bookings *in the same
+business*, write conflicts and retries push p95 to about 6 s. At realistic
+concurrency (5) p95 is 254 ms. Separate businesses have separate fence documents,
+so they do not contend. Splitting the fence per room family would lift this, but it
+is a correctness-sensitive redesign and is not needed at SME scale.
+
+
 ## Latest run: approval visibility, web cleanup editing, and CI reliability
 
 Run date: **21 October 2026**.

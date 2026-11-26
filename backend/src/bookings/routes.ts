@@ -178,7 +178,15 @@ export function createBookingRouter(redis: Redis, provider: MessagingProvider): 
     requireAuth,
     requireTenant(),
     async (req, res) => {
-      if (!/^[a-f\d]{24}$/i.test(param(req, 'bookingId'))) {
+      // 404 for a booking that isn't this business's, like every other
+      // booking route — not an empty history that reads as "exists, unchanged".
+      if (
+        !/^[a-f\d]{24}$/i.test(param(req, 'bookingId')) ||
+        !(await Booking.exists({
+          _id: param(req, 'bookingId'),
+          businessId: param(req, 'businessId'),
+        }).maxTimeMS(5000))
+      ) {
         res.status(404).json({ error: 'not found' });
         return;
       }

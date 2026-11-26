@@ -35,21 +35,35 @@ export async function enqueueInbound(redis: Redis, events: ProviderEvent[]): Pro
   if (result === -1) throw new Error('inbound queue capacity reached');
 }
 
-/** Same single-instance deployment requirement as the existing reminder jobs. */
+/**
+ * Same single-instance deployment requirement as the existing reminder jobs.
+ *
+ * Each tick DRAINS the queue, one turn after another, rather than taking one
+ * turn and sleeping a second. The one-per-second version capped the whole
+ * system at 1 inbound event/s across every tenant — and acks are events too,
+ * so a batch of 60 reminders produced a minute of backlog that every customer
+ * reply then queued behind. Measured in tests/load/load.load.ts.
+ *
+ * Still strictly one turn at a time, in order: the FSM's per-conversation
+ * ordering depends on it. A failing turn ends the drain, so a poison delivery
+ * is retried on the next tick instead of in a hot loop.
+ */
 export function startInboundWorker(
   redis: Redis,
   onEvent: (event: ProviderEvent) => Promise<void>,
+  options: { intervalMs?: number } = {},
 ): () => void {
   let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
+  let stopped = false;
+
+  /** One delivery. 'empty' and 'failed' end the drain; 'done' continues it. */
+  const turn = async (): Promise<'empty' | 'done' | 'failed'> => {
     let raw: string | null = null;
     let id: string | undefined;
     try {
       // Leave a failed/crashed turn in place; retry it before newer turns.
       raw = (await redis.lindex(PROCESSING, 0)) ?? (await redis.rpoplpush(PENDING, PROCESSING));
-      if (!raw) return;
+      if (!raw) return 'empty';
       id = createHash('sha256').update(raw).digest('hex');
       const events = JSON.parse(raw, (key: string, value: unknown) =>
         (key === 'receivedAt' || key === 'occurredAt') && typeof value === 'string'
@@ -58,6 +72,7 @@ export function startInboundWorker(
       ) as ProviderEvent[];
       for (const event of events) await onEvent(event);
       await redis.multi().lrem(PROCESSING, 1, raw).hdel(ATTEMPTS, id).exec();
+      return 'done';
     } catch (err) {
       logger.error({ err, id }, 'inbound turn retained for retry');
       if (raw && id) {
@@ -76,11 +91,26 @@ export function startInboundWorker(
           logger.error({ err: retryError, id }, 'could not record inbound retry');
         }
       }
+      return 'failed';
+    }
+  };
+
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      while (!stopped && (await turn()) === 'done') {
+        /* keep draining */
+      }
     } finally {
       running = false;
     }
   };
-  const timer = setInterval(() => void tick(), 1000);
+
+  const timer = setInterval(() => void tick(), options.intervalMs ?? 1000);
   timer.unref();
-  return () => clearInterval(timer);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }

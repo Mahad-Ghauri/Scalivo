@@ -14,6 +14,7 @@ import { createWalkIn } from './walkin.js';
 import { fieldErrors, param } from '../http/params.js';
 import { wallClockToUtc, isCalendarDate } from '../lib/time.js';
 import { Resource } from '../models/Resource.js';
+import { Staff } from '../models/Staff.js';
 import { configureBooking } from '../bookings/configuration.js';
 
 /**
@@ -311,6 +312,12 @@ export function createCalendarRouter(redis: Redis, provider: MessagingProvider):
       return;
     }
 
+    // Another business's staff id would only make an orphan row here (every
+    // block query is scoped by businessId), but it is refused all the same.
+    if (staffId && !(await Staff.exists({ _id: staffId, businessId }).maxTimeMS(5000))) {
+      res.status(400).json({ error: 'Choose a staff member in this business' });
+      return;
+    }
     if (
       resourceId &&
       !(await Resource.exists({ _id: resourceId, businessId, active: true }).maxTimeMS(5000))

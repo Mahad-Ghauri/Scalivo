@@ -311,7 +311,17 @@ export function createCrmRouter(): Router {
     const businessId = param(req, 'businessId');
     const clientId = param(req, 'clientId');
 
-    if (!mongoose.isValidObjectId(clientId)) {
+    /**
+     * Only a client this business already has. recomputeProfile UPSERTS — right
+     * for its internal callers, which start from this business's own bookings —
+     * so without this check any client id in the system (clients are global)
+     * would be linked to the caller's business and its name and phone handed
+     * back. Found by tests/tenant-isolation.test.ts.
+     */
+    if (
+      !mongoose.isValidObjectId(clientId) ||
+      !(await ClientProfile.exists({ businessId, clientId }).maxTimeMS(5000))
+    ) {
       res.status(404).json({ error: 'not found' });
       return;
     }
