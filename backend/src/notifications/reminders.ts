@@ -245,6 +245,10 @@ export async function remindBusiness(
        * after which a "1" means a menu pick again.
        */
       if (sent.ok) {
+        await Booking.updateOne(
+          { _id: booking._id, remindedAt: null },
+          { $set: { remindedAt: now } },
+        );
         const ttl = Math.floor((booking.startsAt.getTime() - now.getTime()) / 1000);
         if (ttl > 0) {
           await writePendingPrompt(

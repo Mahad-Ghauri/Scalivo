@@ -1,5 +1,6 @@
 import type { CalendarEntry, CalendarBlock } from '@scalivo/shared';
 import { BOOKING_STATUS } from '@scalivo/shared';
+import { ReminderBadge } from './ReminderBadge';
 
 interface CalendarEntryCardProps {
   businessId: string;
@@ -59,7 +60,10 @@ export function CalendarEntryCard({ entry, style, isSelected }: CalendarEntryCar
       style={style}
       className={`absolute inset-x-0 mx-0.5 overflow-hidden rounded-md border px-1.5 py-1 leading-tight transition-colors ${bg} ${border} ${text}`}
     >
-      <div className="font-semibold truncate text-xs">{entry.clientName || 'Walk-in'}</div>
+      <div className="flex items-center gap-1 font-semibold truncate text-xs">
+        <span className="truncate">{entry.clientName || 'Walk-in'}</span>
+        <ReminderBadge state={entry.reminderState} compact />
+      </div>
       <div className="truncate text-xs">{entry.serviceName}</div>
       <div className="truncate text-[10px] font-medium mt-0.5">
         {entry.staffName}

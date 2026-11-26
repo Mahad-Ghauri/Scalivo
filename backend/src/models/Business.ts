@@ -91,6 +91,16 @@ const businessSchema = new Schema(
         type: [Number],
         default: () => [...DEFAULT_REMINDER_LEAD_MINUTES],
       },
+
+      /**
+       * Tell the owner when a reminded customer has not confirmed, or when the
+       * reminder never reached them. The alert is the point of asking "reply 1":
+       * an unanswered reminder is a likely no-show the owner can still phone.
+       */
+      escalate: { type: Boolean, default: true },
+
+      /** How long before the appointment silence becomes an alert. */
+      escalateMinutesBefore: { type: Number, default: 180 },
     },
 
     retention: {

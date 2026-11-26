@@ -13,7 +13,12 @@ export interface EditableBusiness {
   minNoticeMinutes: number;
   bookingHorizonDays: number;
   published: boolean;
-  reminders?: { enabled?: boolean; leadMinutes?: number[] };
+  reminders?: {
+    enabled?: boolean;
+    leadMinutes?: number[];
+    escalate?: boolean;
+    escalateMinutesBefore?: number;
+  };
   profile?: {
     tagline?: string;
     about?: string;
@@ -69,6 +74,8 @@ export function SettingsForm({
 
   const [remindersOn, setRemindersOn] = useState(business.reminders?.enabled ?? true);
   const [leads, setLeads] = useState<number[]>(business.reminders?.leadMinutes ?? []);
+  const [escalate, setEscalate] = useState(business.reminders?.escalate ?? true);
+  const [escalateBefore, setEscalateBefore] = useState(business.reminders?.escalateMinutesBefore ?? 180);
 
   const [published, setPublished] = useState(business.published);
   const [blockers, setBlockers] = useState<string[]>([]);
@@ -103,7 +110,12 @@ export function SettingsForm({
       slotIncrementMinutes: slotSize,
       minNoticeMinutes: Number(minNotice),
       bookingHorizonDays: Number(horizon),
-      reminders: { enabled: remindersOn, leadMinutes: leads },
+      reminders: {
+        enabled: remindersOn,
+        leadMinutes: leads,
+        escalate,
+        escalateMinutesBefore: escalateBefore,
+      },
       profile: { tagline, about, neighbourhood, addressLine, logoUrl, coverUrl, themeColor },
     };
 
@@ -298,6 +310,39 @@ export function SettingsForm({
               })}
             </div>
             {error('reminders.leadMinutes')}
+
+            <label className="mt-5 flex items-center gap-2 text-[14px] font-medium text-ink">
+              <input
+                type="checkbox"
+                className="rounded text-brand focus:ring-brand"
+                checked={escalate}
+                onChange={(e) => setEscalate(e.target.checked)}
+              />
+              Alert me when a customer hasn&apos;t confirmed
+            </label>
+            <p className="mt-1 text-[13px] text-muted">
+              Reminders ask customers to reply 1 to confirm. You get a push if they stay silent, or
+              straight away if the reminder never reaches them.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-[14px] text-ink">
+              Alert
+              <select
+                className="rounded-md border border-line px-2 py-1 text-[14px] disabled:opacity-50"
+                value={escalateBefore}
+                disabled={!escalate}
+                onChange={(e) => setEscalateBefore(Number(e.target.value))}
+              >
+                {[...new Set([60, 120, 180, 240, 360, escalateBefore])]
+                  .sort((a, b) => a - b)
+                  .map((m) => (
+                    <option key={m} value={m}>
+                      {leadLabel(m)}
+                    </option>
+                  ))}
+              </select>
+              the appointment
+            </label>
+            {error('reminders.escalateMinutesBefore')}
           </fieldset>
         </Section>
 

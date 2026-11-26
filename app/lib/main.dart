@@ -6,6 +6,7 @@ import 'push/push_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/qr_screen.dart';
+import 'screens/appointments_screen.dart';
 import 'screens/briefings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'state/auth_controller.dart';
@@ -87,7 +88,7 @@ class _RootState extends State<_Root> {
   void _onNotificationTap(String route) {
     if (!mounted || route.length > 200) return;
     final uri = Uri.tryParse(route);
-    if (uri == null || uri.hasScheme || uri.hasAuthority || uri.hasFragment || !['/qr', '/briefings'].contains(uri.path)) return;
+    if (uri == null || uri.hasScheme || uri.hasAuthority || uri.hasFragment || !['/qr', '/briefings', '/appointments'].contains(uri.path)) return;
     try {
       if (uri.queryParametersAll.entries.any((e) => e.key != 'businessId' || e.value.length != 1 || !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(e.value.single))) return;
     } on FormatException { return; }
@@ -111,7 +112,11 @@ class _RootState extends State<_Root> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _auth.status != AuthStatus.signedIn || _auth.business?.id != targetBusinessId) return;
       navigatorKey.currentState?.push(MaterialPageRoute<void>(
-        builder: (_) => route == '/qr' ? const QrScreen() : const BriefingsScreen(),
+        builder: (_) => switch (route) {
+          '/qr' => const QrScreen(),
+          '/appointments' => const AppointmentsScreen(),
+          _ => const BriefingsScreen(),
+        },
       ));
     });
   }

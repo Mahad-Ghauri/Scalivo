@@ -1,5 +1,5 @@
 import type { BookingStatus } from '../constants/booking-status.js';
-import type { Booking } from './booking.js';
+import type { Booking, ReminderState } from './booking.js';
 
 /**
  * What the owner's calendar shows.
@@ -30,6 +30,8 @@ export interface CalendarEntry {
   approvalExpiresAt?: Date | null;
   priceMinor: number;
   source: Booking['source'];
+  /** Customer-side reminder badge; see reminderState(). */
+  reminderState?: ReminderState;
 }
 
 /** Time the owner has declared unavailable. A null staffId closes the business. */

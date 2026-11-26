@@ -154,6 +154,7 @@ class CalendarEntry {
     required this.priceMinor,
     required this.source,
     this.revision = 0,
+    this.reminderState,
   });
 
   final String id;
@@ -176,6 +177,10 @@ class CalendarEntry {
   final int priceMinor;
   final String source;
   final int revision;
+
+  /// The customer's side of the reminders: 'confirmed' (replied 1),
+  /// 'awaiting' (reminded, silent) or 'undelivered'. Null before any reminder.
+  final String? reminderState;
 
   bool get isTerminal =>
       status == 'completed' || status == 'no_show' || status == 'cancelled';
@@ -206,8 +211,16 @@ class CalendarEntry {
     status: json['status'] as String? ?? 'pending',
     priceMinor: json['priceMinor'] as int? ?? 0,
     source: json['source'] as String? ?? 'whatsapp',
+    reminderState: parseReminderState(json['reminderState']),
   );
 }
+
+/// Unknown values are dropped rather than shown: a newer backend must not
+/// make an older app draw a badge it cannot explain.
+String? parseReminderState(Object? raw) =>
+    const ['confirmed', 'awaiting', 'undelivered'].contains(raw)
+    ? raw as String
+    : null;
 
 /// Time the owner declared off-limits. A null staffId closes the business.
 class CalendarBlock {
@@ -572,6 +585,8 @@ class BusinessSettings {
     required this.bookingHorizonDays,
     required this.remindersEnabled,
     required this.reminderLeadMinutes,
+    this.escalate = true,
+    this.escalateMinutesBefore = 180,
   });
 
   final String name;
@@ -583,6 +598,10 @@ class BusinessSettings {
 
   /// Longest first, the way the backend normalises them.
   final List<int> reminderLeadMinutes;
+
+  /// Push the owner when a reminded customer stays silent, or isn't reached.
+  final bool escalate;
+  final int escalateMinutesBefore;
 
   factory BusinessSettings.fromJson(Map<String, dynamic> json) {
     final r = json['reminders'] as Map<String, dynamic>? ?? const {};
@@ -596,6 +615,8 @@ class BusinessSettings {
       reminderLeadMinutes: (r['leadMinutes'] as List<dynamic>? ?? const [1440])
           .map((v) => v as int)
           .toList(),
+      escalate: r['escalate'] as bool? ?? true,
+      escalateMinutesBefore: r['escalateMinutesBefore'] as int? ?? 180,
     );
   }
 }

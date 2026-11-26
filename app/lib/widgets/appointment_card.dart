@@ -146,6 +146,7 @@ class AppointmentCard extends StatelessWidget {
           color: Sc.inkMuted,
         ),
       ),
+      ?_reminderBadge(entry.reminderState),
       if (tone.label != null)
         Padding(
           padding: const EdgeInsets.only(top: 4),
@@ -161,6 +162,34 @@ class AppointmentCard extends StatelessWidget {
         ),
     ],
   );
+
+  /// The customer's reply to the reminder — distinct from the status label
+  /// below it, which is the business's side of the booking.
+  static Widget? _reminderBadge(String? state) {
+    final (String, String, Color)? badge = switch (state) {
+      'confirmed' => ('✅', 'REPLIED', Sc.teal),
+      'awaiting' => ('❓', 'NO REPLY', Sc.slate),
+      'undelivered' => ('⚠️', 'NOT DELIVERED', Sc.dangerTitle),
+      _ => null,
+    };
+    if (badge == null) return null;
+    final (icon, label, color) = badge;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Semantics(
+        label: 'Reminder: ${label.toLowerCase()}',
+        child: Text(
+          '$icon $label',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.3,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
 
   /// Confirmed carries no label — it is the normal case, and labelling every
   /// row means the owner stops reading any of them.

@@ -24,6 +24,7 @@ import { handleSessionQr, handleSessionStatus } from './session-health/monitor.j
 import { startReconcileJob } from './session-health/reconcile.js';
 import { handleMessageAck } from './notifications/ack.js';
 import { startReminderJob } from './notifications/reminders.js';
+import { startEscalationJob } from './notifications/escalation.js';
 import { startReviewRequestJob } from './reviews/request.js';
 import { startNudgeJob } from './retention/nudges.js';
 import { startCampaignJob } from './retention/campaigns.js';
@@ -185,6 +186,10 @@ async function main() {
   // what drains notifications owed from an outage whose recovery webhook never
   // arrived — SINGLE INSTANCE, like the reconcile job above.
   startReminderJob({ redis, provider: createMessagingProvider() });
+
+  // Every minute, SINGLE INSTANCE: owner alerts for unconfirmed or undelivered
+  // reminders. Each alert is claimed on the booking, so overlaps cannot double-push.
+  startEscalationJob();
 
   // Every five minutes rather than every minute: a rating request is due a
   // couple of hours after an appointment ends, and nobody can tell the

@@ -6,6 +6,7 @@ import { getAppointmentAction, cancelAppointmentAction, setAppointmentOutcomeAct
 import { BOOKING_STATUS, type BookingStatus } from '@scalivo/shared';
 import { formatPrice } from '@/lib/format';
 import type { AppointmentDTO } from './AppointmentsTable';
+import { ReminderBadge } from '../ReminderBadge';
 
 interface AppointmentDetailProps {
   businessId: string;
@@ -157,6 +158,9 @@ export function AppointmentDetail({ businessId, appointmentId, timezone }: Appoi
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface text-ink border border-line">
                       {appointment.status}
                     </span>
+                    <div className="mt-1.5">
+                      <ReminderBadge state={appointment.reminderState} />
+                    </div>
                   </div>
                   <div>
                     <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">Amount</h3>

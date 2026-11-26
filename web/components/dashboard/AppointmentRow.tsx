@@ -1,4 +1,5 @@
 import { type CalendarEntry, BOOKING_STATUS } from '@scalivo/shared';
+import { ReminderBadge } from './ReminderBadge';
 
 interface Props {
   entry: CalendarEntry;
@@ -27,7 +28,8 @@ export function AppointmentRow({ entry, timezone }: Props) {
           {entry.serviceName} with {entry.staffName}
         </p>
       </div>
-      <div>
+      <div className="flex items-center gap-2">
+        <ReminderBadge state={entry.reminderState} />
         <StatusBadge status={entry.status} />
       </div>
     </div>

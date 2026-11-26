@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { CalendarEntry, Service, Staff } from '@scalivo/shared';
 import { formatPrice } from '@/lib/marketplace';
 import { CalendarDetailActions } from './CalendarDetailActions';
+import { ReminderBadge } from './ReminderBadge';
 
 interface CalendarDetailPanelProps {
   businessId: string;
@@ -97,6 +98,9 @@ export function CalendarDetailPanel({
           <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Status</p>
           <div className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold capitalize bg-surface text-ink">
             {entry.status.replace('_', ' ')}
+          </div>
+          <div className="mt-1.5">
+            <ReminderBadge state={entry.reminderState} />
           </div>
         </div>
 

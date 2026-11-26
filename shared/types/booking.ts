@@ -29,6 +29,26 @@ export interface Booking {
 }
 
 /**
+ * Where a booking stands on the customer's side of its reminders — the badge
+ * on the owner's calendar. Null until a reminder has gone out.
+ *   confirmed   ✅ replied 1
+ *   awaiting    ❓ reminded, no reply yet
+ *   undelivered ⚠️ the reminder never reached them
+ */
+export type ReminderState = 'confirmed' | 'awaiting' | 'undelivered' | null;
+
+export function reminderState(b: {
+  clientConfirmedAt?: Date | null;
+  remindedAt?: Date | null;
+  undeliveredAlertAt?: Date | null;
+}): ReminderState {
+  if (b.clientConfirmedAt) return 'confirmed';
+  if (b.undeliveredAlertAt) return 'undelivered';
+  if (b.remindedAt) return 'awaiting';
+  return null;
+}
+
+/**
  * One row per base increment a booking spans. THIS is the double-booking
  * arbiter, not the booking collection.
  *

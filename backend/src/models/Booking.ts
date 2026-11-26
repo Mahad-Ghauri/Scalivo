@@ -69,6 +69,16 @@ const bookingSchema = new Schema(
     clientConfirmedAt: { type: Date, default: null },
 
     /**
+     * When the owner was alerted about this booking — each at most once.
+     * Stamped by a conditional update (`field: null`), which is the claim: two
+     * overlapping ticks cannot both win it, so the owner is never pinged twice.
+     */
+    /** First reminder that actually went out — the "awaiting reply" badge. */
+    remindedAt: { type: Date, default: null },
+    unconfirmedAlertAt: { type: Date, default: null },
+    undeliveredAlertAt: { type: Date, default: null },
+
+    /**
      * The deposit asked for, in paisa — null when none was.
      *
      * Copied from the service at booking time rather than looked up later, for

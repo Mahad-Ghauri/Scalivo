@@ -102,6 +102,10 @@ const settingsBody = z
           )
           .max(4)
           .transform((list) => [...new Set(list)].sort((a, b) => b - a)),
+        escalate: z.boolean(),
+        // Under 30 min leaves no time to phone; over 12 h is before most
+        // customers have even read a day-before reminder.
+        escalateMinutesBefore: z.number().int().min(30).max(720),
       })
       .partial(),
 

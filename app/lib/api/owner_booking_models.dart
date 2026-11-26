@@ -92,6 +92,7 @@ class AppointmentPage {
           status: status,
           priceMinor: wireCount(row['priceMinor']),
           source: wireText(row['source'], max: 20),
+          reminderState: parseReminderState(row['reminderState']),
         );
       }, 20);
   final int total;

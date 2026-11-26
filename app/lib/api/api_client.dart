@@ -623,12 +623,16 @@ class ApiClient {
     String businessId, {
     bool? remindersEnabled,
     List<int>? reminderLeadMinutes,
+    bool? escalate,
+    int? escalateMinutesBefore,
     int? minNoticeMinutes,
     int? bookingHorizonDays,
   }) async {
     final reminders = <String, dynamic>{
       'enabled': ?remindersEnabled,
       'leadMinutes': ?reminderLeadMinutes,
+      'escalate': ?escalate,
+      'escalateMinutesBefore': ?escalateMinutesBefore,
     };
 
     return BusinessSettings.fromJson(

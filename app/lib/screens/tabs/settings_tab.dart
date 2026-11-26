@@ -454,6 +454,52 @@ class _SettingsTabState extends State<SettingsTab> {
               'the appointment.',
               style: TextStyle(fontSize: 12, color: Sc.slate, height: 1.5),
             ),
+            const Divider(height: 26, color: Sc.divider),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    "Alert me when a customer hasn't confirmed",
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      color: Sc.inkMuted,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Switch(
+                  value: settings.escalate,
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: Sc.teal,
+                  onChanged: _saving ? null : (on) => _save(escalate: on),
+                ),
+              ],
+            ),
+            if (settings.escalate) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final m in _escalateChoices(settings.escalateMinutesBefore))
+                    ChoiceChip(
+                      label: Text('${_escalateLabel(m)} before'),
+                      selected: settings.escalateMinutesBefore == m,
+                      onSelected: _saving
+                          ? null
+                          : (_) => _save(escalateMinutesBefore: m),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Reminders ask customers to reply 1 to confirm. You get a push '
+                "if they're still silent at this point, or straight away if the "
+                'reminder never reaches them.',
+                style: TextStyle(fontSize: 12, color: Sc.slate, height: 1.5),
+              ),
+            ],
           ],
         ],
       ),
@@ -672,9 +718,18 @@ class _SettingsTabState extends State<SettingsTab> {
     await _save(reminderLeadMinutes: next);
   }
 
+  /// Presets plus whatever is saved, so a value set on the web stays visible.
+  static List<int> _escalateChoices(int saved) =>
+      ({60, 120, 180, 240, 360, saved}.toList()..sort());
+
+  static String _escalateLabel(int m) =>
+      m % 60 == 0 ? '${m ~/ 60} h' : '$m min';
+
   Future<void> _save({
     bool? remindersEnabled,
     List<int>? reminderLeadMinutes,
+    bool? escalate,
+    int? escalateMinutesBefore,
     int? minNoticeMinutes,
     int? bookingHorizonDays,
   }) async {
@@ -685,6 +740,8 @@ class _SettingsTabState extends State<SettingsTab> {
         _businessId,
         remindersEnabled: remindersEnabled,
         reminderLeadMinutes: reminderLeadMinutes,
+        escalate: escalate,
+        escalateMinutesBefore: escalateMinutesBefore,
         minNoticeMinutes: minNoticeMinutes,
         bookingHorizonDays: bookingHorizonDays,
       );

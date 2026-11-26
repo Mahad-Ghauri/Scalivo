@@ -3,7 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { BOOKING_STATUS, type BookingStatus } from '@scalivo/shared';
+import { BOOKING_STATUS, type BookingStatus, type ReminderState } from '@scalivo/shared';
+import { ReminderBadge } from '../ReminderBadge';
 import { formatPrice } from '@/lib/format';
 
 /** One row of GET /businesses/:id/bookings, and the body of GET .../bookings/:bookingId. */
@@ -14,6 +15,7 @@ export interface AppointmentDTO {
   status: BookingStatus;
   priceMinor: number;
   source: string;
+  reminderState?: ReminderState;
   client: { id: string; name: string | null; phone: string | null } | null;
   service: { id: string; name: string } | null;
   staff: { id: string; name: string } | null;
@@ -97,6 +99,11 @@ export function AppointmentsTable({ bookings, timezone }: { bookings: Appointmen
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[b.status] || statusColors[BOOKING_STATUS.PENDING]}`}>
                       {b.status.replaceAll('_', ' ')}
                     </span>
+                    {b.reminderState && (
+                      <span className="ml-1.5">
+                        <ReminderBadge state={b.reminderState} compact />
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-ink">{formatPrice(b.priceMinor)}</div>
