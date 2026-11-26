@@ -1126,6 +1126,9 @@ export async function resumeFromIntent(
 
 /** One inbound message, one turn. The interceptor chain has already run. */
 export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResult> {
+  if (ctx.conversation?.state === CONVERSATION_STATE.AWAITING_REMINDER_REPLY) {
+    return answerReminder(redis, ctx, ctx.conversation);
+  }
   const conversation = ctx.conversation;
   const recipient = /^appointment for (.+)$/i.exec(ctx.text.trim());
   const recipientStates: string[] = [
@@ -1494,6 +1497,7 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
     case CONVERSATION_STATE.HELP:
     case CONVERSATION_STATE.GREETING:
     case CONVERSATION_STATE.AWAITING_DEPOSIT:
+    case CONVERSATION_STATE.AWAITING_REMINDER_REPLY: // handled at the top of advance()
     case CONVERSATION_STATE.RESCHEDULING:
       return { replies: [], conversation: null };
   }
@@ -1532,6 +1536,87 @@ async function offerRebook(ctx: TurnContext, bookingId: string): Promise<TurnRes
       invalidCount: 0,
     },
   };
+}
+
+/**
+ * The customer's answer to "1 confirm · 2 reschedule · 3 cancel".
+ *
+ * Anything that is not one of those three is NOT treated as invalid input: a
+ * customer who replies "hi, can I also book a haircut?" to a reminder wants the
+ * normal menu, and re-prompting them about tomorrow's facial would be the bot
+ * not listening. Such messages fall through to the idle conversation instead.
+ *
+ * Confirming never changes `status`: approval and deposit rules stay the
+ * business's to satisfy. It only records attendance intent.
+ */
+const REMINDER_CONFIRM = /^(1|yes|y|ok|okay|haan|han|confirm(ed)?|coming|i'?ll be there)[.!]?$/i;
+const REMINDER_RESCHEDULE = /^(2|reschedule|change( time)?|move( it)?)[.!]?$/i;
+const REMINDER_CANCEL = /^(3)[.!]?$/; // the word CANCEL is a global command already
+
+async function answerReminder(
+  redis: Redis,
+  ctx: TurnContext,
+  conversation: Conversation,
+): Promise<TurnResult> {
+  const text = ctx.text.trim();
+  const choice = REMINDER_CONFIRM.test(text)
+    ? 'confirm'
+    : REMINDER_RESCHEDULE.test(text)
+      ? 'reschedule'
+      : REMINDER_CANCEL.test(text)
+        ? 'cancel'
+        : null;
+
+  if (!choice) return advance(redis, { ...ctx, conversation: null });
+
+  // Re-read under the tenant filter: the owner may have cancelled or moved it
+  // since the reminder went out, and the reply must act on today's truth.
+  const booking = await Booking.findOne({
+    _id: conversation.bookingId,
+    businessId: ctx.businessId,
+    clientId: ctx.clientId,
+    startsAt: { $gt: ctx.now ?? new Date() },
+    status: {
+      $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.AWAITING_APPROVAL],
+    },
+  });
+  if (!booking) return { replies: [copy.reminderBookingGone], conversation: null };
+
+  const bookingId = String(booking._id);
+
+  if (choice === 'confirm') {
+    // Only the first confirmation is stamped; a second "1" is just reassurance.
+    await Booking.updateOne(
+      { _id: booking._id, clientConfirmedAt: null },
+      { $set: { clientConfirmedAt: ctx.now ?? new Date() } },
+    );
+    return {
+      replies: [copy.reminderConfirmed({ startsAt: booking.startsAt, timezone: ctx.timezone })],
+      conversation: null,
+    };
+  }
+
+  if (choice === 'cancel') {
+    const service = await Service.findById(booking.serviceId).select('name');
+    return {
+      replies: [
+        copy.cancelPrompt({
+          serviceName: service?.name ?? 'your appointment',
+          startsAt: booking.startsAt,
+          timezone: ctx.timezone,
+        }),
+      ],
+      conversation: { state: CONVERSATION_STATE.CANCELLING, bookingId, invalidCount: 0 },
+    };
+  }
+
+  // Reschedule — the same path as RESCHEDULE → pick booking, with the pick made.
+  return promptDate(redis, ctx, {
+    state: CONVERSATION_STATE.SELECTING_DATE,
+    serviceId: booking.serviceId,
+    bookingId,
+    invalidCount: 0,
+  });
 }
 
 /** Build the CANCELLING / RESCHEDULING prompt from the customer's real bookings. */

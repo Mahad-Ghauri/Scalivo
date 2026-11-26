@@ -15,6 +15,7 @@ import { addMinutes, toBusinessLocal } from '../lib/time.js';
 import { isDuplicateKey } from '../lib/mongo.js';
 import { logger } from '../lib/logger.js';
 import * as copy from '../whatsapp/messages.js';
+import { writePendingPrompt } from '../whatsapp/state.js';
 import { retryPending, sendTracked, type SendDeps } from './send.js';
 
 /**
@@ -224,9 +225,10 @@ export async function remindBusiness(
         sameDay:
           toBusinessLocal(booking.startsAt, business.timezone).toISODate() ===
           toBusinessLocal(now, business.timezone).toISODate(),
+        alreadyConfirmed: booking.clientConfirmedAt != null,
       });
 
-      await sendTracked(deps, {
+      const sent = await sendTracked(deps, {
         businessId,
         clientId: booking.clientId,
         bookingId,
@@ -235,6 +237,25 @@ export async function remindBusiness(
         text,
         scheduledFor: dueAt,
       });
+
+      /**
+       * Arm "1/2/3" only after the claim, like the rating prompt: armed first, a
+       * crash between the two would leave a customer whose next `1` confirms a
+       * booking they were never asked about. Lives until the appointment starts,
+       * after which a "1" means a menu pick again.
+       */
+      if (sent.ok) {
+        const ttl = Math.floor((booking.startsAt.getTime() - now.getTime()) / 1000);
+        if (ttl > 0) {
+          await writePendingPrompt(
+            deps.redis,
+            businessId,
+            booking.clientId,
+            { kind: 'reminder', bookingId },
+            ttl,
+          );
+        }
+      }
     }
   }
 }

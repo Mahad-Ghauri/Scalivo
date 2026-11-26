@@ -173,8 +173,11 @@ export async function handleInboundMessage(
       conversation,
     });
 
-    // A rating that was answered must not be asked again on the next message.
-    if (conversation?.state === CONVERSATION_STATE.AWAITING_RATING) {
+    // An answered prompt must not capture the next message too.
+    if (
+      conversation?.state === CONVERSATION_STATE.AWAITING_RATING ||
+      conversation?.state === CONVERSATION_STATE.AWAITING_REMINDER_REPLY
+    ) {
       await clearPendingPrompt(deps.redis, businessId, clientId);
     }
 

@@ -24,6 +24,7 @@ import { confirmBooking } from '../src/notifications/confirm.js';
 import { handleMessageAck } from '../src/notifications/ack.js';
 import { remindBusiness, reminderDueAt, remindersOnce } from '../src/notifications/reminders.js';
 import { retryPending } from '../src/notifications/send.js';
+import { readPendingPrompt } from '../src/whatsapp/state.js';
 import { wallClockToUtc, toBusinessLocal } from '../src/lib/time.js';
 import { assertOk, infraReady } from './infra.js';
 
@@ -463,6 +464,27 @@ describe.skipIf(!infraUp)('confirmations and reminders', () => {
       expect(reminders).toHaveLength(1);
       expect(reminders[0]!.status).toBe(DELIVERY_STATUS.ACCEPTED);
       expect(reminders[0]!.dedupeKey).toBe(`${booking.id}:reminder:1440`);
+    });
+
+    it('asks 1/2/3, arms the reply prompt, and stops asking once confirmed', async () => {
+      const startsAt = at('16:00');
+      const booking = await book(startsAt);
+      await confirmBooking(deps, businessId, booking.id);
+      provider.sent = [];
+
+      await tick(dueNowFor(startsAt));
+      expect(provider.sent[0]!.text).toContain('Reply 1 to confirm');
+      expect(await readPendingPrompt(deps.redis, businessId, booking.clientId)).toEqual({
+        kind: 'reminder',
+        bookingId: booking.id,
+      });
+
+      // A second lead after the customer confirmed: remind, don't re-ask.
+      await Booking.updateOne({ _id: booking.id }, { clientConfirmedAt: new Date() });
+      await Business.updateOne({ _id: businessId }, { 'reminders.leadMinutes': [1440, 120] });
+      provider.sent = [];
+      await tick(dueNowForLead(startsAt, 120));
+      expect(provider.sent[0]!.text).toContain("You're confirmed");
     });
 
     it('is reached by the pass over every business, not just by its own', async () => {

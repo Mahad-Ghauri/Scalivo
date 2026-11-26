@@ -579,6 +579,89 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
     });
   });
 
+  describe('reply-to-act reminders', () => {
+    /** A booked appointment with a reminder prompt armed, as reminders.ts does. */
+    async function bookedWithReminder() {
+      await walkToConfirming();
+      await say('yes');
+      const booking = await Booking.findOne({ businessId, clientId });
+      await writePendingPrompt(
+        redis,
+        businessId,
+        clientId,
+        { kind: 'reminder', bookingId: String(booking!._id) },
+        600,
+      );
+      return booking!;
+    }
+
+    it('records attendance on "1" without touching the business status', async () => {
+      const booking = await bookedWithReminder();
+      const before = booking.status;
+
+      expect(await say('1')).toContain("you're confirmed");
+      const after = await Booking.findById(booking._id);
+      expect(after!.clientConfirmedAt).toBeInstanceOf(Date);
+      expect(after!.status).toBe(before);
+      // "1" must not have started a booking for service #1.
+      expect(await Booking.countDocuments({ businessId })).toBe(1);
+    });
+
+    it('goes straight to the date menu on "2", keeping the service', async () => {
+      await bookedWithReminder();
+      await say('2');
+      const state = await conversation();
+      expect(state?.state).toBe(CONVERSATION_STATE.SELECTING_DATE);
+      expect(state?.serviceId).toBe(hydrafacial);
+    });
+
+    it('asks for explicit approval on "3" and cancels only after YES', async () => {
+      const booking = await bookedWithReminder();
+      expect(await say('3')).toContain('Cancel Hydrafacial');
+      expect((await Booking.findById(booking._id))!.status).not.toBe(BOOKING_STATUS.CANCELLED);
+      await say('yes');
+      expect((await Booking.findById(booking._id))!.status).toBe(BOOKING_STATUS.CANCELLED);
+    });
+
+    it('treats an unrelated message as a normal conversation, then releases "1"', async () => {
+      await bookedWithReminder();
+      expect(await say('hi')).toContain('Hydrafacial'); // the menu, not a re-prompt
+      // Prompt consumed: "1" is now a menu pick (Hydrafacial → staff menu).
+      await say('1');
+      expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_STAFF);
+    });
+
+    it('lets a booking already in progress keep its "1", then confirms after', async () => {
+      const booking = await bookedWithReminder();
+      // The reminder lands while they are already booking something else.
+      await redis.del(`prompt:${businessId}:${clientId}`);
+      await say('hi'); // service menu on screen
+      await writePendingPrompt(
+        redis,
+        businessId,
+        clientId,
+        { kind: 'reminder', bookingId: String(booking._id) },
+        600,
+      );
+
+      await say('1'); // picks Hydrafacial from the menu, not the reminder
+      expect((await conversation())?.state).toBe(CONVERSATION_STATE.SELECTING_STAFF);
+      expect((await Booking.findById(booking._id))!.clientConfirmedAt).toBeNull();
+
+      await say('STOP'); // ends the flow
+      await say('START');
+      expect(await say('1')).toContain("you're confirmed");
+      expect((await Booking.findById(booking._id))!.clientConfirmedAt).toBeInstanceOf(Date);
+    });
+
+    it('says so when the owner cancelled before the reply arrived', async () => {
+      const booking = await bookedWithReminder();
+      await Booking.updateOne({ _id: booking._id }, { status: BOOKING_STATUS.CANCELLED });
+      expect(await say('1')).toContain('no longer upcoming');
+      expect((await Booking.findById(booking._id))!.clientConfirmedAt).toBeNull();
+    });
+  });
+
   describe('races and edge cases', () => {
     it('re-offers instead of double booking when the slot goes at confirm', async () => {
       await walkToConfirming();

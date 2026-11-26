@@ -59,6 +59,16 @@ const bookingSchema = new Schema(
     completedAt: { type: Date, default: null },
 
     /**
+     * When the CUSTOMER said "yes, I'm coming" — by replying 1 to a reminder.
+     *
+     * Deliberately separate from `status`: CONFIRMED is the business's word
+     * (approval given, deposit paid), and a customer's reply must not be able to
+     * skip either. This is attendance intent, which is what the owner's
+     * calendar badge and the unconfirmed-escalation job read.
+     */
+    clientConfirmedAt: { type: Date, default: null },
+
+    /**
      * The deposit asked for, in paisa — null when none was.
      *
      * Copied from the service at booking time rather than looked up later, for

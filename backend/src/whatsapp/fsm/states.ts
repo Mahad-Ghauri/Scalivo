@@ -34,6 +34,8 @@ export const CONVERSATION_STATE = {
    * review they just left with the same review.
    */
   AWAITING_REVIEW_COMMENT: 'awaiting_review_comment',
+  /** A reminder asked "1 confirm · 2 reschedule · 3 cancel"; never persisted. */
+  AWAITING_REMINDER_REPLY: 'awaiting_reminder_reply',
   /**
    * Picking WHICH existing booking. Shared by cancel and reschedule because the
    * question is identical — `intent` carries which one asked, so a customer who

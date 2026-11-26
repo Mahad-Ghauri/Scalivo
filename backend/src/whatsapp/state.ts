@@ -122,8 +122,13 @@ export async function acquireConversationLock(
 const pendingPromptKey = (businessId: string, clientId: string) =>
   `prompt:${businessId}:${clientId}`;
 
+/**
+ * One open question per customer. The latest question asked wins: a reminder
+ * sent after a rating request replaces it, because the customer's next reply
+ * answers whatever they were asked last.
+ */
 export interface PendingPrompt {
-  kind: 'rating';
+  kind: 'rating' | 'reminder';
   bookingId: string;
 }
 

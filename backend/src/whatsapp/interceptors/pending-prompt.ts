@@ -42,9 +42,23 @@ export async function applyPendingPrompt(
     return conversation;
   }
 
+  /**
+   * A reminder yields to a conversation already in progress.
+   *
+   * Unlike a rating, a reminder arrives unprompted by anything the customer is
+   * doing — often while they are mid-way through booking something else. Their
+   * "1" there answers the menu on screen, not a message that landed above it.
+   * The prompt is left armed (the router clears it only when it was applied),
+   * so the same "1" confirms the appointment once the flow is over.
+   */
+  if (pending.kind === 'reminder' && conversation) return conversation;
+
   return {
     ...(conversation ?? { invalidCount: 0 }),
-    state: CONVERSATION_STATE.AWAITING_RATING,
+    state:
+      pending.kind === 'reminder'
+        ? CONVERSATION_STATE.AWAITING_REMINDER_REPLY
+        : CONVERSATION_STATE.AWAITING_RATING,
     bookingId: pending.bookingId,
     invalidCount: 0,
   };

@@ -214,11 +214,22 @@ export const reminder = (details: {
   timezone: string;
   /** Whether the appointment is on the customer's "tomorrow" or later today. */
   sameDay: boolean;
+  /** Already confirmed by an earlier reminder: don't ask again, just remind. */
+  alreadyConfirmed?: boolean;
 }) =>
   `Reminder: ${details.serviceName} ${details.sameDay ? 'today' : ''}`.trimEnd() +
   `\n${formatLocal(details.startsAt, details.timezone)}\n` +
   `with ${details.staffName} at ${details.businessName}\n\n` +
-  `Reply CANCEL or RESCHEDULE if you can't make it.`;
+  (details.alreadyConfirmed
+    ? `You're confirmed ✅\nReply 2 to reschedule or 3 to cancel if plans change.`
+    : `Reply 1 to confirm · 2 to reschedule · 3 to cancel`);
+
+export const reminderConfirmed = (details: { startsAt: Date; timezone: string }) =>
+  `Thanks, you're confirmed ✅ See you ${formatLocal(details.startsAt, details.timezone)}.`;
+
+/** The reply arrived after the owner cancelled/moved it, or after it started. */
+export const reminderBookingGone =
+  "That appointment is no longer upcoming. Send HI if you'd like to book a new one.";
 
 /**
  * Losing the race is normal traffic on a busy Saturday, so this reads as an
