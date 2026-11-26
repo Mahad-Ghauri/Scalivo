@@ -28,6 +28,13 @@ const schema = z.object({
    */
   PUBLIC_URL: z.string().url().default('http://localhost:3000'),
 
+  /**
+   * Where Google/Apple Calendar can reach the iCal feed. Must be reachable from
+   * the public internet — unlike PUBLIC_URL, which only the gateway needs to
+   * reach and may be an internal host. Falls back to PUBLIC_URL.
+   */
+  CALENDAR_FEED_BASE_URL: z.string().url().optional(),
+
   JWT_SECRET: z.string().min(32),
 
   /**

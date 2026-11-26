@@ -31,6 +31,17 @@ const businessSchema = new Schema(
     minNoticeMinutes: { type: Number, default: DEFAULT_MIN_NOTICE_MINUTES },
     bookingHorizonDays: { type: Number, default: DEFAULT_BOOKING_HORIZON_DAYS },
 
+    /**
+     * The secret iCal subscription link (export/ical.ts). Only a SHA-256 of the
+     * token is stored: the link is the credential, a calendar app cannot log in,
+     * and a database leak must not hand out every business's appointment list.
+     * Rotating replaces the hash; revoking nulls it.
+     */
+    calendarFeed: {
+      tokenHash: { type: String, default: null, select: false },
+      createdAt: { type: Date, default: null },
+    },
+
     whatsapp: {
       sessionId: { type: String, index: true },
       status: {
@@ -182,6 +193,13 @@ const businessSchema = new Schema(
     },
   },
   { timestamps: true },
+);
+
+// Partial, not sparse: the field defaults to null, and a sparse unique index
+// still indexes nulls — every business without a feed would collide.
+businessSchema.index(
+  { 'calendarFeed.tokenHash': 1 },
+  { unique: true, partialFilterExpression: { 'calendarFeed.tokenHash': { $type: 'string' } } },
 );
 
 export const Business = model('Business', businessSchema);

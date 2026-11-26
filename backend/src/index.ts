@@ -27,6 +27,7 @@ import { startReminderJob } from './notifications/reminders.js';
 import { startEscalationJob } from './notifications/escalation.js';
 import { startFollowUpJob } from './followups/job.js';
 import { createFollowUpRouter } from './followups/routes.js';
+import { createCalendarFeedRouter, createExportRouter } from './export/routes.js';
 import { startReviewRequestJob } from './reviews/request.js';
 import { startNudgeJob } from './retention/nudges.js';
 import { startCampaignJob } from './retention/campaigns.js';
@@ -141,10 +142,12 @@ export function createApp(): Express {
   app.use('/businesses', createBookingRouter(redis, provider));
   app.use('/businesses', createCalendarRouter(redis, provider));
   app.use('/businesses', createFollowUpRouter());
+  app.use('/businesses', createExportRouter());
 
   // Anonymous: the marketplace and web booking. Gated on `published`, not on a
   // tenant — see public/routes.ts for why it can never live under /businesses.
   app.use('/public', createPublicRouter(redis, provider));
+  app.use('/public', createCalendarFeedRouter(redis));
 
   // Deposits (SPEC §12): the payment page's data under /public, and the
   // gateway's return under /payments. Both anonymous; see payments/routes.ts.
