@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -108,6 +109,9 @@ void main() {
         client: MockClient((request) async {
           requests.add(request);
           if (request.method == 'DELETE') return http.Response('', 204);
+          if (request.method == 'PATCH') {
+            return http.Response(jsonEncode({'id': 'laser', 'name': 'Laser'}), 200);
+          }
           if (request.method == 'PUT') {
             final body = jsonDecode(request.body) as Map<String, dynamic>;
             return http.Response(
@@ -193,7 +197,74 @@ void main() {
       expect(find.text('Sana'), findsOneWidget);
       expect(find.text('NEEDS A CALL'), findsOneWidget);
       expect(find.text('No reply to 2 messages'), findsOneWidget);
-      expect(find.text('923001234567'), findsOneWidget);
+
+      final opened = <Uri>[];
+      launcher = (uri) async {
+        opened.add(uri);
+        return true;
+      };
+      addTearDown(() => launcher = (_) async => false);
+      await tester.tap(find.byKey(const Key('call-b1')));
+      await tester.tap(find.byKey(const Key('whatsapp-b1')));
+      expect(opened.map((u) => '$u'), ['tel:+923001234567', 'https://wa.me/923001234567']);
+
+      // A device that can't dial still gets the number.
+      launcher = (_) async => false;
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (
+        call,
+      ) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      await tester.tap(find.byKey(const Key('call-b1')));
+      await tester.pumpAndSettle();
+      expect(copied, '923001234567');
+      expect(find.textContaining('923001234567 copied'), findsOneWidget);
+    });
+
+    test('a service saves, and can clear, its follow-up default', () async {
+      await api.saveService(
+        'biz',
+        serviceId: 'laser',
+        name: 'Laser',
+        durationMinutes: 30,
+        bufferMinutes: 0,
+        priceMinor: 1,
+        followUpDays: 21,
+        followUpNote: 'Next session',
+        setFollowUp: true,
+      );
+      var body = jsonDecode(requests.last.body) as Map<String, dynamic>;
+      expect(body['followUpDays'], 21);
+      expect(body['followUpNote'], 'Next session');
+
+      await api.saveService(
+        'biz',
+        serviceId: 'laser',
+        name: 'Laser',
+        durationMinutes: 30,
+        bufferMinutes: 0,
+        priceMinor: 1,
+        setFollowUp: true,
+      );
+      body = jsonDecode(requests.last.body) as Map<String, dynamic>;
+      expect(body.containsKey('followUpDays'), isTrue);
+      expect(body['followUpDays'], isNull);
+
+      // Callers that don't show the field leave it alone.
+      await api.saveService(
+        'biz',
+        serviceId: 'laser',
+        name: 'Laser',
+        durationMinutes: 30,
+        bufferMinutes: 0,
+        priceMinor: 1,
+      );
+      body = jsonDecode(requests.last.body) as Map<String, dynamic>;
+      expect(body.containsKey('followUpDays'), isFalse);
     });
   });
 }

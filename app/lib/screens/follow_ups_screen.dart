@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
@@ -129,6 +130,26 @@ class _FollowUpsScreenState extends State<FollowUpsScreen> {
     );
   }
 
+  /// Opens the dialler or WhatsApp. If the device can't (no SIM, tablet,
+  /// emulator), the number is copied instead so the owner still has it.
+  Future<void> _open(Uri uri, String phone) async {
+    bool opened;
+    try {
+      opened = await launcher(uri);
+    } catch (_) {
+      opened = false;
+    }
+    if (opened || !mounted) return;
+    await Clipboard.setData(ClipboardData(text: phone));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text("Couldn't open that here — $phone copied"),
+      ),
+    );
+  }
+
   Widget _row(FollowUpListItem item) {
     final (label, color) = status[item.status] ?? (item.status, Sc.slate);
     final reason = item.lapsedReason == null
@@ -180,21 +201,25 @@ class _FollowUpsScreenState extends State<FollowUpsScreen> {
           if (reason != null)
             Text(reason, style: const TextStyle(fontSize: 12.5, color: Sc.dangerText)),
           if (item.clientPhone != null && item.status != 'booked')
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: item.clientPhone!));
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      behavior: SnackBarBehavior.floating,
-                      content: Text('${item.clientPhone} copied'),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.copy_rounded, size: 15),
-                label: Text(item.clientPhone!),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    key: Key('call-${item.bookingId}'),
+                    onPressed: () => _open(phoneUri(item.clientPhone!), item.clientPhone!),
+                    icon: const Icon(Icons.call_rounded, size: 16),
+                    label: const Text('Call'),
+                  ),
+                  FilledButton.icon(
+                    key: Key('whatsapp-${item.bookingId}'),
+                    style: FilledButton.styleFrom(backgroundColor: Sc.teal),
+                    onPressed: () => _open(whatsAppUri(item.clientPhone!), item.clientPhone!),
+                    icon: const Icon(Icons.chat_rounded, size: 16),
+                    label: const Text('WhatsApp'),
+                  ),
+                ],
               ),
             ),
         ],
@@ -202,3 +227,14 @@ class _FollowUpsScreenState extends State<FollowUpsScreen> {
     );
   }
 }
+
+/// Digits only, international form: the backend stores E.164 without "+".
+String _digits(String phone) => phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+Uri phoneUri(String phone) => Uri(scheme: 'tel', path: '+${_digits(phone)}');
+
+Uri whatsAppUri(String phone) => Uri.https('wa.me', '/${_digits(phone)}');
+
+/// Swappable so widget tests can see what would open without a platform.
+Future<bool> Function(Uri) launcher =
+    (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);

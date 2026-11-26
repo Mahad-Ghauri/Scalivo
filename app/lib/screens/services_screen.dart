@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../api/models.dart';
 import '../format.dart';
 import '../state/auth_controller.dart';
+import '../widgets/follow_up_fields.dart';
 import '../theme.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_field.dart';
@@ -340,6 +341,13 @@ class _ServiceSheetState extends State<_ServiceSheet> {
 
   bool _busy = false;
   late bool _approval = widget.service?.requiresOwnerApproval ?? false;
+  late bool _followUp = widget.service?.followUpDays != null;
+  late final _followUpDays = TextEditingController(
+    text: '${widget.service?.followUpDays ?? 21}',
+  );
+  late final _followUpNote = TextEditingController(
+    text: widget.service?.followUpNote ?? '',
+  );
   late final List<List<String>> _requirements = [
     for (final group
         in widget.service?.resourceRequirements ?? const <List<String>>[])
@@ -381,6 +389,8 @@ class _ServiceSheetState extends State<_ServiceSheet> {
     _duration.dispose();
     _buffer.dispose();
     _price.dispose();
+    _followUpDays.dispose();
+    _followUpNote.dispose();
     super.dispose();
   }
 
@@ -485,6 +495,23 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                     ? null
                     : (value) => setState(() => _approval = value),
               ),
+              const SizedBox(height: 6),
+              FollowUpFields(
+                label: 'Usually needs a follow-up',
+                enabled: _followUp,
+                busy: _busy,
+                onToggle: (on) => setState(() => _followUp = on),
+                days: _followUpDays,
+                note: _followUpNote,
+                helper:
+                    'Pre-fills the follow-up when you book or complete this '
+                    'service. You can change it each time.',
+              ),
+              if (_fieldErrors['followUpDays'] != null)
+                Text(
+                  _fieldErrors['followUpDays']!,
+                  style: const TextStyle(color: Sc.dangerText, fontSize: 12.5),
+                ),
               const SizedBox(height: 18),
               if (_fieldErrors['resourceRequirements'] != null)
                 Text(
@@ -627,6 +654,8 @@ class _ServiceSheetState extends State<_ServiceSheet> {
         'bufferMinutes': 'Use 0–1440 minutes',
       if (rupees == null || rupees < 0 || rupees > 90071992547409)
         'priceMinor': 'A price in rupees',
+      if (_followUp && FollowUpFields.parseDays(_followUpDays.text) == null)
+        'followUpDays': 'Use 1–365 days',
     };
 
     if (errors.isNotEmpty) {
@@ -651,6 +680,14 @@ class _ServiceSheetState extends State<_ServiceSheet> {
         resourceRequirements: _requirements,
         requiresOwnerApproval: _approval,
         approvalWindowMinutes: widget.service?.approvalWindowMinutes ?? 30,
+        // Sent either way so switching it off clears the default.
+        followUpDays: _followUp
+            ? FollowUpFields.parseDays(_followUpDays.text)
+            : null,
+        followUpNote: _followUp
+            ? FollowUpFields.cleanNote(_followUpNote.text)
+            : null,
+        setFollowUp: true,
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);

@@ -14,7 +14,14 @@ class FollowUpFields extends StatelessWidget {
     required this.note,
     this.busy = false,
     this.showToggle = true,
+    this.label = 'Needs a follow-up',
+    this.helper =
+        'Once the visit is marked complete, the customer gets a WhatsApp '
+        'message 3 days before with a time they can book in one reply.',
   });
+
+  final String label;
+  final String helper;
 
   final bool enabled;
   final ValueChanged<bool> onToggle;
@@ -44,10 +51,10 @@ class FollowUpFields extends StatelessWidget {
         if (showToggle)
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Needs a follow-up',
-                  style: TextStyle(fontSize: 13.5, color: Sc.inkMuted),
+                  label,
+                  style: const TextStyle(fontSize: 13.5, color: Sc.inkMuted),
                 ),
               ),
               Switch(
@@ -92,10 +99,9 @@ class FollowUpFields extends StatelessWidget {
               hintText: 'Note for the customer, e.g. Session 2 of 6',
             ),
           ),
-          const Text(
-            'Once the visit is marked complete, the customer gets a WhatsApp '
-            'message 3 days before with a time they can book in one reply.',
-            style: TextStyle(fontSize: 12, color: Sc.slate, height: 1.5),
+          Text(
+            helper,
+            style: const TextStyle(fontSize: 12, color: Sc.slate, height: 1.5),
           ),
         ],
       ],

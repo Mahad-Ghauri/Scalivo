@@ -412,6 +412,12 @@ class ApiClient {
     List<List<String>>? resourceRequirements,
     bool? requiresOwnerApproval,
     int? approvalWindowMinutes,
+    int? followUpDays,
+    String? followUpNote,
+
+    /// True to send the follow-up default (including null, which clears it).
+    /// False leaves it untouched, for callers that don't show the field.
+    bool setFollowUp = false,
   }) async {
     final body = {
       'name': name,
@@ -424,6 +430,10 @@ class ApiClient {
         ],
       'requiresOwnerApproval': ?requiresOwnerApproval,
       'approvalWindowMinutes': ?approvalWindowMinutes,
+      if (setFollowUp) ...{
+        'followUpDays': followUpDays,
+        'followUpNote': followUpNote,
+      },
     };
 
     final json = serviceId == null

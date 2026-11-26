@@ -31,6 +31,7 @@ dependencies:
   # FCM cannot create one. This is what creates the two channels — and the
   # separation is load-bearing, see push_service.dart.
   flutter_local_notifications: ^19.4.2
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   file_selector_platform_interface: ^2.7.0
