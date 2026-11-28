@@ -13,6 +13,7 @@ import '../staff_screen.dart';
 import '../resources_screen.dart';
 import '../analytics_screen.dart';
 import '../follow_ups_screen.dart';
+import '../photos_screen.dart';
 import '../reviews_screen.dart';
 import '../grow_screen.dart';
 import '../client_import_screen.dart';
@@ -144,6 +145,15 @@ class _SettingsTabState extends State<SettingsTab> {
                     );
                     if (mounted) _load();
                   },
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.photo_library_outlined,
+                  label: 'Photos',
+                  detail: 'Logo, cover photo and portfolio',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const PhotosScreen()),
+                  ),
                 ),
                 const Divider(height: 22, color: Sc.divider),
                 _navRow(

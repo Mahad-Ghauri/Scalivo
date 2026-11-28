@@ -89,6 +89,10 @@ export interface Staff {
   serviceIds: string[];
   workingHours: WorkingHours[];
   active: boolean;
+  /** Uploaded photo (512px WebP), or null. */
+  avatarUrl?: string | null;
+  /** When the owner confirmed this person agreed to the photo being public. */
+  photoConsentAt?: string | null;
 }
 
 /**

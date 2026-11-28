@@ -25,8 +25,6 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
     'about': ('About', 2000),
     'neighbourhood': ('Neighbourhood', 80),
     'addressLine': ('Address', 200),
-    'logoUrl': ('Logo image link (HTTPS)', 2000),
-    'coverUrl': ('Cover image link (HTTPS)', 2000),
     'themeColor': ('Accent colour (#1a2b3c)', 7),
   };
   final _controllers = {

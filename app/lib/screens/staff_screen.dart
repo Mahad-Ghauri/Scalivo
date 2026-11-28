@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../api/models.dart';
 import '../state/auth_controller.dart';
+import '../widgets/image_slot.dart';
 import '../theme.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_field.dart';
@@ -381,12 +382,16 @@ class StaffEditScreen extends StatefulWidget {
     required this.businessId,
     required this.services,
     this.member,
+    this.picker = pickWithPlatform,
   });
 
   final ApiClient api;
   final String businessId;
   final List<ServiceItem> services;
   final StaffMember? member;
+
+  /// Injectable for widget tests.
+  final PickImage picker;
 
   @override
   State<StaffEditScreen> createState() => _StaffEditScreenState();
@@ -418,6 +423,9 @@ class _StaffEditScreenState extends State<StaffEditScreen> {
 
   bool _busy = false;
   Map<String, String> _fieldErrors = const {};
+
+  /// Pre-on only when a photo already exists — consent was given for it.
+  late bool _photoConsent = widget.member?.photoConsentAt != null;
   String? _formError;
 
   @override
@@ -447,6 +455,45 @@ class _StaffEditScreenState extends State<StaffEditScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(22, 8, 22, 40),
         children: [
+          if (widget.member != null) ...[
+            SwitchListTile.adaptive(
+              key: const Key('staff-photo-consent'),
+              contentPadding: EdgeInsets.zero,
+              value: _photoConsent,
+              onChanged: (on) => setState(() => _photoConsent = on),
+              title: Text(
+                '${widget.member!.name} agreed to their photo being shown publicly',
+                style: const TextStyle(fontSize: 13.5),
+              ),
+            ),
+            ImageSlot(
+              label: 'Photo (optional)',
+              hint: 'Customers like to see who they are booking.',
+              url: widget.member!.avatarUrl,
+              aspectRatio: 1,
+              circular: true,
+              picker: widget.picker,
+              beforeUpload: () => _photoConsent
+                  ? null
+                  : 'Switch on consent first: they must agree to a public photo.',
+              onUpload: (bytes, type) async => (await widget.api.uploadImage(
+                widget.businessId,
+                ImageTarget.staff(widget.member!.id),
+                bytes,
+                contentType: type,
+                staffConsent: _photoConsent,
+              )).url,
+              onRemove: () async {
+                await widget.api.deleteImage(
+                  widget.businessId,
+                  ImageTarget.staff(widget.member!.id),
+                );
+                // Consent was for that photo; a new one needs it again.
+                if (mounted) setState(() => _photoConsent = false);
+              },
+            ),
+            const SizedBox(height: 22),
+          ],
           ScField(
             label: 'Name',
             controller: _name,

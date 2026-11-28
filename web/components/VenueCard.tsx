@@ -1,3 +1,4 @@
+import { srcSet } from '@/lib/media';
 import Link from 'next/link';
 
 import { Star } from '@/components/Icons';
@@ -26,6 +27,8 @@ export function VenueCard({ business }: { business: BusinessCard }) {
         {business.coverUrl ? (
           <img
             src={business.coverUrl}
+            srcSet={srcSet(business.coverUrl)}
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
             alt=""
             loading="lazy"
             decoding="async"

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { ImageUpload } from './media/ImageUpload';
 import type { Staff, Service } from '@scalivo/shared';
 import { createStaffAction, updateStaffAction } from '@/app/(dashboard)/dashboard/[businessId]/staff/actions';
 
@@ -36,6 +37,8 @@ const hoursOf = (map: Record<number, DayHours>, day: number): DayHours =>
   map[day] ?? { active: false, opensAt: '09:00', closesAt: '17:00' };
 
 export function StaffModal({ businessId, existingStaff, services, onClose, onSuccess }: StaffModalProps) {
+  // Pre-ticked only when a photo already exists — consent was given for it.
+  const [photoConsent, setPhotoConsent] = useState(Boolean(existingStaff?.photoConsentAt));
   const modalRef = useRef<HTMLDivElement>(null);
   const isEditing = !!existingStaff;
 
@@ -183,6 +186,40 @@ export function StaffModal({ businessId, existingStaff, services, onClose, onSuc
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {existingStaff ? (
+              <div>
+                <label className="flex items-start gap-2 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded text-brand focus:ring-brand"
+                    checked={photoConsent}
+                    onChange={(e) => setPhotoConsent(e.target.checked)}
+                  />
+                  <span>
+                    {existingStaff.name} agreed to their photo being shown publicly on your page.
+                  </span>
+                </label>
+                <div className="mt-3">
+                  <ImageUpload
+                    endpoint={`/api/business/${encodeURIComponent(businessId)}/media/staff/${existingStaff.id}/photo`}
+                    label="Photo (optional)"
+                    hint="Customers like to see who they are booking. Square works best."
+                    currentUrl={existingStaff.avatarUrl}
+                    aspect="square"
+                    alt={existingStaff.name}
+                    query="consent=true"
+                    beforeUpload={() =>
+                      photoConsent ? null : 'Tick the box to confirm they agreed to their photo being public.'
+                    }
+                    onChange={(url) => {
+                      if (!url) setPhotoConsent(false);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-[13px] text-muted">Save first, then edit to add a photo.</p>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-ink mb-1">Name</label>

@@ -57,7 +57,11 @@ export function LocalBusinessJsonLd({ business }: { business: MarketplaceBusines
               // Duration is deliberately absent: schema.org has no property for
               // "this service takes 45 minutes" that search engines consume, and
               // inventing one adds weight to the payload for no benefit.
-              itemOffered: { '@type': 'Service', name: service.name },
+              itemOffered: {
+                '@type': 'Service',
+                name: service.name,
+                ...(service.imageUrl ? { image: service.imageUrl } : {}),
+              },
               ...(service.priceMinor > 0
                 ? { price: (service.priceMinor / 100).toFixed(2), priceCurrency: 'PKR' }
                 : {}),

@@ -6,6 +6,7 @@ import '../api/models.dart';
 import '../format.dart';
 import '../state/auth_controller.dart';
 import '../widgets/follow_up_fields.dart';
+import '../widgets/image_slot.dart';
 import '../theme.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_field.dart';
@@ -429,6 +430,25 @@ class _ServiceSheetState extends State<_ServiceSheet> {
                 ),
               ),
               const SizedBox(height: 22),
+              if (widget.service != null) ...[
+                ImageSlot(
+                  label: 'Photo (optional)',
+                  hint: 'Shown next to this service on your page.',
+                  url: widget.service!.imageUrl,
+                  aspectRatio: 4 / 3,
+                  onUpload: (bytes, type) async => (await widget.api.uploadImage(
+                    widget.businessId,
+                    ImageTarget.service(widget.service!.id),
+                    bytes,
+                    contentType: type,
+                  )).url,
+                  onRemove: () => widget.api.deleteImage(
+                    widget.businessId,
+                    ImageTarget.service(widget.service!.id),
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
               ScField(
                 label: 'Name',
                 controller: _name,

@@ -1,3 +1,4 @@
+import { srcSet } from '@/lib/media';
 import { landingPath } from '@/lib/landing';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
@@ -152,13 +153,15 @@ export default async function BusinessPage({ params }: { params: Params }) {
                 which is the connection this page is written for. */}
             <img
               src={photos[0]}
+              srcSet={srcSet(photos[0])}
+              sizes="(max-width: 768px) 100vw, 66vw"
               alt={photoAlt(photos[0]!)}
               fetchPriority="high"
               className="aspect-[4/3] h-full w-full rounded-lg object-cover md:col-span-2 md:row-span-2 md:aspect-auto md:max-h-[480px]"
             />
             {photos.slice(1, 3).map((url, index) => (
               <div key={url} className="relative hidden md:block">
-                <img src={url} alt={photoAlt(url)} loading="lazy" className="h-full max-h-[236px] w-full rounded-lg object-cover" />
+                <img src={url} srcSet={srcSet(url)} sizes="33vw" alt={photoAlt(url)} loading="lazy" className="h-full max-h-[236px] w-full rounded-lg object-cover" />
                 {index === 1 && photos.length > 3 ? (
                   <a
                     href="#portfolio"
@@ -182,7 +185,18 @@ export default async function BusinessPage({ params }: { params: Params }) {
                     key={service.id}
                     className="flex items-center justify-between gap-4 rounded-lg border border-line px-5 py-4 transition-colors hover:bg-surface/60"
                   >
-                    <div className="min-w-0">
+                    {service.imageUrl ? (
+                      <img
+                        src={service.imageUrl}
+                        srcSet={srcSet(service.imageUrl)}
+                        sizes="96px"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-[72px] w-24 shrink-0 rounded-md object-cover"
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
                       <h3 className="text-[16px] font-semibold">{service.name}</h3>
                       <p className="text-[14px] text-muted">{formatDuration(service.durationMinutes)}</p>
                       {service.description ? <p className="mt-1 text-[14px] text-muted">{service.description}</p> : null}
@@ -215,6 +229,8 @@ export default async function BusinessPage({ params }: { params: Params }) {
                       {member.avatarUrl ? (
                         <img
                           src={member.avatarUrl}
+                          srcSet={srcSet(member.avatarUrl)}
+                          sizes="96px"
                           alt=""
                           loading="lazy"
                           className="mx-auto h-24 w-24 rounded-full object-cover"
@@ -276,7 +292,14 @@ export default async function BusinessPage({ params }: { params: Params }) {
                 <ul className="grid grid-cols-2 gap-2 md:grid-cols-3">
                   {business.gallery.map((image, index) => (
                     <li key={image.url} className={index === 0 ? 'col-span-2 row-span-2 md:col-span-2' : ''}>
-                      <img src={image.url} alt={image.alt} loading="lazy" className="aspect-square h-full w-full rounded-lg object-cover" />
+                      <img
+                        src={image.url}
+                        srcSet={srcSet(image.url)}
+                        sizes={index === 0 ? '(max-width: 768px) 100vw, 66vw' : '(max-width: 768px) 50vw, 33vw'}
+                        alt={image.alt}
+                        loading="lazy"
+                        className="aspect-square h-full w-full rounded-lg object-cover"
+                      />
                     </li>
                   ))}
                 </ul>

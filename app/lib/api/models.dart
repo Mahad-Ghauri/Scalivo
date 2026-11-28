@@ -368,6 +368,7 @@ class ServiceItem {
     this.approvalWindowMinutes = 30,
     this.followUpDays,
     this.followUpNote,
+    this.imageUrl,
   });
 
   final String id;
@@ -377,6 +378,9 @@ class ServiceItem {
   /// Default follow-up for this service; pre-fills the owner's choice.
   final int? followUpDays;
   final String? followUpNote;
+
+  /// Uploaded photo shown next to the service on the public page.
+  final String? imageUrl;
 
   /// Turnaround. The grid claims it so nothing can be booked into it, but the
   /// appointment is drawn at its service length — see CalendarEntry.endsAt.
@@ -417,6 +421,7 @@ class ServiceItem {
     approvalWindowMinutes: json['approvalWindowMinutes'] as int? ?? 30,
     followUpDays: json['followUpDays'] as int?,
     followUpNote: json['followUpNote'] as String?,
+    imageUrl: json['imageUrl'] as String?,
   );
 }
 
@@ -726,10 +731,16 @@ class StaffMember {
     required this.serviceIds,
     required this.workingHours,
     required this.active,
+    this.avatarUrl,
+    this.photoConsentAt,
   });
 
   final String id;
   final String name;
+
+  /// Uploaded photo, and when the owner confirmed the person agreed to it.
+  final String? avatarUrl;
+  final DateTime? photoConsentAt;
 
   /// What this person can perform. Empty means nothing can be booked with them,
   /// which is a real state and a common first-run mistake.
@@ -747,6 +758,10 @@ class StaffMember {
         .map(WorkingDay.fromJson)
         .toList(),
     active: json['active'] as bool? ?? true,
+    avatarUrl: json['avatarUrl'] as String?,
+    photoConsentAt: json['photoConsentAt'] is String
+        ? DateTime.tryParse(json['photoConsentAt'] as String)
+        : null,
   );
 }
 

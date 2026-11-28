@@ -2,6 +2,8 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { updateSettingsAction } from '@/app/(dashboard)/dashboard/[businessId]/settings/actions';
+import { ImageUpload } from './media/ImageUpload';
+import { PortfolioManager, type GalleryItem } from './media/PortfolioManager';
 
 /** The slice of GET /businesses/:id this form edits. */
 export interface EditableBusiness {
@@ -27,6 +29,7 @@ export interface EditableBusiness {
     logoUrl?: string | null;
     coverUrl?: string | null;
     themeColor?: string | null;
+    gallery?: GalleryItem[];
   };
 }
 
@@ -64,8 +67,6 @@ export function SettingsForm({
   const [about, setAbout] = useState(business.profile?.about ?? '');
   const [neighbourhood, setNeighbourhood] = useState(business.profile?.neighbourhood ?? '');
   const [addressLine, setAddressLine] = useState(business.profile?.addressLine ?? '');
-  const [logoUrl, setLogoUrl] = useState(business.profile?.logoUrl ?? '');
-  const [coverUrl, setCoverUrl] = useState(business.profile?.coverUrl ?? '');
   const [themeColor, setThemeColor] = useState(business.profile?.themeColor ?? '');
 
   const [slotSize, setSlotSize] = useState(business.slotIncrementMinutes);
@@ -116,7 +117,9 @@ export function SettingsForm({
         escalate,
         escalateMinutesBefore: escalateBefore,
       },
-      profile: { tagline, about, neighbourhood, addressLine, logoUrl, coverUrl, themeColor },
+      // logoUrl/coverUrl are NOT sent: the upload controls own them, and a stale
+      // value saved from this form would overwrite a photo uploaded meanwhile.
+      profile: { tagline, about, neighbourhood, addressLine, themeColor },
     };
 
     startTransition(async () => {
@@ -234,12 +237,6 @@ export function SettingsForm({
             <Field label="Address" error={error('profile.addressLine')}>
               <input className={input} value={addressLine} onChange={(e) => setAddressLine(e.target.value)} maxLength={200} />
             </Field>
-            <Field label="Logo image link" hint="Must start with https://" error={error('profile.logoUrl')}>
-              <input className={input} type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://" />
-            </Field>
-            <Field label="Cover image link" hint="Must start with https://" error={error('profile.coverUrl')}>
-              <input className={input} type="url" value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)} placeholder="https://" />
-            </Field>
             <Field label="Accent colour" hint="Leave blank for the default." error={error('profile.themeColor')}>
               <div className="flex items-center gap-2">
                 <input
@@ -252,6 +249,36 @@ export function SettingsForm({
                 <input className={input} value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#1a2b3c" maxLength={7} />
               </div>
             </Field>
+          </div>
+        </Section>
+
+        <Section
+          title="Photos"
+          caption="Saved as soon as you upload — no need to press Save. Location data is removed from every photo."
+        >
+          <div className="grid gap-6 sm:grid-cols-[auto_1fr]">
+            <ImageUpload
+              endpoint={`/api/business/${encodeURIComponent(businessId)}/media/images/logo`}
+              label="Logo"
+              hint="Square works best."
+              currentUrl={business.profile?.logoUrl}
+              aspect="square"
+              alt={`${name} logo`}
+            />
+            <ImageUpload
+              endpoint={`/api/business/${encodeURIComponent(businessId)}/media/images/cover`}
+              label="Cover photo"
+              hint="Shown at the top of your page and when your link is shared. Landscape, 3:2."
+              currentUrl={business.profile?.coverUrl}
+              aspect="cover"
+              alt={`${name} cover photo`}
+            />
+          </div>
+          <div className="mt-8">
+            <h3 className="text-sm font-medium text-ink">Portfolio</h3>
+            <div className="mt-2">
+              <PortfolioManager businessId={businessId} initial={business.profile?.gallery ?? []} />
+            </div>
           </div>
         </Section>
 

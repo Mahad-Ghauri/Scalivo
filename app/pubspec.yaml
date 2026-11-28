@@ -32,6 +32,9 @@ dependencies:
   # separation is load-bearing, see push_service.dart.
   flutter_local_notifications: ^19.4.2
   url_launcher: ^6.3.3
+  # Photo uploads (logo, cover, portfolio, service, staff). Returns JPEG, so
+  # iPhone HEIC photos arrive in a format the backend accepts.
+  image_picker: ^1.1.2
 
 dev_dependencies:
   file_selector_platform_interface: ^2.7.0

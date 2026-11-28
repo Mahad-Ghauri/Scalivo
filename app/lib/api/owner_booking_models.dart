@@ -1,3 +1,4 @@
+import 'media_models.dart';
 import '../format.dart';
 import 'growth_models.dart';
 import 'models.dart';
@@ -119,7 +120,8 @@ class BusinessProfile {
           key: wireMap(json['profile'] ?? <String, dynamic>{})[key] == null
               ? ''
               : wireText(wireMap(json['profile'])[key], max: 2000),
-      }) {
+      }),
+      gallery = GalleryPhoto.listFrom(wireMap(json['profile'] ?? <String, dynamic>{})['gallery']) {
     try {
       businessTime(DateTime.now(), timezone: timezone);
     } on Exception {
@@ -133,4 +135,5 @@ class BusinessProfile {
   final bool published;
   final int slotIncrementMinutes;
   final Map<String, String> profile;
+  final List<GalleryPhoto> gallery;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { ImageUpload } from './media/ImageUpload';
 import type { Service, Resource } from '@scalivo/shared';
 import {
   createServiceAction,
@@ -202,6 +203,18 @@ export function ServiceModal({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {existingService ? (
+              <ImageUpload
+                endpoint={`/api/business/${encodeURIComponent(businessId)}/media/services/${existingService.id}/image`}
+                label="Photo (optional)"
+                hint="Shown next to this service on your page. 4:3 works best."
+                currentUrl={existingService.imageUrl}
+                aspect="service"
+                alt={existingService.name}
+              />
+            ) : (
+              <p className="text-[13px] text-muted">Save the service first, then edit it to add a photo.</p>
+            )}
             <div>
               <label className="block text-sm font-medium text-ink mb-1">Service Name</label>
               <input

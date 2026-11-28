@@ -7,8 +7,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'media_models.dart';
 import 'models.dart';
 import 'growth_models.dart';
+export 'media_models.dart';
 import 'briefing_models.dart';
 import 'owner_booking_models.dart';
 import '../format.dart';
@@ -705,6 +707,9 @@ class ApiClient {
     T Function(Map<String, dynamic>) parse, {
     Map<String, String>? query,
     Map<String, dynamic>? body,
+    List<int>? bytes,
+    String? contentType,
+    Duration? timeout,
   }) async {
     if (!RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(businessId)) {
       throw const ApiException(ApiErrorKind.validation, 'Invalid business');
@@ -717,6 +722,9 @@ class ApiClient {
           query: query,
           body: body,
           maxResponseBytes: 1024 * 1024,
+          bytes: bytes,
+          contentType: contentType,
+          timeout: timeout,
         ),
       );
     } on FormatException {
@@ -870,6 +878,71 @@ class ApiClient {
         'to': ?to,
       },
     );
+  }
+
+  /* ─────────────────────────── image uploads ─────────────────────────── */
+
+  /// Uploads image [bytes] to [target]. The backend re-encodes, resizes and
+  /// strips metadata; this only refuses what it would refuse anyway.
+  Future<UploadedImage> uploadImage(
+    String businessId,
+    ImageTarget target,
+    List<int> bytes, {
+    required String contentType,
+    String? caption,
+    bool staffConsent = false,
+  }) async {
+    if (!acceptedImageTypes.contains(contentType)) {
+      throw const ApiException(ApiErrorKind.validation, 'Choose a JPEG, PNG or WebP image.');
+    }
+    if (bytes.isEmpty || bytes.length > maxImageBytes) {
+      throw const ApiException(ApiErrorKind.validation, 'Images must be under 8 MB.');
+    }
+    final trimmed = caption?.trim();
+    if (target.uploadMethod == 'POST' && (trimmed == null || trimmed.isEmpty || trimmed.length > 200)) {
+      throw const ApiException(ApiErrorKind.validation, 'Describe the photo in 1–200 characters.');
+    }
+    return _growth(
+      businessId,
+      target.uploadMethod,
+      target.path,
+      UploadedImage.fromJson,
+      query: {
+        if (target.uploadMethod == 'POST') 'alt': trimmed!,
+        if (target.isStaff && staffConsent) 'consent': 'true',
+      },
+      bytes: bytes,
+      contentType: contentType,
+      timeout: const Duration(seconds: 120),
+    );
+  }
+
+  /// Removes the image at [target] (or one portfolio photo).
+  Future<void> deleteImage(String businessId, ImageTarget target) =>
+      _growth(businessId, 'DELETE', target.path, (_) {});
+
+  Future<void> captionGalleryPhoto(String businessId, String imageId, String caption) {
+    final alt = caption.trim();
+    if (alt.isEmpty || alt.length > 200) {
+      throw const ApiException(ApiErrorKind.validation, 'Describe the photo in 1–200 characters.');
+    }
+    return _growth(
+      businessId,
+      'PATCH',
+      ImageTarget.galleryItem(imageId).path,
+      (_) {},
+      body: {'alt': alt},
+    );
+  }
+
+  Future<void> reorderGallery(String businessId, List<String> imageIds) {
+    if (imageIds.length > galleryMax) {
+      throw const ApiException(ApiErrorKind.validation, 'Too many photos');
+    }
+    for (final id in imageIds) {
+      ImageTarget.galleryItem(id); // validates the id shape
+    }
+    return _growth(businessId, 'PUT', '/images/gallery/order', (_) {}, body: {'imageIds': imageIds});
   }
 
   Future<BusinessProfile> businessProfile(String businessId) =>
@@ -1191,6 +1264,10 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? query,
     int? maxResponseBytes,
+    /// A raw body (an image upload) instead of JSON.
+    List<int>? bytes,
+    String? contentType,
+    Duration? timeout,
   }) async {
     // Built through Uri rather than string concatenation: a customer search for
     // "R&B" or a name with a space would otherwise truncate the query silently.
@@ -1207,6 +1284,9 @@ class ApiClient {
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
+    } else if (bytes != null) {
+      request.headers['Content-Type'] = contentType ?? 'application/octet-stream';
+      request.bodyBytes = bytes;
     }
 
     http.Response response;
@@ -1243,7 +1323,7 @@ class ApiClient {
               headers: streamed.headers,
             );
           })().timeout(
-            _timeout,
+            timeout ?? _timeout,
             onTimeout: () {
               timedOut = true;
               throw TimeoutException('Request timed out');
@@ -1332,6 +1412,15 @@ class ApiClient {
         ApiErrorKind.conflict,
         serverMessage ?? 'That is already taken',
         fieldErrors: fields,
+      ),
+      // Image uploads: fixed, person-readable messages from the backend.
+      413 || 415 => ApiException(
+        ApiErrorKind.validation,
+        serverMessage ?? 'That file cannot be uploaded',
+      ),
+      429 || 503 => ApiException(
+        ApiErrorKind.server,
+        serverMessage ?? 'Something went wrong. Try again.',
       ),
       _ => const ApiException(
         ApiErrorKind.server,
