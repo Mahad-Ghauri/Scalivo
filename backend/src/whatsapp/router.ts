@@ -42,6 +42,9 @@ export interface RouterDeps {
   provider: MessagingProvider;
 }
 
+/** Inbound messages older than this are history being replayed, not a customer waiting. */
+const STALE_MESSAGE_MS = 60 * 60 * 1000;
+
 export async function handleInboundMessage(
   deps: RouterDeps,
   message: InboundMessage,
@@ -55,6 +58,15 @@ export async function handleInboundMessage(
   // before identity so they create no client either. Media stays — a voice note
   // is a customer talking, and gets the invalid-input reply.
   if (!message.body.trim() && !message.hasMedia) return;
+
+  // Old chat history. Linking or re-linking a number can replay earlier messages
+  // from the phone's personal contacts; answering those would message people
+  // who never asked to book. An hour still covers a backend outage, after which
+  // real customers' messages arrive late but should be answered.
+  if (Date.now() - message.receivedAt.getTime() > STALE_MESSAGE_MS) {
+    logger.info({ sessionId: message.sessionId }, 'ignored a stale inbound message');
+    return;
+  }
 
   // ── Stage 2: identity ────────────────────────────────────────────────────
   // sessionId is the only routing key an inbound event carries, and it is on
@@ -227,9 +239,9 @@ export async function handleInboundMessage(
      * the one fact that matters. The unsent confirmation stays queued.
      */
     if (result.confirmsSequence) {
-      await confirmBookings(deps, businessId, result.confirmsSequence);
+      await confirmBookings(deps, businessId, result.confirmsSequence, { notifyOwner: true });
     } else if (result.confirms) {
-      await confirmBooking(deps, businessId, result.confirms).catch((err) =>
+      await confirmBooking(deps, businessId, result.confirms, { notifyOwner: true }).catch((err) =>
         logger.error({ err, businessId, bookingId: result.confirms }, 'could not confirm booking'),
       );
     }

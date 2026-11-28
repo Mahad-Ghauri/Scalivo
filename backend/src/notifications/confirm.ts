@@ -51,6 +51,8 @@ export async function confirmBooking(
   bookingId: string,
   options: {
     ownerApproval?: boolean;
+    /** The customer booked it themselves (WhatsApp, website, deposit), so tell the owner. */
+    notifyOwner?: boolean;
     display?: {
       businessName: string;
       timezone: string;
@@ -219,6 +221,22 @@ export async function confirmBooking(
     'booking confirmed',
   );
 
+  // Only on the confirm that changed the status, so a repeat call never pings twice.
+  if (updated && options.notifyOwner)
+    await pushToOwners(businessId, {
+      title: 'New booking',
+      body: `${display.serviceName} with ${display.staffName}, ${booking.startsAt.toLocaleString('en-GB', {
+        timeZone: display.timezone,
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
+      channel: PUSH_CHANNEL.BOOKINGS,
+      route: '/',
+    }).catch((err) => logger.error({ err, businessId, bookingId }, 'could not notify owner of booking'));
+
   return { ok: true, changed: Boolean(updated), delivery };
 }
 
@@ -227,6 +245,7 @@ export async function confirmBookings(
   deps: SendDeps,
   businessId: string,
   bookings: { id: string; clientId: string; serviceId: string; staffId: string }[],
+  { notifyOwner = false }: { notifyOwner?: boolean } = {},
 ) {
   if (
     !bookings.length ||
@@ -254,6 +273,7 @@ export async function confirmBookings(
     try {
       results.push(
         await confirmBooking(deps, businessId, booking.id, {
+          notifyOwner,
           display: {
             businessName: business.name,
             timezone: business.timezone,

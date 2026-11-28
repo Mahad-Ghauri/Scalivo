@@ -55,19 +55,28 @@ export function CalendarEntryCard({ entry, style, isSelected }: CalendarEntryCar
   // we can't easily read current searchParams to preserve 'date' and 'view' without passing them down.
   // Let's pass the base URL with search params down.
   
+  // Show only the lines that fit whole, so short bookings never cut text in half.
+  const height = typeof style?.height === 'number' ? style.height : Infinity;
+  const lines = height >= 56 ? 3 : height >= 40 ? 2 : 1;
+
   return (
     <div
       style={style}
       className={`absolute inset-x-0 mx-0.5 overflow-hidden rounded-md border px-1.5 py-1 leading-tight transition-colors ${bg} ${border} ${text}`}
     >
       <div className="flex items-center gap-1 font-semibold truncate text-xs">
-        <span className="truncate">{entry.clientName || 'Walk-in'}</span>
+        <span className="truncate">
+          {entry.clientName || 'Walk-in'}
+          {lines < 2 && entry.serviceName && (
+            <span className="font-normal"> · {entry.serviceName}</span>
+          )}
+        </span>
         <ReminderBadge state={entry.reminderState} compact />
       </div>
-      <div className="truncate text-xs">{entry.serviceName}</div>
-      <div className="truncate text-[10px] font-medium mt-0.5">
-        {entry.staffName}
-      </div>
+      {lines >= 2 && <div className="truncate text-xs">{entry.serviceName}</div>}
+      {lines >= 3 && (
+        <div className="truncate text-[10px] font-medium mt-0.5">{entry.staffName}</div>
+      )}
     </div>
   );
 }

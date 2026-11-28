@@ -34,6 +34,7 @@ import { CONVERSATION_STATE, type Conversation, MAX_INVALID_INPUT } from './stat
 import {
   hasBookingDetail,
   isUseful,
+  localIntent,
   localMinutes,
   parseIntent,
   resolveIntent,
@@ -102,6 +103,28 @@ function pickOption(text: string, options: string[] | undefined): string | null 
   const n = ordinal ? words.indexOf(ordinal[1]!.toLowerCase()) + 1 : Number(text.trim());
   if (!Number.isInteger(n) || n < 1 || n > options.length) return null;
   return options[n - 1] ?? null;
+}
+
+/**
+ * The service menu is a bulleted list of names, so the customer's natural reply
+ * is a name ("Consultation", "i would like a hydrafacial"). This reads that
+ * without the model, so booking still works when Gemini is down or unset. Only
+ * a single unambiguous match among the offered services counts.
+ */
+async function pickServiceByName(
+  businessId: string,
+  text: string,
+  options: string[] | undefined,
+): Promise<string | null> {
+  const said = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  if (said.trim().length < 3) return null;
+  const services = await Service.find({ businessId, active: true }, { name: 1 }).lean();
+  const offered = options?.length ? services.filter((s) => options.includes(String(s._id))) : services;
+  const hits = offered.filter((s) => {
+    const name = s.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return name.length > 0 && said.includes(` ${name} `);
+  });
+  return hits.length === 1 ? String(hits[0]!._id) : null;
 }
 
 function isYes(text: string): boolean {
@@ -799,6 +822,7 @@ async function fromFreeText(redis: Redis, ctx: TurnContext): Promise<TurnResult 
             at: null,
           }
         : ((await parseIntent(ctx.text, vocabulary, ctx.conversation)) ??
+          localIntent(ctx.text, vocabulary, ctx.now ?? new Date(), ctx.timezone) ??
           (clock.kind === 'ambiguous'
             ? {
                 action: 'booking' as const,
@@ -1279,7 +1303,9 @@ export async function advance(redis: Redis, ctx: TurnContext): Promise<TurnResul
       return commit(redis, ctx, { ...conversation, state: CONVERSATION_STATE.CONFIRMING });
     }
     case CONVERSATION_STATE.SELECTING_SERVICE: {
-      const serviceId = pickOption(ctx.text, conversation.options);
+      const serviceId =
+        pickOption(ctx.text, conversation.options) ??
+        (await pickServiceByName(ctx.businessId, ctx.text, conversation.options));
       if (!serviceId) {
         /**
          * The number was not a number. Before apologising, read it as a sentence.

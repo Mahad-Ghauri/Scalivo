@@ -151,7 +151,7 @@ export async function bookAsClient(
    * messaged the business is exactly the cold-contact case WhatsApp can drop
    * silently (spike issue #830). The notification row records whether it did.
    */
-  const confirmed = await confirmBooking(deps, businessId, result.booking.id).catch((err) => {
+  const confirmed = await confirmBooking(deps, businessId, result.booking.id, { notifyOwner: true }).catch((err) => {
     logger.error({ err, bookingId: result.booking.id }, 'could not confirm web booking');
     return null;
   });
@@ -243,7 +243,7 @@ export async function bookSequenceFromWeb(
     source: 'web',
   });
   if (!result.ok) return result;
-  const confirmations = await confirmBookings(deps, businessId, result.bookings);
+  const confirmations = await confirmBookings(deps, businessId, result.bookings, { notifyOwner: true });
   const [services, staff, customerToken] = await Promise.all([
     Service.find({ businessId, _id: { $in: input.steps.map((step) => step.serviceId) } })
       .select('name')

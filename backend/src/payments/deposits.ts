@@ -239,7 +239,7 @@ export async function applyPaymentResult(
   }
 
   await recordEvent({ kind: 'confirmed', txnRef: payment.txn_ref, bookingId: payment.booking_id });
-  await confirmBooking(deps, booking.businessId, payment.booking_id).catch((err) =>
+  await confirmBooking(deps, booking.businessId, payment.booking_id, { notifyOwner: true }).catch((err) =>
     logger.error({ err, bookingId: payment.booking_id }, 'deposit paid but confirmation failed'),
   );
   return payment.booking_id;

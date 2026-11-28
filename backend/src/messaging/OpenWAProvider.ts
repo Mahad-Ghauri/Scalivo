@@ -1,3 +1,4 @@
+import { isTestNumber } from './test-numbers.js';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -104,6 +105,8 @@ export class OpenWAProvider implements MessagingProvider {
    * a later message.ack reaching 'delivered'.
    */
   async sendText(sessionId: string, to: string, text: string): Promise<SendResult> {
+    // Last line of defence for every send path: never message a reserved test number.
+    if (isTestNumber(to)) throw new Error('refusing to message a reserved test number');
     const res = await this.request<{ messageId: string; timestamp: number }>(
       `/api/sessions/${sessionId}/messages/send-text`,
       { method: 'POST', body: JSON.stringify({ chatId: toChatId(to), text }) },

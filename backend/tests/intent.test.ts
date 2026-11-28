@@ -1056,10 +1056,10 @@ describe.skipIf(!infraUp)('the ladder — where a sentence drops the customer', 
     expect(result.conversation?.opener).toBe(FLOW_OPENER.FREE_TEXT);
   });
 
-  it('degrades to the menu with no model available', async () => {
+  it('reads the sentence locally when no model is available', async () => {
     // No GEMINI_API_KEY in the test environment, so parseIntent short-circuits. The
-    // message is full of detail and still gets the ordinary greeting and menu —
-    // which is exactly what a tenant without a key must see.
+    // local reader still understands the service, so the customer is not sent
+    // back to the menu they just answered.
     expect(process.env.GEMINI_API_KEY).toBeFalsy();
     expect(
       await parseIntent('hydrafacial with ayesha on saturday afternoon', vocabulary),
@@ -1070,9 +1070,10 @@ describe.skipIf(!infraUp)('the ladder — where a sentence drops the customer', 
       text: 'hydrafacial with ayesha on saturday afternoon',
     });
 
-    expect(result.conversation?.state).toBe(CONVERSATION_STATE.SELECTING_SERVICE);
-    expect(result.conversation?.options).toHaveLength(3);
-    expect(result.conversation?.opener).toBeUndefined();
+    expect(result.replies[0]).toContain('Got it');
+    expect(result.replies[0]).toContain('Hydrafacial');
+    expect(result.conversation?.state).not.toBe(CONVERSATION_STATE.SELECTING_SERVICE);
+    expect(result.conversation?.opener).toBe(FLOW_OPENER.FREE_TEXT);
   });
 
   it('accepts a staff name while preserving the selected service and day', async () => {

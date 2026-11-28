@@ -1,3 +1,4 @@
+import { isTestNumber } from '../messaging/test-numbers.js';
 import type { Redis } from 'ioredis';
 import {
   BOOKING_STATUS,
@@ -180,6 +181,14 @@ async function deliver(deps: SendDeps, notificationId: string): Promise<Delivery
   }
 
   const { sessionId, to } = resolved.address;
+
+  // Seed/demo clients hold reserved numbers that belong to nobody. Settled, not
+  // retried, so test data can never reach a real person's WhatsApp.
+  if (isTestNumber(to)) {
+    await settle(notification._id, DELIVERY_STATUS.SKIPPED, { lastError: 'test number' });
+    logger.info({ notificationId }, 'skipped a reserved test number');
+    return DELIVERY_STATUS.SKIPPED;
+  }
 
   try {
     const sent = await deps.provider.sendText(sessionId, to, notification.text);

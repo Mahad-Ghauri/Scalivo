@@ -13,6 +13,7 @@ import { BlockedTime } from '../models/BlockedTime.js';
 import { User } from '../models/User.js';
 import { Review } from '../models/Review.js';
 import { hashPassword } from '../auth/routes.js';
+import { seedPhone } from '../messaging/test-numbers.js';
 import { occupiedSlots, toBusinessLocal, wallClockToUtc } from '../lib/time.js';
 
 /**
@@ -257,7 +258,8 @@ async function seed() {
     },
   ]);
 
-  let phoneCounter = 3001234000;
+  // Reserved test range (see messaging/test-numbers.ts): never a real person.
+  let phoneCounter = 1000;
   let bookingCount = 0;
   let clientCount = 0;
 
@@ -269,7 +271,7 @@ async function seed() {
       // one owner-entered walk-in. Both must coexist under the partial index —
       // this pair is what proves it, and it is why the index cannot be sparse.
       const unmatched = clientCount === 7 || clientCount === 18;
-      const phone = unmatched ? null : `92${phoneCounter++}`;
+      const phone = unmatched ? null : seedPhone(phoneCounter++);
       const lids = unmatched && clientCount === 7 ? [`17740396${phoneCounter}@lid`] : [];
 
       /**

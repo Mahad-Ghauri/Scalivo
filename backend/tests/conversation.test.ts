@@ -798,7 +798,7 @@ describe.skipIf(!infraUp)('conversation FSM', () => {
               ? 'book at 25:00'
               : reason === 'unavailable'
                 ? 'book at 5;30 pm'
-                : 'book at 3pm tomorrow';
+                : 'book at 3pm for my sister';
         vi.spyOn(gemini, 'generate').mockResolvedValue(
           reason === 'model unavailable'
             ? null

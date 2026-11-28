@@ -322,6 +322,97 @@ export async function parseIntent(
   return readIntentJson(reply);
 }
 
+const MONTHS: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
+  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+const LOCAL_WINDOWS: Record<string, string> = {
+  morning: 'morning', subah: 'morning',
+  afternoon: 'afternoon', dopahar: 'afternoon', noon: 'afternoon',
+  evening: 'evening', shaam: 'evening', night: 'evening', raat: 'evening', tonight: 'evening',
+};
+
+/**
+ * The same answer the model gives, read with plain rules — no network, no key.
+ *
+ * Used when the model is unset, down, slow or unsure, so that every menu can be
+ * answered the way it asks to be answered ("tell us the service", "say anyone",
+ * "tell us a day") even without Gemini. It only proposes strings; resolveIntent
+ * still checks every one against the real services, staff and calendar, so this
+ * can be generous without being able to book anything that does not exist.
+ */
+export function localIntent(text: string, vocabulary: Vocabulary, now: Date, timezone: string): RawIntent | null {
+  if (!worthLooking(text)) return null;
+  const said = normalise(text);
+  if (!said) return null;
+  const words = said.split(' ');
+  const has = (re: RegExp) => re.test(said);
+
+  // Service: a full name first, then a significant shared word ("laser", "peel").
+  let service: string | null = null;
+  const full = vocabulary.services.filter((s) => ` ${said} `.includes(` ${normalise(s.name)} `));
+  if (full.length === 1) service = full[0]!.name;
+  else if (full.length === 0) {
+    const token = words.find(
+      (w) => w.length >= MIN_TOKEN && vocabulary.services.some((s) => normalise(s.name).split(' ').includes(w)),
+    );
+    if (token) service = token;
+  }
+
+  // Staff: the full name, or any part of it as a whole word ("ayesha" for
+  // "Dr Ayesha Malik"). Titles are not names.
+  const titles = new Set(['dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam']);
+  const staffHits = vocabulary.staff.filter((m) => {
+    const name = normalise(m.name);
+    const parts = name.split(' ').filter((p) => p.length >= 3 && !titles.has(p));
+    return ` ${said} `.includes(` ${name} `) || parts.some((p) => words.includes(p));
+  });
+  const staff = staffHits.length === 1 ? staffHits[0]!.name : null;
+
+  // Day: relative words, weekdays, or "29 november" / "nov 29" / "29th".
+  let day: string | null = null;
+  if (words.includes('today') || words.includes('aaj') || words.includes('tonight')) day = 'today';
+  else if (words.some((w) => w === 'tomorrow' || w === 'tmrw' || w === 'kal')) day = 'tomorrow';
+  else {
+    const weekday = words.find((w) => WEEKDAYS[w] !== undefined && w.length >= 3);
+    if (weekday) day = weekday;
+    else {
+      const m =
+        /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-z]{3,9})\b/.exec(said) ??
+        /\b([a-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?\b/.exec(said);
+      if (m) {
+        const [d, mon] = /^\d/.test(m[1]!) ? [Number(m[1]), m[2]!] : [Number(m[2]), m[1]!];
+        const month = MONTHS[mon];
+        if (month) {
+          const today = DateTime.fromJSDate(now, { zone: timezone }).startOf('day');
+          let date = DateTime.fromObject({ year: today.year, month, day: d }, { zone: timezone });
+          if (date.isValid && date < today) date = date.plus({ years: 1 });
+          if (date.isValid) day = date.toISODate();
+        }
+      }
+    }
+  }
+
+  const windowWord = words.find((w) => LOCAL_WINDOWS[w]);
+  const window = windowWord ? LOCAL_WINDOWS[windowWord]! : null;
+
+  let action: BookingAction | undefined;
+  if (has(/\b(any ?one|anybody|any staff|no preference|koi bhi|doesn t matter|dont mind|don t mind)\b/)) action = 'no_preference';
+  else if (has(/\b(how much|price|prices|cost|costs|charges|rate|rates|kitna|kitne|fee|fees)\b/)) action = 'price';
+  else if (has(/\b(how long|duration|minutes long)\b/)) action = 'duration';
+  else if (has(/\b(address|location|located|where are you|where is|directions|kahan)\b/)) action = 'location';
+  else if (has(/\b(timings?|opening hours|working hours|what time do you open|when do you open|when are you open|closing time|when do you close)\b/)) action = 'hours';
+  else if (has(/\bmy (appointments?|bookings?)\b/)) action = 'appointments';
+  else if (!service && has(/\b(services?|menu|treatments?|what do you (?:offer|have|do))\b/)) action = 'services';
+  // A bare "I want to book" carries nothing to act on; the welcome and menu answer it.
+  else if (service || staff || day || window) action = 'booking';
+
+  if (!action) return null;
+  return { action, service, staff, day, window, at: null };
+}
+
 /**
  * The model's reply, if it is the shape it was asked for.
  *
