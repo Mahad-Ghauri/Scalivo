@@ -98,7 +98,7 @@ export function PortfolioManager({ businessId, initial }: { businessId: string; 
   return (
     <div>
       <p className="text-[13px] text-muted">
-        {items.length} of {GALLERY_MAX} photos. Show your best work — each caption is read aloud by screen readers
+        {items.length} of {GALLERY_MAX} photos. Show your best work. Each caption is read aloud by screen readers
         and helps you appear in search.
       </p>
 

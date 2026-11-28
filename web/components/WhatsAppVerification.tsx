@@ -131,7 +131,7 @@ export function WhatsAppVerification({
               ? 'Checking…'
               : code
                 ? 'Verify code'
-                : 'I sent the WhatsApp message — check verification'}
+                : 'I sent the WhatsApp message, check verification'}
           </button>
           {challenge.whatsappUrl && (
             <a

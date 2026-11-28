@@ -128,8 +128,8 @@ export default async function PosterPage({
 
         <ol className="mt-[6%] grid w-full grid-cols-3 gap-3 text-[clamp(12px,2.2vw,15px)] print:text-[12pt]">
           {(kind === 'whatsapp'
-            ? ['Open your camera', 'Point it at the code', 'Send the message — we reply with times']
-            : ['Open your camera', 'Point it at the code', 'Pick a time — confirmed on WhatsApp']
+            ? ['Open your camera', 'Point it at the code', 'Send the message, we reply with times']
+            : ['Open your camera', 'Point it at the code', 'Pick a time, confirmed on WhatsApp']
           ).map((step, index) => (
             <li key={step} className="flex flex-col items-center gap-1.5">
               <span

@@ -76,13 +76,13 @@ export default async function DashboardReviewsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               title="Average rating"
-              value={summary.averageRating === null ? '—' : summary.averageRating.toFixed(1)}
+              value={summary.averageRating === null ? '-' : summary.averageRating.toFixed(1)}
               description="Across every rating, published or not"
             />
             <StatCard
               title="Needs attention"
               value={summary.flagged}
-              description="Rated 3 or below — not published"
+              description="Rated 3 or below, not published"
             />
             <StatCard
               title="Reply rate"

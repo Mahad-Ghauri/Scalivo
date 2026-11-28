@@ -15,7 +15,7 @@ import { ImageResponse } from 'next/og';
  * Drawn here rather than shipped as a PNG so it stays in step with the brand
  * tokens, and so there is no binary in the repo that nobody can edit.
  */
-export const alt = 'Scalivo — book salons, clinics, gyms and studios';
+export const alt = 'Scalivo: book salons, clinics, gyms and studios';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -44,7 +44,7 @@ export default function Image() {
             Book local selfcare services
           </div>
           <div style={{ display: 'flex', fontSize: 32, opacity: 0.85 }}>
-            Salons, clinics, gyms and studios — booked over WhatsApp.
+            Salons, clinics, gyms and studios, booked over WhatsApp.
           </div>
         </div>
       </div>

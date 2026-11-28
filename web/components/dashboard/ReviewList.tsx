@@ -66,7 +66,7 @@ export function ReviewList({
           <p className="mt-3 text-[13px] font-medium">
             {review.flagged ? (
               <span className="text-amber-800">
-                Not published — only you can see this. Worth a call.
+                Not published. Only you can see this. Worth a call.
               </span>
             ) : (
               <span className="text-muted">Published on your public profile.</span>

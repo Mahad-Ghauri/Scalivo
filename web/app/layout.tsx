@@ -19,7 +19,7 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'Scalivo — book salons, clinics, gyms and studios',
+    default: 'Scalivo: book salons, clinics, gyms and studios',
     template: '%s · Scalivo',
   },
   description:
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'Scalivo',
     url: SITE_URL,
-    title: 'Scalivo — book salons, clinics, gyms and studios',
+    title: 'Scalivo: book salons, clinics, gyms and studios',
     description: 'Prices, hours and staff for service businesses across Multan and Lahore. Booked over WhatsApp.',
   },
   twitter: { card: 'summary_large_image' },

@@ -66,7 +66,7 @@ function Row({ businessId, campaign }: { businessId: string; campaign: CampaignS
           <p className="mt-0.5 text-[13px] text-muted">
             {sent} ·{' '}
             {sending
-              ? `sending — ${outcome.sends} of ${campaign.targeted} so far`
+              ? `sending: ${outcome.sends} of ${campaign.targeted} so far`
               : campaign.status === CAMPAIGN_STATUS.CANCELLED
                 ? `stopped after ${outcome.sends}`
                 : 'finished'}

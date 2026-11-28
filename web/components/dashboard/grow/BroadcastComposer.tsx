@@ -59,7 +59,7 @@ export function BroadcastComposer({
       <div className="rounded-lg border border-line bg-surface px-5 py-4">
         <p className="text-[15px] font-semibold text-ink">Sending to {sentTo} people</p>
         <p className="mt-1 text-[14px] text-muted">
-          Messages go out gradually over the next few hours — spread out on purpose, so WhatsApp does not treat your
+          Messages go out gradually over the next few hours, spread out on purpose, so WhatsApp does not treat your
           number as a bulk sender. You can follow the results below.
         </p>
       </div>
@@ -187,5 +187,5 @@ function explainEmpty(preview: AudiencePreview): string {
  * to have known which of them were a gamble — before sending, not after.
  */
 function coldWarning(cold: number): string {
-  return `${cold} of them have never messaged your WhatsApp number, so WhatsApp may not deliver to them — the results below will show which did arrive.`;
+  return `${cold} of them have never messaged your WhatsApp number, so WhatsApp may not deliver to them. The results below will show which did arrive.`;
 }

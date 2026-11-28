@@ -209,7 +209,7 @@ export default async function CustomerDetailPage({
               Last Visit
             </h3>
             <p className="mt-2 text-2xl font-bold text-ink">
-              {profile.lastVisitAt ? dateFormatter.format(new Date(profile.lastVisitAt)) : '—'}
+              {profile.lastVisitAt ? dateFormatter.format(new Date(profile.lastVisitAt)) : '-'}
             </p>
           </div>
         </div>

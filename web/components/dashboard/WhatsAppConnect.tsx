@@ -169,8 +169,8 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
     <div className="max-w-[640px]">
       <h1 className="text-[26px] font-bold tracking-[-0.02em]">WhatsApp</h1>
       <p className="mt-1 text-[15px] text-muted">
-        The number your customers message to book. Everything the business sends — confirmations,
-        reminders — goes out from here.
+        The number your customers message to book. Everything the business sends, confirmations,
+        reminders, goes out from here.
       </p>
 
       <div className="mt-6 rounded-2xl border border-line p-6">
@@ -178,7 +178,7 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
 
         {linked && (
           <p className="mt-3 text-[15px] text-muted">
-            Connected and taking bookings. Leave the phone online — if it goes offline for too long,
+            Connected and taking bookings. Leave the phone online. If it goes offline for too long,
             WhatsApp logs this connection out and you&rsquo;ll need to scan again.
           </p>
         )}
@@ -198,7 +198,7 @@ export function WhatsAppConnect({ businessId, initial }: Props) {
               className="mt-4 h-64 w-64 rounded-xl border border-line bg-white p-2"
             />
             <p className="mt-3 text-[14px] text-muted" aria-live="polite">
-              Waiting for the scan. This code refreshes by itself — scan whichever one is on screen.
+              Waiting for the scan. This code refreshes by itself, so scan whichever one is on screen.
             </p>
           </div>
         )}
@@ -283,7 +283,7 @@ function describe(status: SessionStatus | null): [string, string] {
       return ['bg-star', 'Connecting…'];
     case SESSION_STATUS.DISCONNECTED:
     case SESSION_STATUS.ACTION_REQUIRED:
-      return ['bg-red-500', 'Disconnected — customers cannot reach you'];
+      return ['bg-red-500', 'Disconnected: customers cannot reach you'];
     case SESSION_STATUS.FAILED:
       return ['bg-red-500', 'Something went wrong connecting'];
     default:

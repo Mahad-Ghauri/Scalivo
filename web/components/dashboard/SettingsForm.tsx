@@ -129,7 +129,7 @@ export function SettingsForm({
         setNotice({ tone: 'ok', text: 'Saved.' });
       } else {
         setFields(result.fields);
-        setNotice({ tone: 'error', text: 'Some settings were not saved — see the highlighted fields.' });
+        setNotice({ tone: 'error', text: 'Some settings were not saved. See the highlighted fields.' });
       }
     });
   }
@@ -152,7 +152,7 @@ export function SettingsForm({
         title="Marketplace listing"
         caption={
           published
-            ? 'Your profile is live — customers can find and book you on the web.'
+            ? 'Your profile is live. Customers can find and book you on the web.'
             : 'Hidden. Nobody can find you on the marketplace until you publish.'
         }
       >
@@ -254,7 +254,7 @@ export function SettingsForm({
 
         <Section
           title="Photos"
-          caption="Saved as soon as you upload — no need to press Save. Location data is removed from every photo."
+          caption="Saved as soon as you upload, no need to press Save. Location data is removed from every photo."
         >
           <div className="grid gap-6 sm:grid-cols-[auto_1fr]">
             <ImageUpload

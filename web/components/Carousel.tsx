@@ -53,12 +53,12 @@ export function Carousel({ label, children }: { label: string; children: ReactNo
       </div>
 
       {edges.start ? null : (
-        <button type="button" onClick={() => scroll(-1)} aria-label={`Previous — ${label}`} className={`${arrow} -left-6`}>
+        <button type="button" onClick={() => scroll(-1)} aria-label={`Previous: ${label}`} className={`${arrow} -left-6`}>
           <ArrowLeft />
         </button>
       )}
       {edges.end ? null : (
-        <button type="button" onClick={() => scroll(1)} aria-label={`Next — ${label}`} className={`${arrow} -right-6`}>
+        <button type="button" onClick={() => scroll(1)} aria-label={`Next: ${label}`} className={`${arrow} -right-6`}>
           <ArrowRight />
         </button>
       )}

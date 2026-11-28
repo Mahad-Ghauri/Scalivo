@@ -41,12 +41,12 @@ export function AgentSettings({
       <p className="text-[15px] text-ink">
         {settings.enabled ? (
           <>
-            <span className="font-semibold text-open">On</span> — you get a summary each morning, a
+            <span className="font-semibold text-open">On</span>: you get a summary each morning, a
             look back on Mondays, and a message when something needs you.
           </>
         ) : (
           <>
-            <span className="font-semibold">Off</span> — nothing is sent to your phone.
+            <span className="font-semibold">Off</span>: nothing is sent to your phone.
           </>
         )}
       </p>
@@ -86,7 +86,7 @@ export function AgentSettings({
 
       <p className="mt-3 text-[13px] text-muted">
         Alerts are held to one a week each, and never sent at night. Nothing here messages your
-        customers — the agent only ever talks to you.
+        customers. The agent only ever talks to you.
       </p>
 
       {error && (

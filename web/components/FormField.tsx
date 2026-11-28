@@ -1,3 +1,5 @@
+import { PasswordInput } from './PasswordInput';
+
 /**
  * The labelled text input the account forms share — Create Account and Add a
  * branch — so the two read as one product and underline errors the same way.
@@ -33,17 +35,30 @@ export function FormField({
       <label htmlFor={id} className="block text-[14px] font-semibold text-ink">
         {label}
       </label>
-      <input
-        id={id}
-        name={id}
-        type={type}
-        required
-        autoComplete={autoComplete}
-        defaultValue={defaultValue}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
-        className={`${INPUT} ${error ? BAD : OK}`}
-      />
+      {type === 'password' ? (
+        <PasswordInput
+          id={id}
+          name={id}
+          required
+          autoComplete={autoComplete}
+          defaultValue={defaultValue}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+          className={`${INPUT} ${error ? BAD : OK}`}
+        />
+      ) : (
+        <input
+          id={id}
+          name={id}
+          type={type}
+          required
+          autoComplete={autoComplete}
+          defaultValue={defaultValue}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+          className={`${INPUT} ${error ? BAD : OK}`}
+        />
+      )}
       {error ? (
         <p id={`${id}-error`} className="mt-1.5 text-[13px] font-medium text-red-700">
           {error}

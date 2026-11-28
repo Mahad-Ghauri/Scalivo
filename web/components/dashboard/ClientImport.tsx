@@ -37,7 +37,7 @@ const NONE = -1;
 const OUTCOMES: { key: ClientImportOutcome; label: string; tone: string }[] = [
   { key: 'created', label: 'New customers', tone: 'text-ink' },
   { key: 'linked', label: 'Already messaged you on WhatsApp', tone: 'text-ink' },
-  { key: 'updated', label: 'Already your customers — history updated', tone: 'text-ink' },
+  { key: 'updated', label: 'Already your customers, history updated', tone: 'text-ink' },
   { key: 'duplicate', label: 'Repeated in the file', tone: 'text-amber-700' },
   { key: 'invalid', label: "Can't be imported", tone: 'text-red-700' },
 ];
@@ -254,7 +254,7 @@ export function ClientImport({ businessId }: { businessId: string }) {
                   {header.map((name, index) => (
                     <option key={index} value={index}>
                       {name || `Column ${index + 1}`}
-                      {body[0]?.[index] ? ` — e.g. ${body[0][index]}` : ''}
+                      {body[0]?.[index] ? ` (e.g. ${body[0][index]})` : ''}
                     </option>
                   ))}
                 </select>

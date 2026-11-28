@@ -118,7 +118,7 @@ export default async function DashboardCustomersPage({
             </div>
             <h2 className="mt-4 text-lg font-semibold text-ink">No customers yet</h2>
             <p className="mt-2 text-[15px] text-muted font-medium">
-              Your customers will appear here automatically after their first booking — or bring
+              Your customers will appear here automatically after their first booking, or bring
               in the ones you already have.
             </p>
             <Link

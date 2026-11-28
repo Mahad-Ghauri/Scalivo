@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { PasswordInput } from '@/components/PasswordInput';
 import Link from 'next/link';
 import { loginAction } from '@/lib/actions/auth';
 import { SiteHeader } from '@/components/SiteHeader';
@@ -39,10 +40,10 @@ export default function LoginPage() {
               <label htmlFor="password" className="block text-[14px] font-semibold text-ink">
                 Password
               </label>
-              <input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
+                autoComplete="current-password"
                 required
                 className="mt-2 block w-full rounded-xl border border-line px-4 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink transition-all bg-surface/50 focus:bg-white"
               />

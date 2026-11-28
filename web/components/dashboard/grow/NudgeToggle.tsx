@@ -26,12 +26,12 @@ export function NudgeToggle({ businessId, enabled }: { businessId: string; enabl
       <p className="text-[15px] text-ink">
         {enabled ? (
           <>
-            <span className="font-semibold text-open">On</span> — customers who are overdue compared to their own usual
+            <span className="font-semibold text-open">On</span>: customers who are overdue compared to their own usual
             gap get one message inviting them to book.
           </>
         ) : (
           <>
-            <span className="font-semibold">Off</span> — nobody is messaged automatically.
+            <span className="font-semibold">Off</span>: nobody is messaged automatically.
           </>
         )}
       </p>

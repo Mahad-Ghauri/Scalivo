@@ -139,7 +139,7 @@ function closedBody(deposit: DepositView): string {
     case DEPOSIT_STATUS.RETAINED:
       return 'The deposit was kept under the cancellation policy. Contact the business if you think that is wrong.';
     case DEPOSIT_STATUS.TRANSFERRED:
-      return 'Your deposit went with it to the new time — check your WhatsApp for the details.';
+      return 'Your deposit went with it to the new time. Check your WhatsApp for the details.';
     default:
       return deposit.refunded
         ? 'The deposit arrived after the slot was released, so it is being refunded in full.'

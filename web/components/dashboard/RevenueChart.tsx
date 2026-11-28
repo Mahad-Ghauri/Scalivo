@@ -107,7 +107,7 @@ export function RevenueChart({
                     // The native tooltip is the hover layer: a real one here
                     // would mean making the whole page a client component to
                     // show what the table below already states.
-                    title={`${longLabel(point.period, granularity)} — ${formatPrice(point.revenueMinor)}`}
+                    title={`${longLabel(point.period, granularity)}: ${formatPrice(point.revenueMinor)}`}
                     style={{ height: `${height}%`, maxWidth: `${MAX_BAR_WIDTH}px` }}
                     className="w-full rounded-t bg-brand"
                   />

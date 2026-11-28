@@ -95,7 +95,7 @@ export function CustomerList({ clients, businessId, timezone }: Props) {
                     {client.tags.length > 0 ? (
                       client.tags.map(tag => <TagBadge key={tag} tag={tag} />)
                     ) : (
-                      <span className="text-muted text-[13px]">—</span>
+                      <span className="text-muted text-[13px]">-</span>
                     )}
                   </div>
                 </td>
@@ -109,7 +109,7 @@ export function CustomerList({ clients, businessId, timezone }: Props) {
                   {lastVisit ? (
                     <span className="text-ink font-medium">{dateFormatter.format(lastVisit)}</span>
                   ) : (
-                    <span className="text-muted">—</span>
+                    <span className="text-muted">-</span>
                   )}
                 </td>
               </tr>

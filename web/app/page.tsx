@@ -105,7 +105,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             ) : (
               <EmptyResults
                 heading="No businesses found"
-                body="Nothing matches that combination yet. We're adding businesses city by city — try widening the search."
+                body="Nothing matches that combination yet. We're adding businesses city by city. Try widening the search."
                 actions={[
                   { href: '/', label: 'Clear filters' },
                   { href: '/search', label: 'See all businesses' },
@@ -133,7 +133,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
               confirmed right in the thread.
             </p>
             <ul className="mt-8 space-y-3">
-              {['Live slots — only times that are actually free', 'Confirmation in seconds', 'A reminder the day before'].map(
+              {['Live slots: only times that are actually free', 'Confirmation in seconds', 'A reminder the day before'].map(
                 (line) => (
                   <li key={line} className="flex items-center gap-3 text-[16px]">
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#eeebff] text-brand">
@@ -166,7 +166,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                   <span className="inline-flex items-center gap-1.5 font-semibold text-open">
                     <CheckIcon className="h-4 w-4" /> Booked
                   </span>{' '}
-                  — see you Saturday at 4.
+                  See you Saturday at 4.
                 </Bubble>
               </div>
             </div>
@@ -197,7 +197,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <h2 id="stats-heading" className="text-[28px] font-semibold tracking-[-0.02em] md:text-[36px]">
           The easiest way to book in Multan &amp; Lahore
         </h2>
-        <p className="mt-2 text-[17px] md:text-[20px]">Real prices, real hours, real reviews — before you go.</p>
+        <p className="mt-2 text-[17px] md:text-[20px]">Real prices, real hours, real reviews, before you go.</p>
         <p className="gradient-number mt-10 text-[64px] font-bold leading-none tracking-[-0.04em] md:text-[104px]">
           {totalReviews.toLocaleString('en-US')}+
         </p>

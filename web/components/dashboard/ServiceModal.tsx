@@ -326,7 +326,7 @@ export function ServiceModal({
               {requirements.map((group, index) => (
                 <fieldset key={index} className="rounded-md border border-line p-3">
                   <legend>
-                    Requirement {index + 1} — choose ONE{' '}
+                    Requirement {index + 1}: choose ONE{' '}
                     {requirementKinds[index]?.size === 1
                       ? [...requirementKinds[index]][0]
                       : 'resource'}

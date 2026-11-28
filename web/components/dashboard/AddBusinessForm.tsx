@@ -23,7 +23,7 @@ export function AddBusinessForm({ defaultCategory }: Props) {
         id="businessName"
         label="Branch name"
         autoComplete="organization"
-        hint="How customers will see it, e.g. “CrossFit — DHA”."
+        hint="How customers will see it, e.g. “CrossFit DHA”."
         error={state?.fields?.businessName}
       />
 

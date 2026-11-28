@@ -56,7 +56,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
     neighbourhood: 'Gulgasht Colony',
     tagline: 'Medical-grade skin, without the hard sell.',
     about:
-      'A two-clinician aesthetic practice on Gulgasht Colony, running since 2019. Every appointment opens with a skin read and an honest answer about what will and will not work — several of which are "nothing, wait six weeks". Hydrafacials, laser and peels are performed by the physician who consulted you, never handed down.',
+      'A two-clinician aesthetic practice on Gulgasht Colony, running since 2019. Every appointment opens with a skin read and an honest answer about what will and will not work, several of which are "nothing, wait six weeks". Hydrafacials, laser and peels are performed by the physician who consulted you, never handed down.',
     addressLine: '14-B Gulgasht Colony, Multan',
     logoUrl: null,
     coverUrl: unsplash('1552693673-1bf958298935', 'cover'),
@@ -720,7 +720,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
     city: 'Multan',
     neighbourhood: 'Gulgasht Colony',
     tagline: 'Still setting up.',
-    about: 'Registered but not yet published — no staff assigned to its services.',
+    about: 'Registered but not yet published. No staff assigned to its services.',
     addressLine: null,
     logoUrl: null,
     coverUrl: null,

@@ -453,12 +453,12 @@ export function BookingFlow({
         </span>
         <h3 className="mt-5 text-[24px] font-bold tracking-[-0.02em]">
           {sequenceReceipts.length
-            ? 'Your visit is saved — check each appointment below'
+            ? 'Your visit is saved. Check each appointment below'
             : receipt.status === 'awaiting_approval'
-              ? 'Request received — awaiting approval'
+              ? 'Request received, awaiting approval'
               : receipt.status === 'confirmed'
                 ? 'You’re booked'
-                : 'Appointment saved — confirmation pending'}
+                : 'Appointment saved, confirmation pending'}
         </h3>
         <p className="mt-1 text-[15px] text-muted">at {businessName}</p>
         <dl className="mt-6 grid gap-3 text-[15px] sm:grid-cols-2">

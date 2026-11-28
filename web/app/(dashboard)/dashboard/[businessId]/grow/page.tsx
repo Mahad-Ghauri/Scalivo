@@ -298,7 +298,7 @@ function Funnel({ report }: { report: FunnelReport }) {
                   <td className="py-2.5 pr-4 text-right tabular-nums">{row.views}</td>
                   <td className="py-2.5 pr-4 text-right tabular-nums">{row.starts}</td>
                   <td className="py-2.5 pr-4 text-right tabular-nums font-semibold">{row.bookings}</td>
-                  <td className="py-2.5 text-right tabular-nums text-muted">{rate === null ? '—' : `${rate}%`}</td>
+                  <td className="py-2.5 text-right tabular-nums text-muted">{rate === null ? '-' : `${rate}%`}</td>
                 </tr>
               );
             })}

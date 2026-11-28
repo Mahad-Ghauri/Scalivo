@@ -203,10 +203,10 @@ export function Rebook({
         </span>
         <h2 className="mt-4 text-[20px] font-bold tracking-[-0.02em]">
           {booked.status === 'awaiting_approval'
-            ? 'Request received — awaiting approval'
+            ? 'Request received, awaiting approval'
             : booked.status === 'confirmed'
               ? 'You’re booked'
-              : 'Appointment saved — confirmation pending'}
+              : 'Appointment saved, confirmation pending'}
         </h2>
         <p className="mt-1 text-[15px] text-muted">
           {booked.serviceName} with {booked.staffName}, {formatClock(booked.startsAt, timezone)}.

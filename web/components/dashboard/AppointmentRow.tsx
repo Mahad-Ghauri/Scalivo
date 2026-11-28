@@ -22,7 +22,7 @@ export function AppointmentRow({ entry, timezone }: Props) {
     <div className="flex items-center justify-between py-4 border-b border-line last:border-0">
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium text-ink">
-          {timeString} — {entry.clientName ?? 'Walk-in'}
+          {timeString} · {entry.clientName ?? 'Walk-in'}
         </p>
         <p className="text-xs text-muted">
           {entry.serviceName} with {entry.staffName}

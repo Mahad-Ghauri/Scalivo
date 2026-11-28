@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   if (!business) return { title: 'Not found' };
 
   const place = [business.neighbourhood, business.city].filter(Boolean).join(', ');
-  const title = `${business.name} — ${categoryLabel(business.category)}${place ? ` in ${place}` : ''}`;
+  const title = `${business.name} | ${categoryLabel(business.category)}${place ? ` in ${place}` : ''}`;
   const description = `${business.tagline} Prices, hours and staff for ${business.name}. ${LIVE_BOOKING ? 'Book online or' : 'Book'} over WhatsApp.`;
   const url = `/${business.slug}`;
 

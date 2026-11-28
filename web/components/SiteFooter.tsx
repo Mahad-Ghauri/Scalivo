@@ -34,7 +34,7 @@ export function SiteFooter() {
         <div className="col-span-2">
           <p className="text-[26px] font-bold leading-none tracking-[-0.04em]">scalivo</p>
           <p className="mt-4 max-w-[34ch] text-[15px] text-muted">
-            Book salons, clinics, gyms and studios in Multan and Lahore — confirmed over WhatsApp.
+            Book salons, clinics, gyms and studios in Multan and Lahore, confirmed over WhatsApp.
           </p>
         </div>
 

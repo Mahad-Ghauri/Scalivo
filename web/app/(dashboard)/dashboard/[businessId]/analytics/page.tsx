@@ -144,7 +144,7 @@ export default async function DashboardAnalyticsPage({
                 // Null is "we don't know yet", and 0% is a record. They are not
                 // the same thing and a new business must not be shown the second.
                 value={
-                  report.noShowRate === null ? '—' : `${Math.round(report.noShowRate * 100)}%`
+                  report.noShowRate === null ? '-' : `${Math.round(report.noShowRate * 100)}%`
                 }
                 description={
                   report.noShowRate === null
@@ -248,7 +248,7 @@ function DepositComparison({ comparison }: { comparison: AnalyticsReport['deposi
     <div>
       <p className="text-[13px] text-muted">{label}</p>
       <p className="mt-1 text-[28px] font-bold tabular-nums tracking-tight text-ink">
-        {data.rate === null ? '—' : `${Math.round(data.rate * 100)}%`}
+        {data.rate === null ? '-' : `${Math.round(data.rate * 100)}%`}
       </p>
       <p className="text-[13px] text-muted">
         {data.reached === 0

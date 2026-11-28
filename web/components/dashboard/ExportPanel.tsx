@@ -75,7 +75,7 @@ export function ExportPanel({
       await navigator.clipboard.writeText(shownUrl);
       setCopied(true);
     } catch {
-      setError('Copy failed — select the link and copy it by hand.');
+      setError('Copy failed. Select the link and copy it by hand.');
     }
   }
 
@@ -83,7 +83,7 @@ export function ExportPanel({
     <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
       <h2 className="text-[16px] font-semibold text-ink">Export &amp; calendar</h2>
       <p className="mt-0.5 text-[14px] text-muted">
-        Take your appointments with you — and keep a copy in your own calendar in case Scalivo is
+        Take your appointments with you, and keep a copy in your own calendar in case Scalivo is
         ever unavailable.
       </p>
 
@@ -145,7 +145,7 @@ export function ExportPanel({
         {url ? (
           <div className="mt-3 space-y-2">
             <p className="text-[13px] font-medium text-amber-900">
-              Copy this link now — for your security it won&apos;t be shown again.
+              Copy this link now. For your security it won&apos;t be shown again.
             </p>
             {staff.length > 1 && (
               <label className="flex items-center gap-2 text-[13px] text-ink">
@@ -190,7 +190,7 @@ export function ExportPanel({
           </div>
         ) : enabled ? (
           <p className="mt-3 text-[13px] text-ink">
-            A link is active. Lost it? Make a new one — the old one stops working.
+            A link is active. Lost it? Make a new one. The old one stops working.
           </p>
         ) : null}
 

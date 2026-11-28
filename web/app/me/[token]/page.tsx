@@ -193,7 +193,7 @@ function ApprovalNudge({ appointment }: { appointment: MeAppointment }) {
   if (appointment.status !== BOOKING_STATUS.AWAITING_APPROVAL) return null;
   return (
     <p className="mt-3 text-sm font-semibold">
-      Awaiting owner approval — this appointment is not confirmed yet.
+      Awaiting owner approval. This appointment is not confirmed yet.
     </p>
   );
 }

@@ -63,7 +63,7 @@ export function RateVisit({ token, pending, timezone }: Props) {
   if (done) {
     return (
       <section className="mt-8 rounded-2xl border border-line p-6" aria-live="polite">
-        <p className="text-[16px] font-semibold">Thank you — that helps.</p>
+        <p className="text-[16px] font-semibold">Thank you, that helps.</p>
       </section>
     );
   }

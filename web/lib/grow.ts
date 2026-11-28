@@ -78,7 +78,7 @@ export function shareTargets(business: { name: string; slug: string; tagline: st
     {
       channel: 'link',
       title: 'Anywhere else',
-      hint: 'Google Business profile, email signature, a flyer — anywhere a link goes.',
+      hint: 'Google Business profile, email signature, a flyer, anywhere a link goes.',
       caption: profileLink(business.slug, 'link'),
       link: profileLink(business.slug, 'link'),
       intent: null,

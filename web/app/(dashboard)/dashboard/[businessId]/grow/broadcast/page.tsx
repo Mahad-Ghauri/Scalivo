@@ -74,7 +74,7 @@ export default async function BroadcastPage({
         </Link>
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink lowercase font-display">win customers back</h1>
         <p className="mt-1 text-[15px] text-muted">
-          Reach the customers who have stopped coming — automatically, or with a message you write.
+          Reach the customers who have stopped coming, automatically or with a message you write.
         </p>
       </div>
 
@@ -89,7 +89,7 @@ export default async function BroadcastPage({
       <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
         <h2 className="text-[17px] font-semibold text-ink">Automatic reminders to rebook</h2>
         <p className="mt-0.5 text-[13px] text-muted">
-          Each customer has their own rhythm — monthly, quarterly, twice a year. When someone is well past theirs, they
+          Each customer has their own rhythm: monthly, quarterly, twice a year. When someone is well past theirs, they
           get one message naming what they had last time.
         </p>
         <div className="mt-4">
@@ -160,7 +160,7 @@ export default async function BroadcastPage({
       <section className="rounded-xl border border-line bg-white p-6 shadow-sm">
         <h2 className="text-[17px] font-semibold text-ink">Broadcasts you have sent</h2>
         <p className="mt-0.5 text-[13px] text-muted">
-          &ldquo;Arrived&rdquo; means WhatsApp confirmed delivery. Anything else was handed over and never confirmed —
+          &ldquo;Arrived&rdquo; means WhatsApp confirmed delivery. Anything else was handed over and never confirmed,
           which is what happens to people who have never messaged your number.
         </p>
         <div className="mt-5">
