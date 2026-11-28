@@ -40,6 +40,9 @@ const serviceSchema = new Schema(
     followUpDays: { type: Number, default: null },
     followUpNote: { type: String, default: null },
 
+    /** Uploaded photo (images/service.ts); the stored URL is the 1200px variant. */
+    imageUrl: { type: String, default: null },
+
     /**
      * Retiring a service hides it from the menu without breaking history.
      *

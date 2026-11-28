@@ -79,6 +79,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'A skin read, a plan, and a straight answer on what it will cost.',
+        imageUrl: null,
       },
       {
         id: 'svc_skinare_hydra',
@@ -89,6 +90,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'Cleanse, extract and hydrate in one pass. No downtime.',
+        imageUrl: null,
       },
       {
         id: 'svc_skinare_laser',
@@ -99,6 +101,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 3,
         description: 'Single-area diode session. Course of six recommended.',
+        imageUrl: null,
       },
       {
         id: 'svc_skinare_peel',
@@ -109,6 +112,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: 200_000,
         displayOrder: 4,
         description: 'Medium-depth peel with a patch test the week before.',
+        imageUrl: null,
       },
     ],
     staff: [
@@ -200,6 +204,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'Movement screen and a scaled workout. No obligation, no sales pitch.',
+        imageUrl: null,
       },
       {
         id: 'svc_iron_pt',
@@ -210,6 +215,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'One-to-one with a coach. Programming written between sessions.',
+        imageUrl: null,
       },
       {
         id: 'svc_iron_aerobics',
@@ -220,6 +226,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 3,
         description: 'Low-impact conditioning, twelve people maximum.',
+        imageUrl: null,
       },
       {
         id: 'svc_iron_ramp',
@@ -230,6 +237,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: 300_000,
         displayOrder: 4,
         description: 'Four weeks of fundamentals before you join the regular classes.',
+        imageUrl: null,
       },
     ],
     staff: [
@@ -309,6 +317,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'Thirty minutes on what you are building and whether we are useful to it.',
+        imageUrl: null,
       },
       {
         id: 'svc_ux_consult',
@@ -319,6 +328,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'A working hour on a specific problem, with written notes after.',
+        imageUrl: null,
       },
       {
         id: 'svc_ux_audit',
@@ -329,6 +339,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: 500_000,
         displayOrder: 3,
         description: 'A walkthrough of your live product and a ranked list of what to fix.',
+        imageUrl: null,
       },
     ],
     staff: [
@@ -409,6 +420,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'Consultation, wash, cut and finish.',
+        imageUrl: null,
       },
       {
         id: 'svc_noor_colour',
@@ -419,6 +431,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'Global colour with a strand test on the first visit.',
+        imageUrl: null,
       },
       {
         id: 'svc_noor_facial',
@@ -429,6 +442,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 3,
         description: 'Deep cleanse and massage in the back spa room.',
+        imageUrl: null,
       },
       {
         id: 'svc_noor_bridal',
@@ -439,6 +453,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: 1_500_000,
         displayOrder: 4,
         description: 'Hair, makeup and draping, with a trial run included.',
+        imageUrl: null,
       },
     ],
     staff: [
@@ -525,6 +540,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'Examination, scale and polish.',
+        imageUrl: null,
       },
       {
         id: 'svc_dental_filling',
@@ -535,6 +551,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'Tooth-coloured, one surface. Priced per tooth.',
+        imageUrl: null,
       },
       {
         id: 'svc_dental_rct',
@@ -545,6 +562,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: 500_000,
         displayOrder: 3,
         description: 'Usually two visits. Crown quoted separately.',
+        imageUrl: null,
       },
       {
         id: 'svc_dental_emergency',
@@ -555,6 +573,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 4,
         description: 'Held-back afternoon slots. Message and we will fit you in.',
+        imageUrl: null,
       },
     ],
     staff: [
@@ -622,6 +641,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 1,
         description: 'Clipper work down to the skin, finished with a razor line.',
+        imageUrl: null,
       },
       {
         id: 'svc_fold_beard',
@@ -632,6 +652,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 2,
         description: 'Trim, line-up and hot towel.',
+        imageUrl: null,
       },
       {
         id: 'svc_fold_full',
@@ -642,6 +663,7 @@ export const MOCK_BUSINESSES: MarketplaceBusiness[] = [
         depositAmountMinor: null,
         displayOrder: 3,
         description: 'Both, back to back, one chair.',
+        imageUrl: null,
       },
     ],
     staff: [

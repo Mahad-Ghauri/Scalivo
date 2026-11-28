@@ -35,6 +35,8 @@ import { createFollowUpRouter } from '../src/followups/routes.js';
 import { createGrowRouter } from '../src/grow/routes.js';
 import { createRetentionRouter } from '../src/retention/routes.js';
 import { createReviewRouter } from '../src/reviews/routes.js';
+import { createImageRouter } from '../src/images/routes.js';
+import { MemoryObjectStore, useObjectStore } from '../src/storage/index.js';
 import { infraReady } from './infra.js';
 
 /**
@@ -181,6 +183,7 @@ describe.skipIf(!ready)('tenant isolation: A cannot reach B through ids', () => 
       )._id,
     );
 
+    useObjectStore(new MemoryObjectStore());
     tokenA = signToken({ userId: 'iso-owner-a', role: 'owner', businessIds: [A.id] });
     const deps = { redis, provider: silent };
     const app = express();
@@ -199,6 +202,7 @@ describe.skipIf(!ready)('tenant isolation: A cannot reach B through ids', () => 
       createCalendarRouter(redis, silent),
       createFollowUpRouter(),
       createExportRouter(),
+      createImageRouter(redis),
     ]) {
       app.use('/businesses', router);
     }
@@ -291,6 +295,11 @@ describe.skipIf(!ready)('tenant isolation: A cannot reach B through ids', () => 
       ['POST', `/clients/${B.client}/revoke-link`],
       ['POST', `/retention/campaigns/${B.campaign}/cancel`],
       ['POST', `/agent/briefings/${B.briefing}/read`],
+      ['DELETE', `/services/${B.service}/image`],
+      ['DELETE', `/staff/${B.staff}/photo`],
+      // Upload routes: refused on the target id before any image is processed.
+      ['PUT', `/services/${B.service}/image`, { not: 'an image' }],
+      ['PUT', `/staff/${B.staff}/photo?consent=true`, { not: 'an image' }],
     ];
     const accepted: string[] = [];
     for (const [method, path, body] of probes) {
@@ -417,6 +426,7 @@ describe.skipIf(!ready)('tenant isolation: A cannot reach B through ids', () => 
     expect(booking!.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(booking!.followUp ?? null).toBeNull();
     expect(service!.name).toBe('Facial');
+    expect(service!.imageUrl ?? null).toBeNull();
     expect(service!.active).toBe(true);
     expect(staff!.name).toBe('Ayesha');
     expect(staff!.active).toBe(true);

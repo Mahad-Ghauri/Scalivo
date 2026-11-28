@@ -64,6 +64,7 @@ export type PublicService = Pick<
   | 'displayOrder'
 > & {
   description: string | null;
+  imageUrl: string | null;
 };
 
 /**

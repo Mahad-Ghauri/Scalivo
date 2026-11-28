@@ -1,3 +1,5 @@
+import { objectStore } from '../storage/index.js';
+import { releaseUnreferenced } from '../images/service.js';
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import { type MessagingProvider, SESSION_INTENT, SESSION_STATUS } from '@scalivo/shared';
@@ -318,6 +320,19 @@ export function createBusinessRouter(provider: MessagingProvider): Router {
     if (!updated) {
       res.status(404).json({ error: 'not found' });
       return;
+    }
+
+    // A pasted link (or null) replacing an uploaded logo/cover leaves the
+    // upload unreferenced; release it now rather than leaving it to the sweep.
+    const store = objectStore();
+    if (store) {
+      for (const kind of ['logo', 'cover'] as const) {
+        if (profile && `${kind}Url` in profile) {
+          await releaseUnreferenced(store, { businessId, kind }).catch((err) =>
+            logger.warn({ err, businessId, kind }, 'could not release a replaced image'),
+          );
+        }
+      }
     }
 
     logger.info({ businessId, changed: Object.keys(parsed.data) }, 'settings updated');

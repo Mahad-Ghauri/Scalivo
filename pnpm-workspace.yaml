@@ -27,5 +27,12 @@ allowBuilds:
   # a fallback binary when no prebuilt one matches the platform; the prebuilt
   # optional dependency covers macOS and Linux, so declining changes nothing.
   unrs-resolver: false
+  #
+  # Image processing for uploads (backend/src/images). Its install script only
+  # checks for the prebuilt binary and otherwise compiles libvips from source;
+  # the prebuilt `@img/sharp-*` optional dependencies cover macOS, Linux and
+  # Windows, so declining changes nothing and keeps a compiler out of installs.
+  sharp: false
+  sharp: set this to true or false
 
 # `app/` is Flutter — not an npm workspace. See docs/ for its toolchain.

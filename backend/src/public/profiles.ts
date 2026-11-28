@@ -106,6 +106,7 @@ function toPublicService(service: ServiceDoc): PublicService {
     id: String(service._id),
     name: service.name,
     description: service.description ?? null,
+    imageUrl: service.imageUrl ?? null,
     durationMinutes: service.durationMinutes,
     priceMinor: service.priceMinor,
     requiresOwnerApproval: service.requiresOwnerApproval,

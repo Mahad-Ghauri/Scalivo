@@ -71,6 +71,8 @@ export interface Service {
   /** Default follow-up ("session 2 in 21 days"); the owner confirms per booking. */
   followUpDays?: number | null;
   followUpNote?: string | null;
+  /** Uploaded service photo (1200px WebP), or null. */
+  imageUrl?: string | null;
   /**
    * Retired services stop being offered but keep their history. There is no
    * hard delete: bookings reference a serviceId, and removing the row turns

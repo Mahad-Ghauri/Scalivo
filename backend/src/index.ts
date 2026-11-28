@@ -28,6 +28,8 @@ import { startEscalationJob } from './notifications/escalation.js';
 import { startFollowUpJob } from './followups/job.js';
 import { createFollowUpRouter } from './followups/routes.js';
 import { createCalendarFeedRouter, createExportRouter } from './export/routes.js';
+import { createImageRouter } from './images/routes.js';
+import { startImageSweepJob } from './images/sweep.js';
 import { startReviewRequestJob } from './reviews/request.js';
 import { startNudgeJob } from './retention/nudges.js';
 import { startCampaignJob } from './retention/campaigns.js';
@@ -144,6 +146,7 @@ export function createApp(): Express {
   app.use('/businesses', createCalendarRouter(redis, provider));
   app.use('/businesses', createFollowUpRouter());
   app.use('/businesses', createExportRouter());
+  app.use('/businesses', createImageRouter(redis));
 
   // Anonymous: the marketplace and web booking. Gated on `published`, not on a
   // tenant — see public/routes.ts for why it can never live under /businesses.
@@ -197,6 +200,10 @@ async function main() {
   // Every minute, SINGLE INSTANCE: owner alerts for unconfirmed or undelivered
   // reminders. Each alert is claimed on the booking, so overlaps cannot double-push.
   startEscalationJob();
+
+  // Every 15 minutes, SINGLE INSTANCE: retries failed image deletions and
+  // clears uploads a crash left half-done. No-op without STORAGE_* config.
+  startImageSweepJob();
 
   // Every five minutes, SINGLE INSTANCE: offers, nudges and lapses owner-set
   // follow-ups. Each transition is a conditional update, so overlaps send nothing twice.

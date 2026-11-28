@@ -27,6 +27,12 @@ const staffSchema = new Schema(
     /** Public profile only: "Aesthetic physician", "Head coach". */
     role: { type: String, default: null },
     avatarUrl: { type: String, default: null },
+    /**
+     * When the owner confirmed this person agreed to their photo being public.
+     * A staff photo cannot be uploaded without it, and removing the photo
+     * clears it — consent is per photo, not forever.
+     */
+    photoConsentAt: { type: Date, default: null },
 
     serviceIds: { type: [String], default: [] },
     workingHours: { type: [workingHoursSchema], default: [] },

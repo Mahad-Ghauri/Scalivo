@@ -185,6 +185,8 @@ const businessSchema = new Schema(
           {
             url: { type: String, required: true },
             alt: { type: String, required: true },
+            /** Set for uploaded photos (StoredImage.imageId); absent for pasted links. */
+            imageId: { type: String, default: null },
             _id: false,
           },
         ],

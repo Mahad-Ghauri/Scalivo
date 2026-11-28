@@ -111,7 +111,56 @@ const schema = z.object({
   JAZZCASH_PASSWORD: z.string().optional(),
   JAZZCASH_INTEGRITY_SALT: z.string().optional(),
   JAZZCASH_BASE_URL: z.string().url().default('https://sandbox.jazzcash.com.pk'),
+
+  /**
+   * Image storage — any S3-compatible bucket (Cloudflare R2 in practice).
+   * All six or none: unset, uploads answer 503 and nothing else is affected.
+   * STORAGE_ENDPOINT is the signed API host (never sent to clients);
+   * STORAGE_PUBLIC_URL is what browsers load images from.
+   */
+  STORAGE_ENDPOINT: z.string().url().optional(),
+  STORAGE_REGION: z.string().min(1).optional(),
+  STORAGE_BUCKET: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'a valid bucket name')
+    .optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  STORAGE_PUBLIC_URL: z.string().url().optional(),
 }).superRefine((value, ctx) => {
+  const storage = [
+    'STORAGE_ENDPOINT',
+    'STORAGE_REGION',
+    'STORAGE_BUCKET',
+    'STORAGE_ACCESS_KEY_ID',
+    'STORAGE_SECRET_ACCESS_KEY',
+    'STORAGE_PUBLIC_URL',
+  ] as const;
+  const set = storage.filter((k) => value[k]);
+  if (set.length > 0 && set.length < storage.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STORAGE_ENDPOINT'],
+      message: `image storage is half-configured; missing ${storage.filter((k) => !value[k]).join(', ')}`,
+    });
+  }
+  if (value.STORAGE_PUBLIC_URL && value.STORAGE_ENDPOINT) {
+    // The mix-up this catches happened during setup: the API host as the public URL.
+    if (new URL(value.STORAGE_PUBLIC_URL).host === new URL(value.STORAGE_ENDPOINT).host) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['STORAGE_PUBLIC_URL'],
+        message: 'STORAGE_PUBLIC_URL must be the public bucket address, not the signed API endpoint',
+      });
+    }
+  }
+  if (value.NODE_ENV === 'production' && value.STORAGE_PUBLIC_URL?.startsWith('http://')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STORAGE_PUBLIC_URL'],
+      message: 'images must be served over https in production',
+    });
+  }
   if (value.NODE_ENV === 'production' && value.PAYMENT_PROVIDER === 'simulated') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
