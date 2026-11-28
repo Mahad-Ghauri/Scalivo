@@ -37,7 +37,23 @@ export default function Image() {
           color: '#ffffff',
         }}
       >
-        <div style={{ display: 'flex', fontSize: 34, fontWeight: 700, letterSpacing: -0.5 }}>Scalivo</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 34, fontWeight: 700, letterSpacing: -0.5 }}>
+          {/* Inline rather than an <img>: Satori cannot fetch /brand/scalivo-logo.svg
+              while rendering, so the same drawing is repeated here. */}
+          <svg width="56" height="56" viewBox="0 0 512 512">
+            <rect width="512" height="512" rx="104" fill="#124437" />
+            <g transform="translate(-61.6 -42.6) scale(0.497)" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M540 306V352M740 306V352" stroke="#FFFFFF" strokeWidth="72" />
+              <path
+                d="M872 420C838 396 822 390 790 390H502C440 390 398 432 398 484C398 536 440 576 492 576H742C830 576 895 646 895 738C895 830 830 900 738 900H604C510 900 432 834 418 750"
+                stroke="#FFFFFF"
+                strokeWidth="92"
+              />
+              <path d="M677 675V755L748 806" stroke="#EFB245" strokeWidth="58" />
+            </g>
+          </svg>
+          Scalivo
+        </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ display: 'flex', fontSize: 76, fontWeight: 700, lineHeight: 1.05, letterSpacing: -2.5 }}>

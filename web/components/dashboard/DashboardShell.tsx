@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { AuthenticatedUser, AuthenticatedBusiness } from '@/lib/auth/user';
 import { BusinessSwitcher } from './BusinessSwitcher';
+import { Logo } from '@/components/Logo';
 import { logoutAction } from '@/lib/actions/auth';
 
 interface Props {
@@ -25,6 +26,7 @@ const ROUTES = [
   { name: 'Staff', href: '/staff' },
   { name: 'Grow', href: '/grow' },
   { name: 'Analytics', href: '/analytics' },
+  { name: 'Audit log', href: '/audit' },
   // Next to Settings rather than buried in it: this is where an owner goes when
   // bookings have stopped arriving, and it must be findable in a hurry.
   { name: 'WhatsApp', href: '/whatsapp' },
@@ -42,7 +44,7 @@ export function DashboardShell({ user, businesses, currentBusinessId, children }
         <div className="mx-auto flex 
          flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3 md:px-8 md:py-3">
           <Link href="/" className="text-[26px] font-bold leading-none tracking-[-0.04em] text-ink shrink-0 mr-4">
-            scalivo
+            <Logo />
           </Link>
           
           <div className="shrink-0 hidden md:block">

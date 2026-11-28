@@ -21,6 +21,50 @@
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/**
+ * shadcn/ui tokens, for components pulled from the shadcn registry
+ * (components/ui). Mapped onto the palette above so they look like the site.
+ * The site is light-only, so there is no dark set.
+ */
+:root {
+  --background: #ffffff;
+  --foreground: #0d0d0d;
+  --card: #ffffff;
+  --card-foreground: #0d0d0d;
+  --border: #e5e5e5;
+  --muted: #f2f2f2;
+  --muted-foreground: #737373;
+  --ring: #6950f3;
+  --chart-1: #6950f3; /* brand purple */
+  --chart-2: #00875a; /* open green */
+  --chart-3: #e94ec0; /* pink */
+  --chart-4: #ffb900; /* star amber: ratings use this one */
+  --chart-5: #124437; /* logo green */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+/*
+ * Here `--color-muted` is grey text (`text-muted`), while shadcn's `bg-muted`
+ * is a pale surface. Swap it only inside the registry components that use it.
+ */
+[data-slot="testimonial-globe"] {
+  --color-muted: var(--muted);
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

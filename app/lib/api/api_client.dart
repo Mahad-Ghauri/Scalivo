@@ -12,6 +12,8 @@ import 'models.dart';
 import 'growth_models.dart';
 export 'media_models.dart';
 import 'briefing_models.dart';
+import 'audit_models.dart';
+export 'audit_models.dart';
 import 'owner_booking_models.dart';
 import '../format.dart';
 
@@ -893,14 +895,24 @@ class ApiClient {
     bool staffConsent = false,
   }) async {
     if (!acceptedImageTypes.contains(contentType)) {
-      throw const ApiException(ApiErrorKind.validation, 'Choose a JPEG, PNG or WebP image.');
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Choose a JPEG, PNG or WebP image.',
+      );
     }
     if (bytes.isEmpty || bytes.length > maxImageBytes) {
-      throw const ApiException(ApiErrorKind.validation, 'Images must be under 8 MB.');
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Images must be under 8 MB.',
+      );
     }
     final trimmed = caption?.trim();
-    if (target.uploadMethod == 'POST' && (trimmed == null || trimmed.isEmpty || trimmed.length > 200)) {
-      throw const ApiException(ApiErrorKind.validation, 'Describe the photo in 1–200 characters.');
+    if (target.uploadMethod == 'POST' &&
+        (trimmed == null || trimmed.isEmpty || trimmed.length > 200)) {
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Describe the photo in 1–200 characters.',
+      );
     }
     return _growth(
       businessId,
@@ -921,10 +933,17 @@ class ApiClient {
   Future<void> deleteImage(String businessId, ImageTarget target) =>
       _growth(businessId, 'DELETE', target.path, (_) {});
 
-  Future<void> captionGalleryPhoto(String businessId, String imageId, String caption) {
+  Future<void> captionGalleryPhoto(
+    String businessId,
+    String imageId,
+    String caption,
+  ) {
     final alt = caption.trim();
     if (alt.isEmpty || alt.length > 200) {
-      throw const ApiException(ApiErrorKind.validation, 'Describe the photo in 1–200 characters.');
+      throw const ApiException(
+        ApiErrorKind.validation,
+        'Describe the photo in 1–200 characters.',
+      );
     }
     return _growth(
       businessId,
@@ -942,7 +961,13 @@ class ApiClient {
     for (final id in imageIds) {
       ImageTarget.galleryItem(id); // validates the id shape
     }
-    return _growth(businessId, 'PUT', '/images/gallery/order', (_) {}, body: {'imageIds': imageIds});
+    return _growth(
+      businessId,
+      'PUT',
+      '/images/gallery/order',
+      (_) {},
+      body: {'imageIds': imageIds},
+    );
   }
 
   Future<BusinessProfile> businessProfile(String businessId) =>
@@ -1084,6 +1109,73 @@ class ApiClient {
       AnalyticsReport.fromJson,
       query: {..._reportRange(from, to), 'granularity': granularity},
     );
+  }
+
+  Map<String, String> _auditQuery(
+    DateTime from,
+    DateTime to,
+    String category,
+    String search,
+  ) => {
+    ..._reportRange(from, to),
+    if (category.isNotEmpty) 'category': category,
+    if (search.trim().isNotEmpty) 'search': search.trim(),
+  };
+
+  /// Everything that happened over a period, with a summary.
+  Future<AuditReport> auditReport(
+    String businessId,
+    DateTime from,
+    DateTime to, {
+    String category = '',
+    String search = '',
+  }) async {
+    if (!RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(businessId)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid business');
+    }
+    return AuditReport.fromJson(
+      await _send(
+        'GET',
+        '/businesses/$businessId/audit',
+        query: _auditQuery(from, to, category, search),
+        maxResponseBytes: 8 * 1024 * 1024,
+        timeout: const Duration(seconds: 30),
+      ),
+    );
+  }
+
+  /// The same report as PDF bytes, built by the server.
+  Future<List<int>> auditPdf(
+    String businessId,
+    DateTime from,
+    DateTime to, {
+    String category = '',
+    String search = '',
+  }) async {
+    if (!RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(businessId)) {
+      throw const ApiException(ApiErrorKind.validation, 'Invalid business');
+    }
+    final uri = Uri.parse('$baseUrl/businesses/$businessId/audit/report.pdf')
+        .replace(queryParameters: _auditQuery(from, to, category, search));
+    http.Response response;
+    try {
+      response = await _client
+          .get(
+            uri,
+            headers: {if (token != null) 'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 60));
+    } on Object {
+      throw const ApiException(ApiErrorKind.network, 'No internet connection');
+    }
+    if (response.statusCode == 401) onUnauthorized?.call();
+    if (response.statusCode != 200) {
+      throw const ApiException(
+        ApiErrorKind.server,
+        'Could not create the PDF. Try again.',
+      );
+    }
+    return response.bodyBytes;
   }
 
   Future<ReviewSummary> reviewSummary(String businessId) =>
@@ -1264,6 +1356,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? query,
     int? maxResponseBytes,
+
     /// A raw body (an image upload) instead of JSON.
     List<int>? bytes,
     String? contentType,
@@ -1285,7 +1378,8 @@ class ApiClient {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     } else if (bytes != null) {
-      request.headers['Content-Type'] = contentType ?? 'application/octet-stream';
+      request.headers['Content-Type'] =
+          contentType ?? 'application/octet-stream';
       request.bodyBytes = bytes;
     }
 

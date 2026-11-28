@@ -11,6 +11,7 @@ import '../qr_screen.dart';
 import '../services_screen.dart';
 import '../staff_screen.dart';
 import '../resources_screen.dart';
+import '../audit_screen.dart';
 import '../analytics_screen.dart';
 import '../follow_ups_screen.dart';
 import '../photos_screen.dart';
@@ -152,7 +153,9 @@ class _SettingsTabState extends State<SettingsTab> {
                   label: 'Photos',
                   detail: 'Logo, cover photo and portfolio',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const PhotosScreen()),
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PhotosScreen(),
+                    ),
                   ),
                 ),
                 const Divider(height: 22, color: Sc.divider),
@@ -185,6 +188,17 @@ class _SettingsTabState extends State<SettingsTab> {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const AnalyticsScreen(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 22, color: Sc.divider),
+                _navRow(
+                  icon: Icons.fact_check_outlined,
+                  label: 'Audit log',
+                  detail: 'Everything that happened, who did it, and a PDF',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AuditScreen(),
                     ),
                   ),
                 ),
@@ -504,7 +518,9 @@ class _SettingsTabState extends State<SettingsTab> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final m in _escalateChoices(settings.escalateMinutesBefore))
+                  for (final m in _escalateChoices(
+                    settings.escalateMinutesBefore,
+                  ))
                     ChoiceChip(
                       label: Text('${_escalateLabel(m)} before'),
                       selected: settings.escalateMinutesBefore == m,

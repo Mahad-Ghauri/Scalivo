@@ -15,6 +15,7 @@ class ScButton extends StatelessWidget {
     this.loadingLabel,
     this.loading = false,
     this.tone = ScButtonTone.primary,
+    this.arrow = false,
   });
 
   final String label;
@@ -23,16 +24,21 @@ class ScButton extends StatelessWidget {
   final bool loading;
   final ScButtonTone tone;
 
+  /// A mustard arrow after the label — "go", on the sign-in and sign-up screens.
+  final bool arrow;
+
   @override
   Widget build(BuildContext context) {
     final disabled = loading || onPressed == null;
 
     final fill = switch (tone) {
       ScButtonTone.primary => disabled ? Sc.tealDisabled : Sc.teal,
+      ScButtonTone.forest => disabled ? Sc.tealDisabled : Sc.teal900,
       ScButtonTone.danger => disabled ? Sc.dangerBody : Sc.dangerText,
     };
+    final radius = tone == ScButtonTone.forest ? Sc.boxRadius : Sc.buttonRadius;
 
-    final foreground = disabled && tone == ScButtonTone.primary ? Sc.teal900 : Colors.white;
+    final foreground = disabled && tone != ScButtonTone.danger ? Sc.teal900 : Colors.white;
     return Semantics(
       button: true,
       enabled: !disabled,
@@ -41,10 +47,10 @@ class ScButton extends StatelessWidget {
         width: double.infinity,
         child: Material(
           color: fill,
-          borderRadius: BorderRadius.circular(Sc.buttonRadius),
+          borderRadius: BorderRadius.circular(radius),
           child: InkWell(
             onTap: disabled ? null : onPressed,
-            borderRadius: BorderRadius.circular(Sc.buttonRadius),
+            borderRadius: BorderRadius.circular(radius),
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: Sc.buttonHeight),
               child: Padding(
@@ -71,13 +77,18 @@ class ScButton extends StatelessWidget {
                         loading ? loadingLabel ?? label : label,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: tone == ScButtonTone.forest ? 16 : 15,
                           fontWeight: FontWeight.w600,
                           letterSpacing: Sc.buttonTracking,
                           color: foreground,
                         ),
                       ),
                     ),
+                    if (arrow && !loading) ...[
+                      const SizedBox(width: 12),
+                      Icon(Icons.arrow_forward_rounded, size: 22,
+                        color: disabled ? foreground : Sc.yellow),
+                    ],
                   ],
                 ),
               ),
@@ -89,4 +100,10 @@ class ScButton extends StatelessWidget {
   }
 }
 
-enum ScButtonTone { primary, danger }
+enum ScButtonTone {
+  primary,
+  danger,
+
+  /// Deep forest with rounder corners — the sign-in and sign-up screens.
+  forest,
+}

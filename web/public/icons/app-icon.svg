@@ -1,36 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Scalivo appointments">
-  <!--
-    The home-screen icon for a customer's appointments page (milestone 3.3).
-
-    Full-bleed brand purple rather than a logo on white: an installed icon sits
-    on the customer's own wallpaper, and a white tile reads as a missing image.
-    The rounded square is drawn rather than left to the platform, so the shape is
-    the same on a launcher that masks and one that does not.
-
-    A calendar page, not a wordmark: the icon has to say "my appointments" from
-    across a home screen, and one letter of a brand nobody knows yet says
-    nothing.
-
-    FILLED SHAPES ONLY — no gradients, no strokes, no CSS, no groups carrying
-    paint. This file is the source the PNGs are rendered from and the renderer
-    is not a browser: a `url(#…)` fill comes out black, and stroke attributes
-    inherited from a `<g>` are dropped entirely, leaving an empty square. Both
-    were rendered and looked at rather than assumed. The calendar's "outline" is
-    therefore a white card with a purple panel laid over it.
-
-    Artwork stays inside the middle 80% so a circular launcher mask cannot crop
-    it — which is also what makes the flattened copy usable as `maskable`.
-  -->
-  <rect width="512" height="512" rx="112" fill="#6950f3" />
-
-  <!-- The two binder tabs, drawn first so the card overlaps their lower half. -->
-  <rect x="181" y="112" width="30" height="64" rx="15" fill="#ffffff" />
-  <rect x="301" y="112" width="30" height="64" rx="15" fill="#ffffff" />
-
-  <!-- The card, then a purple panel that leaves a white border and header bar. -->
-  <rect x="118" y="150" width="276" height="250" rx="36" fill="#ffffff" />
-  <rect x="146" y="226" width="220" height="146" rx="18" fill="#6950f3" />
-
-  <!-- The appointment on the page. -->
-  <circle cx="256" cy="299" r="32" fill="#ffffff" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Scalivo">
+  <!-- Scalivo mark: an S that is also a calendar (the two rings) with a clock inside. -->
+  <rect width="512" height="512" rx="104" fill="#124437"/>
+  <g transform="translate(-61.6 -42.6) scale(0.497)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M540 306V352M740 306V352" stroke="#FFFFFF" stroke-width="72"/>
+    <path d="M872 420C838 396 822 390 790 390H502C440 390 398 432 398 484C398 536 440 576 492 576H742C830 576 895 646 895 738C895 830 830 900 738 900H604C510 900 432 834 418 750" stroke="#FFFFFF" stroke-width="92"/>
+    <path d="M677 675V755L748 806" stroke="#EFB245" stroke-width="58"/>
+  </g>
 </svg>

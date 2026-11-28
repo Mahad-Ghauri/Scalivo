@@ -28,6 +28,8 @@ import { startEscalationJob } from './notifications/escalation.js';
 import { startFollowUpJob } from './followups/job.js';
 import { createFollowUpRouter } from './followups/routes.js';
 import { createCalendarFeedRouter, createExportRouter } from './export/routes.js';
+import { recordActivity } from './audit/activity.js';
+import { createAuditRouter } from './audit/routes.js';
 import { createImageRouter } from './images/routes.js';
 import { startImageSweepJob } from './images/sweep.js';
 import { startReviewRequestJob } from './reviews/request.js';
@@ -129,6 +131,9 @@ export function createApp(): Express {
   }
 
   app.use('/auth', createAuthRouter(redis));
+  // Before every /businesses router, so each owner change is written to the audit log.
+  app.use('/businesses', recordActivity);
+  app.use('/businesses', createAuditRouter());
   app.use('/businesses', createBusinessRouter(provider));
   // Also under /businesses — every one of these scopes by :businessId, so
   // requireTenant guards the catalogue, availability and booking exactly as it

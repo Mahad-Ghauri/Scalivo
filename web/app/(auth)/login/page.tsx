@@ -18,6 +18,7 @@ export default function LoginPage() {
       <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-5 py-12">
         <div className="w-full max-w-[440px] bg-white p-8 md:p-10 border border-line rounded-3xl shadow-sm relative z-10">
           <div className="text-center mb-8">
+            <img src="/brand/scalivo-logo.svg" alt="" width={64} height={64} className="mx-auto mb-5" />
             <h1 className="text-[32px] leading-none font-bold tracking-[-0.03em] text-ink">Sign in to scalivo</h1>
             <p className="text-muted mt-3 text-[15px]">Welcome back to your business dashboard</p>
           </div>

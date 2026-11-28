@@ -110,6 +110,8 @@ const notificationSchema = new Schema(
 
     attempts: { type: Number, default: 0 },
     lastError: { type: String, default: null },
+    /** Held while one caller is sending, so two concurrent drains cannot both send it. */
+    sendingUntil: { type: Date, default: null },
 
     /**
      * Attribution for a marketing message (§6.3), stamped when the thing

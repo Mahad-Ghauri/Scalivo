@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../state/auth_controller.dart';
 import '../theme.dart';
+import '../widgets/auth_layout.dart';
 import '../widgets/sc_banner.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_field.dart';
@@ -76,52 +77,32 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.watch<AuthController>();
     final busy = auth.busy;
 
-    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final largeText = MediaQuery.textScalerOf(context).scale(14) > 20;
-    final heroHeight = (keyboardUp ? 104.0 : largeText ? 200.0 : 236.0) + MediaQuery.paddingOf(context).top;
-    const overlap = 0.0;
-
     return SheetScaffold(
       animateIn: true,
-      heroHeight: heroHeight,
-      overlap: overlap,
-      hero: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(children: [
-                if (!keyboardUp) ...[const LogoMark(size: 36), const SizedBox(width: 12)],
-                Expanded(child: Text('scalivo', style: TextStyle(fontSize: keyboardUp || largeText ? 18 : 24,
-                  fontWeight: FontWeight.w500, color: Colors.white, letterSpacing: -0.8))),
-              ]),
-              if (!keyboardUp && !largeText) ...[
-                const SizedBox(height: 24),
-                const Text('A little order.\nA better day.', style: TextStyle(fontSize: 30,
-                  fontWeight: FontWeight.w500, color: Colors.white, height: 1.2, letterSpacing: -1)),
-              ],
-            ],
-          ),
-        ),
-      ),
+      heroHeight: authHeroHeight(context),
+      overlap: 0,
+      sheetRadius: authSheetRadius,
+      hero: const AuthHero(),
       sheetPadding: EdgeInsets.fromLTRB(26, 28, 26, 20 + MediaQuery.paddingOf(context).bottom),
       sheet: SingleChildScrollView(
         child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const EntranceItem(index: 0, child: Text('Sign in', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w500, letterSpacing: -0.7))),
-                  const SizedBox(height: 5),
-                  const EntranceItem(index: 1, child: Text('Your diary, people and bookings.', style: TextStyle(fontSize: 13, color: Sc.slate))),
-                  const SizedBox(height: 24),
+                  EntranceItem(index: 0, child: AuthTabs(
+                    selected: AuthTab.signIn,
+                    enabled: !busy,
+                    onSelect: (_) {
+                      context.read<AuthController>().clearError();
+                      Navigator.of(context).push(authTabRoute(const RegisterScreen()));
+                    },
+                  )),
+                  const SizedBox(height: 28),
                   if (auth.error != null && auth.error!.fieldErrors.isEmpty) ...[
                     ScBanner(
                       title: auth.error!.message,
                       message: switch (auth.error!.kind) {
                         ApiErrorKind.unauthorized => 'Check your details and try again.',
-                        ApiErrorKind.network => 'Reconnect and tap Login again.',
+                        ApiErrorKind.network => 'Reconnect and tap Sign in again.',
                         _ => null,
                       },
                       tone: auth.error!.kind == ApiErrorKind.network
@@ -132,6 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                   EntranceItem(index: 2, child: ScField(
                     label: 'Email Address',
+                    icon: Icons.mail_outline_rounded,
                     controller: _email,
                     hint: 'you@business.com',
                     enabled: !busy,
@@ -140,9 +122,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     textInputAction: TextInputAction.next,
                     onSubmitted: (_) => _passwordFocus.requestFocus(),
                   )),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 3, child: ScField(
                     label: 'Password',
+                    icon: Icons.lock_outline_rounded,
+                    hint: 'Password',
                     controller: _password,
                     password: true,
                     enabled: !busy,
@@ -150,60 +134,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _submit(),
                   )),
-                  const SizedBox(height: 8),
-                  EntranceItem(index: 4, child: Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
+                  const SizedBox(height: 10),
+                  EntranceItem(index: 4, child: Row(children: [
+                    Expanded(child: _rememberMe(busy)),
+                    TextButton(
                       onPressed: busy ? null : () => _showResetHelp(context),
                       style: TextButton.styleFrom(
                         minimumSize: const Size(0, 48),
                         padding: const EdgeInsets.symmetric(horizontal: 4),
-                        foregroundColor: Sc.inkMuted,
+                        foregroundColor: Sc.teal,
                       ),
                       child: const Text(
-                        'Forgot Password?',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                        'Forgot password?',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                       ),
                     ),
-                  )),
-                  const SizedBox(height: 8),
-                  EntranceItem(index: 5, child: _rememberMe(busy)),
-                  const SizedBox(height: 26),
-                  EntranceItem(index: 6, child: ScButton(
-                    label: 'Login',
-                    loadingLabel: 'Logging in',
+                  ])),
+                  const SizedBox(height: 18),
+                  EntranceItem(index: 5, child: ScButton(
+                    label: 'Sign in',
+                    loadingLabel: 'Signing in',
                     loading: busy,
+                    tone: ScButtonTone.forest,
+                    arrow: true,
                     onPressed: _submit,
                   )),
-                  const SizedBox(height: 20),
-          EntranceItem(index: 7, child: Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              const Text(
-                "Don't have an account?",
-                style: TextStyle(fontSize: 13.5, color: Sc.inkMuted),
-              ),
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () {
-                        context.read<AuthController>().clearError();
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const RegisterScreen()),
-                        );
-                      },
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                  foregroundColor: Sc.teal900,
-                ),
-                child: const Text(
-                  'SIGN UP',
-                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          )),
         ],
       ),
       ),

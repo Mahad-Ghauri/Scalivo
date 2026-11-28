@@ -32,6 +32,10 @@ abstract final class Sc {
   static const divider = Color(0xFFE3E4DA); // list row separator
   static const navBorder = Color(0xFFDADDD2);
   static const chipFill = Color(0xFFEEEFE6);
+  static const fieldBorder = Color(0xFFE0DDD3); // idle edge of a boxed field
+
+  /// Boxed fields and the forest button on the sign-in and sign-up screens.
+  static const boxRadius = 14.0;
 
   // Danger — invalid input, and WhatsApp being down.
   static const danger = Color(0xFFD64545);

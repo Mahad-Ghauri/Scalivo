@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 
 /// A dropdown wearing the same underline as [ScField], so a row holding one of
-/// each reads as one row rather than two controls.
+/// each reads as one row rather than two controls. Given an [icon], it wears
+/// [ScField]'s boxed style instead.
 class ScDropdown<T> extends StatelessWidget {
   const ScDropdown({
     super.key,
     required this.label,
+    this.icon,
     required this.value,
     required this.items,
     required this.itemLabel,
@@ -17,6 +19,7 @@ class ScDropdown<T> extends StatelessWidget {
   });
 
   final String label;
+  final IconData? icon;
   final T? value;
   final List<T> items;
   final String Function(T) itemLabel;
@@ -27,12 +30,17 @@ class ScDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasError = errorText != null;
+    final boxed = icon != null;
 
-    final border = UnderlineInputBorder(
-      borderSide: hasError
-          ? const BorderSide(color: Sc.danger, width: 2)
-          : const BorderSide(color: Sc.hairline, width: 1.5),
-    );
+    InputBorder edge(BorderSide side) => boxed
+        ? OutlineInputBorder(borderRadius: BorderRadius.circular(Sc.boxRadius), borderSide: side)
+        : UnderlineInputBorder(borderSide: side);
+
+    final border = edge(hasError
+        ? const BorderSide(color: Sc.danger, width: 2)
+        : boxed
+            ? const BorderSide(color: Sc.fieldBorder, width: 1.2)
+            : const BorderSide(color: Sc.hairline, width: 1.5));
 
     return Opacity(
       opacity: enabled ? 1.0 : 0.45,
@@ -40,15 +48,17 @@ class ScDropdown<T> extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: Sc.slate,
-              height: 1.2,
+          if (!boxed) ...[
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Sc.slate,
+                height: 1.2,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
+            const SizedBox(height: 2),
+          ],
           Semantics(
             label: label,
             child: DropdownButtonFormField<T>(
@@ -70,14 +80,25 @@ class ScDropdown<T> extends StatelessWidget {
               dropdownColor: Colors.white,
               decoration: InputDecoration(
                 isDense: true,
-                contentPadding: const EdgeInsets.only(top: 14, bottom: 14),
+                contentPadding: boxed
+                    ? const EdgeInsets.symmetric(vertical: 18, horizontal: 14)
+                    : const EdgeInsets.only(top: 14, bottom: 14),
+                filled: boxed,
+                fillColor: Colors.white,
+                // Keeps a hovered box white in the browser build; phones never hover.
+                hoverColor: Colors.white,
+                prefixIcon: boxed
+                    ? Padding(
+                        padding: const EdgeInsets.only(left: 14, right: 10),
+                        child: Icon(icon, size: 22, color: Sc.teal),
+                      )
+                    : null,
+                prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 48),
                 enabledBorder: border,
                 disabledBorder: border,
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: hasError
-                      ? const BorderSide(color: Sc.danger, width: 2)
-                      : const BorderSide(color: Sc.teal, width: 2),
-                ),
+                focusedBorder: edge(hasError
+                    ? const BorderSide(color: Sc.danger, width: 2)
+                    : BorderSide(color: Sc.teal, width: boxed ? 1.6 : 2)),
               ),
               items: [
                 for (final item in items)

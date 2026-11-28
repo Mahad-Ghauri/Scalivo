@@ -9,6 +9,7 @@ import { AppointmentHolder } from '../models/AppointmentHolder.js';
 import { Booking } from '../models/Booking.js';
 import { BlockedTime } from '../models/BlockedTime.js';
 import { BookingAudit } from '../models/BookingAudit.js';
+import { ActivityLog } from '../models/ActivityLog.js';
 
 mongoose.set('maxTimeMS', 10000);
 
@@ -44,6 +45,7 @@ export async function connectAll(): Promise<void> {
     Resource.createIndexes(),
     AppointmentHolder.createIndexes(),
     BookingAudit.createIndexes(),
+    ActivityLog.createIndexes(),
     Booking.createIndexes(),
     BlockedTime.createIndexes(),
   ]);

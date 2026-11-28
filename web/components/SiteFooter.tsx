@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import { Logo } from '@/components/Logo';
+
 const COLUMNS: { heading: string; links: { href: string; label: string }[] }[] = [
   {
     heading: 'Browse',
@@ -32,7 +34,9 @@ export function SiteFooter() {
     <footer className="mt-24 bg-surface print:hidden">
       <div className="mx-auto grid max-w-[1440px] grid-cols-2 gap-10 px-5 py-14 md:grid-cols-5 md:px-8">
         <div className="col-span-2">
-          <p className="text-[26px] font-bold leading-none tracking-[-0.04em]">scalivo</p>
+          <p className="text-[26px] font-bold leading-none tracking-[-0.04em]">
+            <Logo />
+          </p>
           <p className="mt-4 max-w-[34ch] text-[15px] text-muted">
             Book salons, clinics, gyms and studios in Multan and Lahore, confirmed over WhatsApp.
           </p>

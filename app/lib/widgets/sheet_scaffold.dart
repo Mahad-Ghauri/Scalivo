@@ -20,7 +20,11 @@ class SheetScaffold extends StatefulWidget {
     this.fitHero = false,
     this.bottomBar,
     this.animateIn = false,
+    this.sheetRadius = Sc.sheetRadius,
   });
+
+  /// The paper's top corners. Only the sign-in and sign-up screens round further.
+  final Radius sheetRadius;
 
   /// Entrance: sheet slides up, hero rises and fades in, then [EntranceItem]s
   /// in the sheet stagger in from the left.
@@ -82,9 +86,9 @@ class _SheetScaffoldState extends State<SheetScaffold> with SingleTickerProvider
     final c = _controller;
     Widget hero = widget.hero;
     Widget paper = Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Sc.paper,
-        borderRadius: BorderRadius.only(topLeft: Sc.sheetRadius, topRight: Sc.sheetRadius)),
+        borderRadius: BorderRadius.only(topLeft: widget.sheetRadius, topRight: widget.sheetRadius)),
       clipBehavior: Clip.antiAlias,
       padding: widget.sheetPadding,
       child: widget.sheet,
@@ -150,7 +154,11 @@ class EntranceItem extends StatelessWidget {
   }
 }
 
-/// The yellow disc with three leaning bars.
+/// The Scalivo mark: an S that is also a calendar, with a clock inside.
+///
+/// Rendered from assets/images/logo.png, which is exported from the web's
+/// public/brand/scalivo-logo.svg — the app, the site and the launcher icons
+/// all show the same drawing.
 class LogoMark extends StatelessWidget {
   const LogoMark({super.key, this.size = 104});
 
@@ -158,33 +166,12 @@ class LogoMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final barHeight = size * 0.327;
-    final barWidth = size * 0.067;
-
-    return Container(
+    return Image.asset(
+      'assets/images/logo.png',
       width: size,
       height: size,
-      decoration: const BoxDecoration(color: Sc.yellow, shape: BoxShape.circle),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(3, (i) {
-          return Padding(
-            padding: EdgeInsets.symmetric(horizontal: size * 0.029),
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.skewX(-0.21),
-              child: Container(
-                width: barWidth,
-                height: barHeight,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
+      filterQuality: FilterQuality.medium,
+      semanticLabel: 'Scalivo',
     );
   }
 }

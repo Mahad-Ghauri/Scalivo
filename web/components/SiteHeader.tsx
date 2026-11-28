@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { MenuIcon } from '@/components/Icons';
+import { Logo } from '@/components/Logo';
 
 const pill =
   'inline-flex h-12 items-center gap-2 rounded-full border border-line bg-white px-5 text-[15px] font-semibold transition-colors hover:bg-surface';
@@ -15,7 +16,7 @@ export function SiteHeader({ search, transparent = false }: { search?: ReactNode
     <header className={transparent ? '' : 'border-b border-line bg-white'}>
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 md:px-8 md:py-3">
         <Link href="/" className="text-[26px] font-bold leading-none tracking-[-0.04em]">
-          scalivo
+          <Logo />
         </Link>
 
         {search ? <div className="order-3 w-full md:order-none md:mx-auto md:w-auto md:min-w-[600px]">{search}</div> : null}

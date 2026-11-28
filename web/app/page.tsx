@@ -6,9 +6,9 @@ import { EmptyResults } from '@/components/EmptyResults';
 import { FilterPills, Pill } from '@/components/FilterPills';
 import { ArrowRight, ChatIcon, CheckIcon } from '@/components/Icons';
 import { WebSiteJsonLd } from '@/components/JsonLd';
-import { ReviewCard } from '@/components/ReviewCard';
 import { SearchBar } from '@/components/SearchBar';
 import { SiteHeader } from '@/components/SiteHeader';
+import { TestimonialGlobe } from '@/components/ui/testimonial-globe';
 import { VenueCard, VenueGrid } from '@/components/VenueCard';
 import {
   categoryLabel,
@@ -18,6 +18,7 @@ import {
   listFeaturedReviews,
   type BusinessCard,
 } from '@/lib/marketplace';
+import { toGlobeTestimonials } from '@/lib/review-globe';
 import { firstParam, toFilters, type RawSearchParams } from '@/lib/search-params';
 
 export const metadata: Metadata = {
@@ -46,6 +47,16 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const byReviews = [...everything].sort((a, b) => b.reviewCount - a.reviewCount);
   const browseCity = city ?? cities[0]?.value;
   const inBrowseCity = everything.filter((business) => business.city === browseCity);
+
+  // The globe pins a sample of reviews, but its header counts all of them.
+  const globeReviews = toGlobeTestimonials(reviews, everything);
+  const rated = everything.filter((business) => business.rating !== null && business.reviewCount > 0);
+  const ratedCount = rated.reduce((sum, business) => sum + business.reviewCount, 0);
+  const averageRating =
+    ratedCount > 0
+      ? rated.reduce((sum, business) => sum + (business.rating ?? 0) * business.reviewCount, 0) / ratedCount
+      : null;
+  const reviewedCities = new Set(rated.map((business) => business.city).filter(Boolean)).size;
 
   return (
     <main>
@@ -175,21 +186,24 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       </section>
 
       {/* Reviews */}
-      {reviews.length > 0 ? (
-        <section aria-labelledby="reviews-heading" className={`${container} pt-24 md:pt-32`}>
-          <h2 id="reviews-heading" className="text-[28px] font-semibold tracking-[-0.02em]">
-            Reviews
-          </h2>
-          <div className="mt-6">
-            <Carousel label="Customer reviews">
-              {reviews.map((review) => (
-                <Slide key={review.id}>
-                  <ReviewCard review={review} />
-                </Slide>
-              ))}
-            </Carousel>
-          </div>
-        </section>
+      {globeReviews.length > 0 ? (
+        <div className="pt-16 md:pt-24">
+          <TestimonialGlobe
+            items={globeReviews}
+            totals={{ reviews: totalReviews, average: averageRating, cities: reviewedCities }}
+            eyebrow="Reviews"
+            heading="Rated by real customers, after every visit"
+            caption="Each review comes from someone who booked and showed up. Scalivo asks them on WhatsApp once the appointment is done."
+            autoplay
+            interval={4500}
+            action={
+              // Keyed: React 18 dev flags a server-made element rendered as a client child otherwise.
+              <Link key="find" href="/search" className="text-sm font-semibold text-brand hover:underline">
+                Find a place
+              </Link>
+            }
+          />
+        </div>
       ) : null}
 
       {/* Stats */}

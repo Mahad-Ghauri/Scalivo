@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../state/auth_controller.dart';
-import '../theme.dart';
+import '../widgets/auth_layout.dart';
 import '../widgets/sc_banner.dart';
 import '../widgets/sc_button.dart';
 import '../widgets/sc_dropdown.dart';
@@ -122,48 +122,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final banner = auth.error;
     final fieldCount = _errors.values.where((v) => v != null).length;
 
+    // No entrance animation: this screen is reached from the Sign up tab with a
+    // cross-fade, and replaying the sheet sliding up would break the illusion of
+    // one screen switching tabs.
     return SheetScaffold(
-      animateIn: true,
-      heroHeight: 116 + MediaQuery.paddingOf(context).top + (MediaQuery.textScalerOf(context).scale(14) > 20 ? 48 : 0),
+      heroHeight: authHeroHeight(context),
       overlap: 0,
-      hero: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-          child: Row(
-            children: [
-              Material(
-                color: Sc.yellow,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  onTap: busy ? null : () => Navigator.of(context).pop(),
-                  customBorder: const CircleBorder(),
-                  child: const SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: Icon(Icons.arrow_back_rounded, size: 20, color: Sc.teal900),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(child: Text(
-                'Create account',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
-                  letterSpacing: -0.2,
-                ),
-              )),
-            ],
-          ),
-        ),
-      ),
-      sheetPadding: const EdgeInsets.fromLTRB(26, 28, 26, 24),
+      sheetRadius: authSheetRadius,
+      hero: const AuthHero(),
+      sheetPadding: EdgeInsets.fromLTRB(26, 28, 26, 24 + MediaQuery.paddingOf(context).bottom),
       sheet: SingleChildScrollView(
         child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  AuthTabs(
+                    selected: AuthTab.signUp,
+                    enabled: !busy,
+                    onSelect: (_) {
+                      context.read<AuthController>().clearError();
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                  const SizedBox(height: 28),
                   if (banner != null) ...[
                     ScBanner(
                       title: banner.kind == ApiErrorKind.network
@@ -182,40 +162,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ],
                   EntranceItem(index: 0, child: ScField(
                     label: 'Business name',
+                    icon: Icons.storefront_outlined,
                     controller: _businessName,
-                    hint: 'Skinare Aesthetics',
+                    hint: 'Business name',
                     enabled: !busy,
                     errorText: _errors['businessName'],
                     textCapitalization: TextCapitalization.words,
                     textInputAction: TextInputAction.next,
                   )),
-                  const SizedBox(height: 19),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 1, child: LayoutBuilder(builder: (context, constraints) {
                     final stacked = constraints.maxWidth < 300 || MediaQuery.textScalerOf(context).scale(14) > 20;
-                    final width = stacked ? constraints.maxWidth : (constraints.maxWidth - 18) / 2;
-                    return Wrap(spacing: 18, runSpacing: 19, children: [
+                    final width = stacked ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+                    return Wrap(spacing: 12, runSpacing: 14, children: [
                       SizedBox(width: width, child: ScDropdown<String>(
-                        label: 'Category', value: _category, items: _categories.keys.toList(),
+                        label: 'Category', icon: Icons.category_outlined, value: _category, items: _categories.keys.toList(),
                         itemLabel: (k) => _categories[k]!, enabled: !busy,
                         onChanged: (v) => setState(() => _category = v ?? _category))),
                       SizedBox(width: width, child: ScDropdown<String>(
-                        label: 'City', value: _city, items: _cities, itemLabel: (c) => c,
+                        label: 'City', icon: Icons.place_outlined, value: _city, items: _cities, itemLabel: (c) => c,
                         enabled: !busy, onChanged: (v) => setState(() => _city = v ?? _city))),
                     ]);
                   })),
-                  const SizedBox(height: 19),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 2, child: ScField(
                     label: 'Owner name',
+                    icon: Icons.person_outline_rounded,
                     controller: _ownerName,
-                    hint: 'Hina Nawaz',
+                    hint: 'Your name',
                     enabled: !busy,
                     errorText: _errors['ownerName'],
                     textCapitalization: TextCapitalization.words,
                     textInputAction: TextInputAction.next,
                   )),
-                  const SizedBox(height: 19),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 3, child: ScField(
                     label: 'Email',
+                    icon: Icons.mail_outline_rounded,
                     controller: _email,
                     hint: 'you@business.com',
                     enabled: !busy,
@@ -223,18 +206,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                   )),
-                  const SizedBox(height: 19),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 4, child: ScField(
                     label: 'Password',
+                    icon: Icons.lock_outline_rounded,
+                    hint: 'Password',
                     controller: _password,
                     password: true,
                     enabled: !busy,
                     errorText: _errors['password'],
                     helper: 'Minimum 8 characters',
                   )),
-                  const SizedBox(height: 19),
+                  const SizedBox(height: 14),
                   EntranceItem(index: 5, child: ScField(
                     label: 'Confirm password',
+                    icon: Icons.lock_outline_rounded,
+                    hint: 'Confirm password',
                     controller: _confirm,
                     password: true,
                     enabled: !busy,
@@ -247,30 +234,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     label: 'Sign up',
                     loadingLabel: 'Creating',
                     loading: busy,
+                    tone: ScButtonTone.forest,
+                    arrow: true,
                     onPressed: _submit,
                   )),
-                  const SizedBox(height: 16),
-          EntranceItem(index: 7, child: Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              const Text(
-                'Already have an account?',
-                style: TextStyle(fontSize: 13, color: Sc.inkMuted),
-              ),
-              TextButton(
-                onPressed: busy ? null : () => Navigator.of(context).pop(),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                  foregroundColor: Sc.teal900,
-                ),
-                child: const Text(
-                  'LOG IN',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          )),
         ],
       ),
       ),

@@ -190,6 +190,19 @@ async function deliver(deps: SendDeps, notificationId: string): Promise<Delivery
     return DELIVERY_STATUS.SKIPPED;
   }
 
+  // Atomic claim: sendTracked and a retryPending drain can reach the same QUEUED
+  // row at once, and both used to send it (the customer saw "You're booked" twice).
+  const now = new Date();
+  const claimed = await Notification.updateOne(
+    {
+      _id: notification._id,
+      status: DELIVERY_STATUS.QUEUED,
+      $or: [{ sendingUntil: null }, { sendingUntil: { $lt: now } }],
+    },
+    { $set: { sendingUntil: new Date(now.getTime() + 30_000) } },
+  );
+  if (!claimed.modifiedCount) return DELIVERY_STATUS.ACCEPTED;
+
   try {
     const sent = await deps.provider.sendText(sessionId, to, notification.text);
 
@@ -205,6 +218,7 @@ async function deliver(deps: SendDeps, notificationId: string): Promise<Delivery
           to,
           acceptedAt: sent.acceptedAt,
           lastError: null,
+          sendingUntil: null,
         },
         $inc: { attempts: 1 },
       },
@@ -280,7 +294,7 @@ async function settle(
 }
 
 async function bumpAttempt(id: unknown, lastError: string): Promise<void> {
-  await Notification.updateOne({ _id: id }, { $set: { lastError }, $inc: { attempts: 1 } });
+  await Notification.updateOne({ _id: id }, { $set: { lastError, sendingUntil: null }, $inc: { attempts: 1 } });
 }
 
 /**

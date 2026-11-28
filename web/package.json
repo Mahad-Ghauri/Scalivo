@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@scalivo/shared": "workspace:*",
+    "cobe": "2.0.1",
     "next": "^15.0.3",
     "qrcode-generator": "^1.5.2",
     "react": "^18.3.1",
